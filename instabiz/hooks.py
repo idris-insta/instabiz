@@ -358,7 +358,11 @@ doc_events = {
         "on_cancel": "instabiz.overrides.stock_events.publish_stock_update",
     },
     "IB Work Order": {
-        "on_update": "instabiz.overrides.production.on_work_order_update_notify",
+        # wo-per-run (feature/wo-per-run): milestone bell + genealogy cleanup on
+        # the new run shape. Old per-(item x stage) handlers in production.py are
+        # dead post-migration.
+        "on_update": "instabiz.overrides.production_run.on_work_order_update_notify",
+        "on_trash": "instabiz.overrides.production_run.reverse_run_stock",
     },
 }
 

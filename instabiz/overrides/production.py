@@ -2917,51 +2917,75 @@ def get_so_production_status(sales_order):
 	location = frappe.db.get_value("Sales Order", sales_order, "custom_location")
 	items_out = []
 
-	# Fetch all non-cancelled WOs for the order sheet once, then partition per
-	# item by order_sheet_item (preferred) with item_code as a legacy-only
-	# fallback — same pattern already used in get_order_sheet_detail's
-	# order_wise_view. Without this, two Order Sheet Items sharing the same
-	# item_code (e.g. one SKU ordered as two line items at different qty)
-	# both matched every WO for that item_code, so both items displayed the
-	# same merged/wrong stage data (confirmed live via a disposable Order
-	# Sheet with a duplicate item_code: the qty=1500 row showed the qty=500
-	# row's Work Orders).
-	all_wos = frappe.db.get_all(
+	# feature/wo-per-run: production is now one IB Work Order = one run, with a
+	# `route` child (stages + .done) and `outputs` children carrying the source
+	# Sales Order Item row. Build each Order Sheet Item's stage timeline from the
+	# run(s) that produce it — matched by outputs.sales_order_item (exact), with
+	# an item_code fallback for any run whose output row didn't capture it.
+	runs = frappe.db.get_all(
 		"IB Work Order",
-		filters={"order_sheet": os_name, "status": ["not in", ["Cancelled"]]},
-		fields=["name", "item_code", "order_sheet_item", "stage", "status", "machine",
-		        "target_qty", "completed_qty", "wastage_pct", "started_at", "completed_at"],
+		filters={"order_sheet": os_name, "status": ["!=", "Cancelled"]},
+		fields=["name", "status", "current_stage", "machine", "started_at", "completed_at"],
 	)
-	wo_by_osi = {}
-	wo_by_item_legacy = {}
-	for wo in all_wos:
-		if wo.order_sheet_item:
-			wo_by_osi.setdefault(wo.order_sheet_item, []).append(wo)
-		else:
-			wo_by_item_legacy.setdefault(wo.item_code, []).append(wo)
+	run_map = {r.name: r for r in runs}
+	runs_by_soi = {}
+	runs_by_item = {}
+	if runs:
+		for o in frappe.db.get_all(
+			"IB WO Output",
+			filters={"parent": ["in", list(run_map)]},
+			fields=["parent", "item_code", "sales_order_item"],
+		):
+			if o.sales_order_item:
+				runs_by_soi.setdefault(o.sales_order_item, set()).add(o.parent)
+			runs_by_item.setdefault(o.item_code, set()).add(o.parent)
+	route_rows = {}
+	if runs:
+		for r in frappe.db.get_all(
+			"IB WO Route Stage",
+			filters={"parent": ["in", list(run_map)]},
+			fields=["parent", "stage", "sequence", "done"],
+		):
+			route_rows.setdefault(r.parent, []).append(r)
 
 	for item in os_doc.items:
 		stage_route = _get_stage_route(item.item_code, location)
-		wos = wo_by_osi.get(item.name) or wo_by_item_legacy.get(item.item_code, [])
-		wo_by_stage = {wo.stage: wo for wo in wos}
+		my_runs = list(runs_by_soi.get(item.sales_order_item) or runs_by_item.get(item.item_code) or [])
+
+		# collate route .done + which run is currently at each stage
+		done_stages, active = set(), {}
+		for rn in my_runs:
+			run = run_map[rn]
+			for rr in route_rows.get(rn, []):
+				if rr.done:
+					done_stages.add(rr.stage)
+			if run.current_stage and run.current_stage not in ("Done", "Cancelled"):
+				active[run.current_stage] = run
 
 		stages_out = []
 		current_stage = None
 		for stage in stage_route:
-			wo = wo_by_stage.get(stage)
-			entry = {
+			run = active.get(stage)
+			if stage in done_stages and not run:
+				status = "Completed"
+			elif run:
+				status = run.status
+			elif my_runs:
+				status = "Pending"
+			else:
+				status = "Not Created"
+			stages_out.append({
 				"stage":        stage,
-				"wo_name":      wo.name if wo else None,
-				"status":       wo.status if wo else "Not Created",
-				"machine":      wo.machine if wo else None,
-				"target_qty":   flt(wo.target_qty) if wo else 0,
-				"completed_qty": flt(wo.completed_qty) if wo else 0,
-				"wastage_pct":  flt(wo.wastage_pct) if wo else 0,
-				"started_at":   wo.started_at if wo else None,
-				"completed_at": wo.completed_at if wo else None,
-			}
-			stages_out.append(entry)
-			if wo and wo.status in ("Pending", "In Progress") and not current_stage:
+				"wo_name":      run.name if run else None,
+				"status":       status,
+				"machine":      run.machine if run else None,
+				"target_qty":   flt(item.qty),
+				"completed_qty": 0,
+				"wastage_pct":  0,
+				"started_at":   run.started_at if run else None,
+				"completed_at": run.completed_at if run else None,
+			})
+			if status in ("Pending", "In Progress", "On Hold") and not current_stage:
 				current_stage = stage
 
 		completion_pct = 0.0
@@ -3333,52 +3357,14 @@ def _notify_floor_update():
 
 def _so_progress_pct(so_name):
 	"""Return (pct, current_stage, order_sheet_name) for a Sales Order's active
-	Order Sheet, or (None, None, None) if it has none. Internal — no permission
-	check, callers must already be in a trusted/system context (this is what
-	the sales-facing whitelisted APIs call, after their own access check).
+	Order Sheet, or (None, None, None) if it has none.
 
-	Keyed by order_sheet_item (child row name), not bare item_code — same fix
-	already applied to get_so_production_status/get_order_sheet_detail (see
-	their comments). This function was missed during that pass: an Order Sheet
-	with two lines sharing one item_code (a real, valid scenario) had both
-	lines' Work Orders merged into a single stage set here, so the Production
-	Tracker's pct/current_stage and the 25/50/75/100% milestone notifications
-	(on_work_order_update_notify, which calls this) could both be wrong for
-	such an order even though the drill-down timeline (get_so_production_status)
-	already showed the correct per-item split.
+	feature/wo-per-run: delegates to production_run._so_progress, which reads the
+	new one-Work-Order-per-run shape (route .done flags across the order's runs).
+	Lazy import — production_run imports helpers from this module.
 	"""
-	os_name = frappe.db.get_value(
-		"IB Order Sheet", {"sales_order": so_name, "status": ["!=", "Cancelled"]}, "name"
-	)
-	if not os_name:
-		return None, None, None
-
-	location = frappe.db.get_value("Sales Order", so_name, "custom_location")
-	items = frappe.db.get_all("IB Order Sheet Item", filters={"parent": os_name}, fields=["name", "item_code"])
-	wos = frappe.db.get_all(
-		"IB Work Order",
-		filters={"order_sheet": os_name, "status": ["!=", "Cancelled"]},
-		fields=["item_code", "order_sheet_item", "stage", "status"],
-	)
-	wo_by_osi = {}
-	wo_by_item_legacy = {}
-	for wo in wos:
-		if wo.order_sheet_item:
-			wo_by_osi.setdefault(wo.order_sheet_item, []).append(wo)
-		else:
-			wo_by_item_legacy.setdefault(wo.item_code, []).append(wo)
-
-	items_summary = []
-	for item in items:
-		route = _get_stage_route(item.item_code, location)
-		item_wos_list = wo_by_osi.get(item.name) or wo_by_item_legacy.get(item.item_code, [])
-		item_wos = {w.stage: w for w in item_wos_list}
-		stages = [{"stage": s, "status": item_wos[s].status if s in item_wos else "Not Created"} for s in route]
-		current = next((s["stage"] for s in stages if s["status"] in ("Pending", "In Progress")), None)
-		items_summary.append({"stages": stages, "current_stage": current})
-
-	pct, current_stage = _order_progress_summary(os_name, items_summary)
-	return pct, current_stage, os_name
+	from instabiz.overrides.production_run import _so_progress
+	return _so_progress(so_name)
 
 
 _PROGRESS_MILESTONES = [25, 50, 75, 100]

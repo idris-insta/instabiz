@@ -1,228 +1,66 @@
 {
  "actions": [],
  "autoname": "IB-WO-.YYYY.-.#####",
- "creation": "2026-06-06 00:00:00",
+ "creation": "2026-07-01 00:00:00",
  "doctype": "DocType",
- "editable_grid": 1,
  "engine": "InnoDB",
- "field_order": [
-  "order_sheet",
-  "order_sheet_item",
-  "sales_order",
-  "item_code",
-  "item_name",
-  "stage",
-  "priority",
-  "status",
-  "col_break_1",
-  "machine",
-  "jumbo_roll",
-  "operator",
-  "target_qty",
-  "target_uom",
-  "completed_qty",
-  "wastage_qty",
-  "wastage_pct",
-  "batch_group",
-  "section_timeline",
-  "started_at",
-  "completed_at",
-  "notes"
- ],
- "fields": [
-  {
-   "fieldname": "order_sheet",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Order Sheet",
-   "options": "IB Order Sheet"
-  },
-  {
-   "fieldname": "order_sheet_item",
-   "fieldtype": "Link",
-   "label": "Order Sheet Item Row",
-   "options": "IB Order Sheet Item",
-   "read_only": 1,
-   "in_list_view": 0,
-   "description": "Child row key — ensures per-row WO tracking even when same item_code appears multiple times in an order sheet"
-  },
-  {
-   "fieldname": "sales_order",
-   "fieldtype": "Data",
-   "fetch_from": "order_sheet.sales_order",
-   "in_list_view": 1,
-   "label": "Sales Order",
-   "read_only": 1
-  },
-  {
-   "fieldname": "item_code",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Item Code",
-   "options": "Item",
-   "reqd": 1
-  },
-  {
-   "fieldname": "item_name",
-   "fieldtype": "Data",
-   "fetch_from": "item_code.item_name",
-   "label": "Item Name",
-   "read_only": 1
-  },
-  {
-   "fieldname": "stage",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Stage",
-   "options": "Coating\nSlitting\nRewinding\nCutting\nPacking\nReady to Deliver\nDelivered",
-   "reqd": 1
-  },
-  {
-   "fieldname": "priority",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Priority",
-   "options": "Urgent\nHigh\nNormal\nLow",
-   "default": "Normal"
-  },
-  {
-   "fieldname": "status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Status",
-   "options": "Pending\nIn Progress\nCompleted\nOn Hold\nCancelled",
-   "default": "Pending"
-  },
-  {
-   "fieldname": "col_break_1",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "machine",
-   "fieldtype": "Link",
-   "label": "Machine",
-   "options": "IB Machine"
-  },
-  {
-   "fieldname": "jumbo_roll",
-   "fieldtype": "Link",
-   "label": "Jumbo Roll",
-   "options": "IB Jumbo Roll",
-   "description": "For Coating: the JR being coated. For Slitting/Rewinding: the input JR from Coating."
-  },
-  {
-   "fieldname": "operator",
-   "fieldtype": "Link",
-   "label": "Operator",
-   "options": "User"
-  },
-  {
-   "fieldname": "target_qty",
-   "fieldtype": "Float",
-   "label": "Target Qty"
-  },
-  {
-   "fieldname": "target_uom",
-   "fieldtype": "Link",
-   "label": "Target UOM",
-   "options": "UOM"
-  },
-  {
-   "fieldname": "completed_qty",
-   "fieldtype": "Float",
-   "label": "Completed Qty",
-   "read_only": 1
-  },
-  {
-   "fieldname": "wastage_qty",
-   "fieldtype": "Float",
-   "label": "Wastage Qty",
-   "read_only": 1
-  },
-  {
-   "fieldname": "wastage_pct",
-   "fieldtype": "Percent",
-   "label": "Wastage %",
-   "read_only": 1
-  },
-  {
-   "fieldname": "section_timeline",
-   "fieldtype": "Section Break",
-   "label": "Timeline"
-  },
-  {
-   "fieldname": "started_at",
-   "fieldtype": "Datetime",
-   "label": "Started At",
-   "read_only": 1
-  },
-  {
-   "fieldname": "completed_at",
-   "fieldtype": "Datetime",
-   "label": "Completed At",
-   "read_only": 1
-  },
-  {
-   "fieldname": "batch_group",
-   "fieldtype": "Data",
-   "label": "Batch Group",
-   "description": "Groups WOs batched onto the same machine run.",
-   "in_list_view": 0,
-   "bold": 0
-  },
-  {
-   "fieldname": "notes",
-   "fieldtype": "Small Text",
-   "label": "Notes"
-  }
- ],
- "links": [],
- "modified": "2026-06-06 00:00:00",
- "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB Work Order",
  "naming_rule": "Expression (old style)",
+ "track_changes": 1,
+ "field_order": [
+  "sec_id","sales_order","order_sheet","priority","location","posting_date","col_id","status","current_stage","machine","started_at","completed_at",
+  "sec_input","source_batch","source_item","col_input","source_qty","source_warehouse",
+  "sec_route","route",
+  "sec_outputs","outputs",
+  "sec_log","stage_log",
+  "sec_result","fg_batch","stock_entry","col_result","total_output_qty","total_wastage_qty",
+  "sec_notes","notes"
+ ],
+ "fields": [
+  {"fieldname":"sec_id","fieldtype":"Section Break","label":"Run"},
+  {"fieldname":"sales_order","fieldtype":"Link","options":"Sales Order","label":"Sales Order"},
+  {"fieldname":"order_sheet","fieldtype":"Link","options":"IB Order Sheet","label":"Order Sheet"},
+  {"fieldname":"priority","fieldtype":"Select","options":"Urgent\nHigh\nNormal\nLow","default":"Normal","label":"Priority"},
+  {"fieldname":"location","fieldtype":"Data","label":"Location","read_only":1},
+  {"fieldname":"posting_date","fieldtype":"Date","label":"Date","default":"Today"},
+  {"fieldname":"col_id","fieldtype":"Column Break"},
+  {"fieldname":"status","fieldtype":"Select","options":"Pending\nIn Progress\nOn Hold\nCompleted\nCancelled","default":"Pending","label":"Status","in_standard_filter":1,"in_list_view":1},
+  {"fieldname":"current_stage","fieldtype":"Data","label":"Current Stage","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"machine","fieldtype":"Link","options":"IB Machine","label":"Machine","in_list_view":1},
+  {"fieldname":"started_at","fieldtype":"Datetime","label":"Started","read_only":1},
+  {"fieldname":"completed_at","fieldtype":"Datetime","label":"Completed","read_only":1},
+  {"fieldname":"sec_input","fieldtype":"Section Break","label":"Raw Material Input"},
+  {"fieldname":"source_batch","fieldtype":"Link","options":"IB Batch","label":"Source (RM) Batch"},
+  {"fieldname":"source_item","fieldtype":"Link","options":"Item","label":"Source Item","fetch_from":"source_batch.item","read_only":1},
+  {"fieldname":"col_input","fieldtype":"Column Break"},
+  {"fieldname":"source_qty","fieldtype":"Float","label":"Source Qty Consumed"},
+  {"fieldname":"source_warehouse","fieldtype":"Link","options":"Warehouse","label":"Source Warehouse"},
+  {"fieldname":"sec_route","fieldtype":"Section Break","label":"Route (plan)"},
+  {"fieldname":"route","fieldtype":"Table","options":"IB WO Route Stage","label":"Route"},
+  {"fieldname":"sec_outputs","fieldtype":"Section Break","label":"Outputs (finished SKUs)"},
+  {"fieldname":"outputs","fieldtype":"Table","options":"IB WO Output","label":"Outputs"},
+  {"fieldname":"sec_log","fieldtype":"Section Break","label":"Stage History","collapsible":1},
+  {"fieldname":"stage_log","fieldtype":"Table","options":"IB WO Stage Event","label":"Stage Log"},
+  {"fieldname":"sec_result","fieldtype":"Section Break","label":"Result"},
+  {"fieldname":"fg_batch","fieldtype":"Link","options":"IB Batch","label":"FG Batch","read_only":1},
+  {"fieldname":"stock_entry","fieldtype":"Link","options":"Stock Entry","label":"Repack Stock Entry","read_only":1},
+  {"fieldname":"col_result","fieldtype":"Column Break"},
+  {"fieldname":"total_output_qty","fieldtype":"Float","label":"Total Output Qty","read_only":1},
+  {"fieldname":"total_wastage_qty","fieldtype":"Float","label":"Total Wastage Qty","read_only":1},
+  {"fieldname":"sec_notes","fieldtype":"Section Break"},
+  {"fieldname":"notes","fieldtype":"Small Text","label":"Notes"}
+ ],
+ "links": [],
+ "modified": "2026-09-10 00:00:00",
+ "modified_by": "Administrator",
  "owner": "Administrator",
  "permissions": [
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Factory Management",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 0,
-   "delete": 0,
-   "email": 0,
-   "export": 0,
-   "print": 0,
-   "read": 1,
-   "report": 0,
-   "role": "Factory Production",
-   "share": 0,
-   "write": 1
-  }
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1,"report":1,"export":1,"share":1,"print":1,"email":1},
+  {"role":"Factory Management","read":1,"write":1,"create":1,"delete":1,"report":1,"export":1,"print":1},
+  {"role":"Factory Production","read":1,"write":1,"create":1,"report":1,"print":1}
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": [],
- "track_changes": 1
+ "states": []
 }
