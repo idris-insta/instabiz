@@ -225,6 +225,25 @@ fixtures = [
                     ["role", "in", ["Sales User", "Sales Manager", "Sales Master Manager"]]]
     },
     {
+        # Territory ("State"), Campaign, Customer Group — all 3 standard doctypes
+        # had zero Sales User create access, blocking a rep from adding a new
+        # state/campaign/customer-group inline from a Lead/Customer form
+        # (2026-09-08, user request: "give ability to add transport to sales
+        # users, and other lists needed for crm"). Same Custom DocPerm
+        # suppression gotcha as Market Segment/Industry Type above — every
+        # existing core DocPerm row (all permlevels) was replicated unchanged
+        # here, with only Sales User's own permlevel-0 `create` flipped to 1
+        # (add-only, no write/delete — matches the existing IB Transport/IB
+        # Branding convention from 2026-07-24). Also fixed a related bug found
+        # in the same pass: the Instabiz workspace's "Transport" shortcut had
+        # `restrict_to_role: Sales Manager` even though Sales User already had
+        # doctype-level create access since 2026-07-24 — Sales User had zero
+        # navigation path to it despite being able to create records via the
+        # Link field's "Create a New" dropdown. Cleared (see instabiz.json).
+        "dt": "Custom DocPerm",
+        "filters": [["parent", "in", ["Territory", "Campaign", "Customer Group"]]]
+    },
+    {
         "dt": "Purchase Taxes and Charges Template",
         "filters": [["company", "=", "Instabiz Solutions India Pvt Ltd"]]
     },
@@ -277,7 +296,10 @@ doc_events = {
         ],
     },
     "Item": {
-        "before_save": "instabiz.overrides.item.set_batch_no_for_fg",
+        "before_save": [
+            "instabiz.overrides.item.set_batch_no_for_fg",
+            "instabiz.overrides.item.sync_barcode_field",
+        ],
     },
     "Comment": {
         "after_insert": "instabiz.overrides.comment.notify_owner_on_comment",
@@ -442,6 +464,7 @@ app_include_js  = [
     "/assets/instabiz/js/report_export.js",         # global: select rows on any Script Report -> branded PDF export
     "/assets/instabiz/js/ib_dash_utils.js",         # dashboard shared: countUp loader, skeleton helpers, fmt
     "/assets/instabiz/js/so_production_panel.js",  # SO form: production stage + dispatch status panel
+    "/assets/instabiz/js/ib_simple_payment_dialog.js",  # shared simplified Payment Entry dialog for Sales Users
     # ib_stock_dashboard.js is loaded by Frappe's page engine (not global)
     # "/assets/instabiz/js/quotation_list.js",        # Quotation list view
     # "/assets/instabiz/js/sales_order_list.js",      # Sales Order list view
@@ -462,6 +485,8 @@ doctype_list_js = {
     "Customer":          "public/js/customer_list.js",
     "GL Entry":          "public/js/gl_entry_list.js",
     "IB Container Import": "public/js/ib_container_import_list.js",
+    "Payment Entry":     "public/js/payment_entry_list.js",
+    "Item":              "public/js/item_list.js",
 }
 
 doctype_js = {
@@ -483,4 +508,5 @@ doctype_js = {
     "IB Debit Note":           "public/js/ib_debit_note.js",
     "Payment Entry":           "public/js/payment_entry.js",
     "Salary Structure Assignment": "public/js/salary_structure_assignment.js",
+    "Item":                    "public/js/item.js",
 }

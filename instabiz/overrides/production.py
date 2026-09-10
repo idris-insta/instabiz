@@ -795,6 +795,9 @@ def get_order_sheet_detail(order_sheet):
 			"sales_order",
 			"order_sheet",
 			"jumbo_roll",
+			"source_batch",
+			"fg_batch",
+			"produced_serials",
 			"creation",
 		],
 		order_by="creation asc",
@@ -1272,6 +1275,8 @@ def complete_work_order(work_order, actual_qty=None):
 			"wastage_qty": wastage_qty, "wastage_pct": wastage_pct,
 		})
 
+		_generate_fg_serials(doc)
+
 		# Update Order Sheet Item completed_qty and status
 		if doc.order_sheet and doc.item_code:
 			_update_order_sheet_item(doc.order_sheet, doc.item_code, qty_done,
@@ -1707,6 +1712,9 @@ def advance_to_next_stage(work_order, actual_qty=None):
 			"completed_at": completed_at, "completed_qty": qty_done,
 			"wastage_qty": wastage_qty, "wastage_pct": wastage_pct,
 		})
+
+		_generate_fg_serials(doc)
+
 		_update_order_sheet_item(doc.order_sheet, doc.item_code, qty_done,
 								 order_sheet_item=doc.order_sheet_item or None)
 		_update_order_sheet_progress(doc.order_sheet)
@@ -1726,8 +1734,137 @@ def advance_to_next_stage(work_order, actual_qty=None):
 		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name)
 
 
+def _serial_stamp():
+	return nowdate().replace("-", "")[2:]  # YYMMDD
+
+
+def _next_serial_seq(item_code, stamp):
+	prefix = f"{item_code}::{stamp}::"
+	last = frappe.db.sql(
+		"SELECT name FROM `tabIB FG Serial` WHERE name LIKE %s ORDER BY name DESC LIMIT 1",
+		prefix + "%",
+	)
+	if not last:
+		return 1
+	try:
+		return int(last[0][0].rsplit("::", 1)[-1]) + 1
+	except (ValueError, IndexError):
+		return 1
+
+
+def _generate_fg_serials(doc):
+	"""Final-stage completion → FG Batch + one IB FG Serial per physical unit
+	produced, each stamped with the full genealogy. Phase 2: annotation only,
+	no stock ledger entry (native Serial No + ledger integration is Phase 3).
+	Never raises — a serial failure must not block Work Order completion."""
+	try:
+		from instabiz.overrides.item import _SERIAL_ITEM_GROUPS
+
+		if flt(doc.get("produced_serials")):
+			return
+		if (frappe.db.get_value("Item", doc.item_code, "item_group") or "") not in _SERIAL_ITEM_GROUPS:
+			return
+		route = _get_stage_route(doc.item_code, _get_os_location(doc.order_sheet))
+		if not route or doc.stage != route[-1]:
+			return
+		if frappe.db.exists("IB FG Serial", {"work_order": doc.name}):
+			return
+
+		n_units = min(cint(doc.get("logs_to_make")) or cint(doc.get("pcs_to_make")) or 1, 2000)
+		item = frappe.db.get_value(
+			"Item", doc.item_code, ["width_mm", "length_mtr", "gsm", "item_name"], as_dict=True
+		) or {}
+
+		fg_batch_id = f"FG::{doc.item_code}::{doc.name}"
+		if not frappe.db.exists("Batch", fg_batch_id):
+			fb = frappe.new_doc("Batch")
+			fb.batch_id = fg_batch_id
+			fb.item = doc.item_code
+			fb.custom_batch_kind = "Finished Good"
+			fb.custom_work_order = doc.name
+			fb.custom_received_date = today()
+			fb.custom_parent_batches = json.dumps([doc.source_batch] if doc.get("source_batch") else [])
+			fb.custom_gsm = flt(item.get("gsm"))
+			fb.custom_width_mm = flt(item.get("width_mm"))
+			fb.insert(ignore_permissions=True)
+
+		stamp = _serial_stamp()
+		seq = _next_serial_seq(doc.item_code, stamp)
+		produced_on = now()
+		created = 0
+		for i in range(n_units):
+			sn_name = f"{doc.item_code}::{stamp}::{seq + i:04d}"
+			if frappe.db.exists("IB FG Serial", sn_name):
+				continue
+			sn = frappe.new_doc("IB FG Serial")
+			sn.serial_no = sn_name
+			sn.item_code = doc.item_code
+			sn.item_name = item.get("item_name")
+			sn.status = "In Stock"
+			sn.fg_batch = fg_batch_id
+			sn.source_batch = doc.get("source_batch")
+			sn.work_order = doc.name
+			sn.order_sheet = doc.order_sheet
+			sn.sales_order = doc.sales_order
+			sn.produced_on = produced_on
+			sn.box_no = i + 1
+			sn.width_mm = flt(item.get("width_mm"))
+			sn.length_mtr = flt(item.get("length_mtr"))
+			sn.gsm = flt(item.get("gsm"))
+			sn.insert(ignore_permissions=True)
+			created += 1
+
+		frappe.db.set_value(
+			"IB Work Order", doc.name, {"fg_batch": fg_batch_id, "produced_serials": created}
+		)
+	except Exception:
+		frappe.log_error("IB serial gen", frappe.get_traceback())
+
+
+def _thread_source_batch(order_sheet_item, wo_name, explicit=None):
+	"""Set the RM source batch on this Work Order. An explicit pick wins;
+	otherwise carry forward whatever an earlier stage of the same item row
+	already has, so the batch flows down the stage chain without re-picking."""
+	batch = explicit
+	if not batch:
+		batch = frappe.db.get_value(
+			"IB Work Order",
+			{
+				"order_sheet_item": order_sheet_item,
+				"source_batch": ["is", "set"],
+				"status": ["!=", "Cancelled"],
+			},
+			"source_batch",
+		)
+	if batch and frappe.db.exists("Batch", batch):
+		frappe.db.set_value("IB Work Order", wo_name, "source_batch", batch)
+
+
 @frappe.whitelist()
-def start_item_stage(order_sheet_item, stage):
+def set_wo_source_batch(work_order, source_batch):
+	"""Manually set / correct the RM source batch on a Work Order — propagates
+	to every non-cancelled stage WO of the same order sheet item."""
+	_require_production_role()
+	if not frappe.db.exists("Batch", source_batch):
+		frappe.throw(_("Batch {0} not found").format(source_batch))
+	osi = frappe.db.get_value("IB Work Order", work_order, "order_sheet_item")
+	targets = (
+		frappe.get_all(
+			"IB Work Order",
+			filters={"order_sheet_item": osi, "status": ["!=", "Cancelled"]},
+			pluck="name",
+		)
+		if osi
+		else [work_order]
+	)
+	for name in targets:
+		frappe.db.set_value("IB Work Order", name, "source_batch", source_batch)
+	frappe.db.commit()
+	return {"status": "ok", "updated": len(targets)}
+
+
+@frappe.whitelist()
+def start_item_stage(order_sheet_item, stage, source_batch=None):
 	"""JIT stage entry point (2026-08-13): create exactly one Work Order for
 	the picked stage and put it straight to work — In Progress, machine
 	auto-assigned. Replaces auto_create_all_stage_wos()'s old "pre-create the
@@ -1811,6 +1948,8 @@ def start_item_stage(order_sheet_item, stage):
 			wo.status = "Pending"
 			wo.insert(ignore_permissions=True)
 			wo_name = wo.name
+
+		_thread_source_batch(order_sheet_item, wo_name, source_batch)
 
 		# Also hold the same per-WO lock every other status-mutating function
 		# uses (assign_machine/start_work_order/complete_work_order/put_on_hold/

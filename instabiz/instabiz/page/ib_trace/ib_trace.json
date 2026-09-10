@@ -1,0 +1,22 @@
+{
+ "content": null,
+ "creation": "2026-09-10 00:00:00",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-09-10 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "ib-trace",
+ "owner": "Administrator",
+ "page_name": "ib-trace",
+ "roles": [
+  {"role": "Stock User"},
+  {"role": "Stock Manager"},
+  {"role": "Factory Production"},
+  {"role": "Factory Management"},
+  {"role": "System Manager"}
+ ],
+ "standard": "Yes",
+ "title": "Traceability"
+}

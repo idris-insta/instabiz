@@ -35,7 +35,8 @@
    "report": 1,
    "role": "Sales User",
    "select": 1,
-   "share": 1
+   "share": 1,
+   "write": 1
   },
   {
    "create": 1,

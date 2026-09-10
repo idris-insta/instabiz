@@ -918,7 +918,7 @@ const KB_SECTIONS = [
 			{
 				num: "ACC-1", title: "Who Sees What — Workspace Shortcuts by Role",
 				updated: "2026-08-03",
-				desc: "Each of the 6 Instabiz workspaces is itself role-gated (you only see a workspace if you hold one of its roles), and a handful of shortcuts inside a workspace are further restricted on top of that.<br><br><b>Instabiz</b> (Sales User, Sales Manager, System Manager) — almost everything here is open to Sales User too: both dashboards, Customer Board, Item Pricing, Production Tracker, Live Stock Balance, Sales Incentives, Advance Approvals, My HR, Quotation/Sales Order/Customer/Lead/Sales Invoice/Delivery Note/Sample Request/Lead Sales Team, Knowledge Base, and most Reports (Daily Sales, Sales KPIs, Lost Deals, Territory, SKU Sales, Gross Margin, Collections Report, Activity Log, Dispatch Report). <b>Sales Manager only</b>: Business Pulse, Customer Health, Assignment Admin, IB Branding, IB Transport, plus the Sales Person Summary and Credit Note Register reports.<br><br><b>Instabiz Finance</b> (Accounts User, Accounts Manager, System Manager) — Finance Dashboard, Collections Dashboard, Bank Import, Payment Entry, Sales Invoice, Journal Entry, Bank Reconciliation Tool, Advance Approvals, Stock, Analytics Hub, Knowledge Base, and Reports: AR Aging, Cash Flow, Bank Recon, Collections Report, Party Outstanding Summary, Credit Note Register, Customer Ledger Summary, General Ledger, Trial Balance. PDC Cheques is Accounts-User-only; Credit Note is Accounts-Manager-only. <b>Purchase-side shortcuts moved out entirely</b> in the 2026-07-24 workspace split — see Instabiz Procurement below.<br><br><b>Instabiz Procurement</b> (Purchase User, Purchase Manager, System Manager) — Procurement Dashboard, Purchase Order/Receipt/Invoice, Debit Note, native Purchase Register / Item-wise Purchase Register, Supplier Ledger Summary, Analytics Hub, Knowledge Base, and Reports: AP Aging, Purchase Pipeline, Debit Note Register. Accounts User/Manager are not in this workspace's role list.<br><br><b>Instabiz HR</b> (HR User, HR Manager, HR Attendance Terminal User, System Manager) — HR Dashboard, Employees, Attendance Terminal, Biometric Import, Checkins, Org Chart, Leave Applications, Salary Slips, F&amp;F Settlement, Hikvision Terminals, Analytics Hub, Knowledge Base, and the Payroll Summary report.<br><br><b>Instabiz Stock</b> (Stock User, Stock Manager, System Manager) — Stock, Inward Stock Transfer, Stock Reconciliation, Analytics Hub, Knowledge Base, and the Stock Ageing report.<br><br><b>Instabiz Production</b> (Factory Production, Factory Management, System Manager) — see the Production Module section of this Knowledge Base.<br><br><b>Instabiz Misc</b> (System Manager only) — Chart of Accounts, Cost Center, System Health, Knowledge Base.",
+				desc: "Each of the 6 Instabiz workspaces is itself role-gated (you only see a workspace if you hold one of its roles), and a handful of shortcuts inside a workspace are further restricted on top of that.<br><br><b>Instabiz</b> (Sales User, Sales Manager, System Manager) — almost everything here is open to Sales User too: both dashboards, Customer Board, Item Pricing, Production Tracker, Live Stock Balance, Sales Incentives, Advance Approvals, My HR, Quotation/Sales Order/Customer/Lead/Sales Invoice/Delivery Note/Sample Request/Lead Sales Team, IB Transport, Knowledge Base, and most Reports (Daily Sales, Sales KPIs, Lost Deals, Territory, SKU Sales, Gross Margin, Collections Report, Activity Log, Dispatch Report). Sales User can add a new Transport, State, Campaign, or Customer Group inline from any Link field that uses one (e.g. picking Transport on a Sales Order) — add-only, editing/deleting an existing entry still needs Sales Manager. <b>Sales Manager only</b>: Business Pulse, Customer Health, Assignment Admin, IB Branding, plus the Sales Person Summary and Credit Note Register reports.<br><br><b>Instabiz Finance</b> (Accounts User, Accounts Manager, System Manager) — Finance Dashboard, Collections Dashboard, Bank Import, Payment Entry, Sales Invoice, Journal Entry, Bank Reconciliation Tool, Advance Approvals, Stock, Analytics Hub, Knowledge Base, and Reports: AR Aging, Cash Flow, Bank Recon, Collections Report, Party Outstanding Summary, Credit Note Register, Customer Ledger Summary, General Ledger, Trial Balance. PDC Cheques is Accounts-User-only; Credit Note is Accounts-Manager-only. <b>Purchase-side shortcuts moved out entirely</b> in the 2026-07-24 workspace split — see Instabiz Procurement below.<br><br><b>Instabiz Procurement</b> (Purchase User, Purchase Manager, System Manager) — Procurement Dashboard, Purchase Order/Receipt/Invoice, Debit Note, native Purchase Register / Item-wise Purchase Register, Supplier Ledger Summary, Analytics Hub, Knowledge Base, and Reports: AP Aging, Purchase Pipeline, Debit Note Register. Accounts User/Manager are not in this workspace's role list.<br><br><b>Instabiz HR</b> (HR User, HR Manager, HR Attendance Terminal User, System Manager) — HR Dashboard, Employees, Attendance Terminal, Biometric Import, Checkins, Org Chart, Leave Applications, Salary Slips, F&amp;F Settlement, Hikvision Terminals, Analytics Hub, Knowledge Base, and the Payroll Summary report.<br><br><b>Instabiz Stock</b> (Stock User, Stock Manager, System Manager) — Stock, Inward Stock Transfer, Stock Reconciliation, Analytics Hub, Knowledge Base, and the Stock Ageing report.<br><br><b>Instabiz Production</b> (Factory Production, Factory Management, System Manager) — see the Production Module section of this Knowledge Base.<br><br><b>Instabiz Misc</b> (System Manager only) — Chart of Accounts, Cost Center, System Health, Knowledge Base.",
 				tags: "roles access workspace shortcuts who sees what sales manager user accounts procurement purchase hr stock misc factory production",
 			},
 			{
@@ -1127,7 +1127,7 @@ const KB_SECTIONS = [
 		id: "payment", cat: "finance",
 		icon: '<iconify-icon icon="lucide:credit-card" width="17" height="17"></iconify-icon>', color: "#e0f0ff", iconColor: "#1a60b0",
 		title: "Payments and Collections",
-		roles: _FINANCE,
+		roles: [..._FINANCE, "Sales User"],
 		items: [
 			{
 				num: "3.1", title: "Recording a Payment Against Invoice",
@@ -1141,6 +1141,20 @@ const KB_SECTIONS = [
 					"Save and Submit.",
 				],
 				tip: "Accounts roles (Accounts User, Accounts Manager, System Manager) receive a bell notification on Payment Entry submit.",
+			},
+			{
+				num: "3.2", title: "Recording a Payment — Sales Users",
+				desc: "Sales Users use a simplified \"Record Payment\" dialog instead of the full Payment Entry form — every field it needs is shown at once, with no conditional fields to figure out.",
+				link: "/app/payment-entry", linkLabel: "Payment Entries",
+				tags: "record payment simple simplified sales user upi neft rtgs cheque proof screenshot utr statement",
+				steps: [
+					"From a Draft Sales Order: click <b>Record Advance (Deposit)</b> under Create.",
+					"Or from the Payment Entry list: click <b>Record Payment</b> (replaces the standard + Add button for Sales Users).",
+					"Fill Customer (your own customers only), Date, Amount Received, Deposit To, Mode of Payment, Cheque/Reference No and Date.",
+					"For UPI, NEFT, RTGS, or cheque, attach the screenshot, UTR, or bank statement in <b>Payment Proof</b> — optional but recommended.",
+					"Click Save.",
+				],
+				tip: "A cash receipt with no cheque/UTR number can use \"CASH\" as the Reference No — it's required by accounting for any bank deposit, cash included.",
 			},
 			{
 				num: "3.3", title: "Advance Payment Against Sales Order",
@@ -1734,7 +1748,7 @@ const KB_SECTIONS = [
 					"Pick a Warehouse and enter Qty.",
 					"Click <b>Add (Receipt)</b> or <b>Deduct (Issue)</b> — posts and submits a Stock Entry immediately.",
 				],
-				note: "Stock User, Stock Manager and System Manager roles only.",
+				note: "Stock User, Stock Manager and System Manager roles only. Only works for an item that already has a barcode — today that means items received through Container Import (barcode auto-generated there). An item that has never passed through Container Import has no barcode yet, so scanning it here shows \"No item found for barcode\" — that's not an error, it just hasn't been generated for that item.",
 			},
 		],
 	},

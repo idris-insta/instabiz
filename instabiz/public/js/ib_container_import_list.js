@@ -91,7 +91,7 @@ instabiz.container_import.prompt_count = function (container_import, item_code) 
 				label: __("How many labels?"),
 				reqd: 1,
 				default: 1,
-				description: __("Each label is numbered Roll No. 1 through this count."),
+				description: __("Each label is numbered Roll No. 1 through this count. Max 2000 per print run."),
 			},
 		],
 		primary_action_label: __("Print"),

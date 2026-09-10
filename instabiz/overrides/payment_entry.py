@@ -33,6 +33,57 @@ def enforce_sales_user_own_customer(doc, method=None):
 		frappe.throw(_("{0} is not one of your assigned customers.").format(doc.party))
 
 
+_DEFAULT_BANK_ACCOUNT = "50200023672503 - HDFC - MH & GJ - IB"
+_DEFAULT_COST_CENTER = "Main - IB"
+
+
+@frappe.whitelist()
+def create_simple_customer_receipt(
+	customer, amount, paid_to=None, mode_of_payment=None,
+	reference_no=None, reference_date=None, remarks=None,
+	posting_date=None, advance_for_so=None, payment_proof=None,
+):
+	"""Backs the simplified "Record Payment" dialog (2026-09-04, user request)
+	— Sales Users were confused by the full native Payment Entry form's ~34
+	conditionally-shown fields, most of which don't apply to their one real
+	scenario: receiving an on-account payment from a customer they handle.
+	This always creates a plain Receive/Customer Payment Entry (no
+	references row — matches the existing Record Advance flow, item 119)
+	with just the handful of fields that scenario needs, several defaulted.
+	Goes through the normal Document API (frappe.new_doc().insert()), so
+	enforce_sales_user_own_customer and every other validate hook still run —
+	this is a friendlier front door, not a bypass. payment_proof (optional) is
+	a file url already uploaded by the dialog's Attach control — screenshot,
+	UTR, bank statement for UPI/NEFT/RTGS/cheque proof (2026-09-04)."""
+	co = frappe.db.get_single_value("Global Defaults", "default_company")
+	doc = frappe.new_doc("Payment Entry")
+	doc.payment_type = "Receive"
+	doc.party_type = "Customer"
+	doc.party = customer
+	doc.company = co
+	doc.posting_date = posting_date or frappe.utils.today()
+	doc.paid_amount = flt(amount)
+	doc.received_amount = flt(amount)
+	doc.source_exchange_rate = 1
+	doc.target_exchange_rate = 1
+	doc.paid_to = paid_to or _DEFAULT_BANK_ACCOUNT
+	doc.cost_center = _DEFAULT_COST_CENTER
+	if mode_of_payment:
+		doc.mode_of_payment = mode_of_payment
+	if reference_no:
+		doc.reference_no = reference_no
+	doc.reference_date = reference_date or doc.posting_date
+	if remarks:
+		doc.remarks = remarks
+	if advance_for_so:
+		doc.custom_advance_for_so = advance_for_so
+	if payment_proof:
+		doc.custom_payment_proof = payment_proof
+	doc.insert()
+	frappe.db.commit()
+	return {"name": doc.name}
+
+
 def before_submit(doc, method=None):
 	_auto_reconcile(doc)
 

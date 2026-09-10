@@ -8,6 +8,16 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, cint
 
+# Sane upper bound on a single manual "Print Label" count-prompt run (Draft
+# containers, generate_item_labels()) — this only guards the ad-hoc "how many
+# labels?" number an operator types by hand, which is the one label-count
+# surface prone to a fat-fingered typo (an extra zero) with no cross-check
+# against anything real. Deliberately NOT applied to no_of_boxes at submit —
+# that's a real recorded quantity from the actual shipment data, and hard-
+# blocking a genuinely large stock receipt just because it would print many
+# label pages would be a worse outcome than the slow render it prevents.
+_MAX_LABEL_COUNT = 2000
+
 
 class IBContainerImport(Document):
 	# ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -75,12 +85,22 @@ def get_qr_data_uri(value: str) -> str:
 # ── Batching ──────────────────────────────────────────────────────────────────
 
 def _make_batch(doc: "IBContainerImport", row) -> str:
+	item = frappe.db.get_value("Item", row.item_code, ["gsm", "width_mm"], as_dict=True) or {}
 	batch = frappe.new_doc("Batch")
+	# Deterministic, readable RM batch id — one per container per item row.
+	batch.batch_id = f"{doc.container_no}::{row.item_code}::{row.idx}"
 	batch.item = row.item_code
 	batch.supplier = doc.supplier
 	batch.reference_doctype = doc.doctype
 	batch.reference_name = doc.name
 	batch.description = _("Container {0}").format(doc.container_no)
+	batch.custom_batch_kind = "Raw Material"
+	batch.custom_container_import = doc.name
+	batch.custom_container_no = doc.container_no
+	batch.custom_supplier_lot = row.get("custom_supplier_lot") or ""
+	batch.custom_received_date = doc.import_date
+	batch.custom_gsm = flt(item.get("gsm"))
+	batch.custom_width_mm = flt(item.get("width_mm"))
 	batch.insert(ignore_permissions=True)
 	return batch.name
 
@@ -105,6 +125,11 @@ def _make_stock_entry(doc: "IBContainerImport"):
 			se_row["use_serial_batch_fields"] = 1
 		if flt(row.rate) > 0:
 			se_row["basic_rate"] = row.rate
+		elif not flt(frappe.get_cached_value("Item", row.item_code, "valuation_rate")):
+			# No rate on the row and none on the item master — let the receipt
+			# post at zero value rather than hard-blocking the whole container.
+			# A real cost can be set on the item master and reposted later.
+			se_row["allow_zero_valuation_rate"] = 1
 		se.append("items", se_row)
 	se.insert(ignore_permissions=True)
 	se.submit()
@@ -141,6 +166,8 @@ def generate_item_labels(container_import: str, item_code: str, count) -> None:
 	count = cint(count)
 	if count <= 0:
 		frappe.throw(_("Enter a number of labels greater than 0."))
+	if count > _MAX_LABEL_COUNT:
+		frappe.throw(_("{0} labels in one print run looks like a typo — max is {1}. Print in smaller batches.").format(count, _MAX_LABEL_COUNT))
 
 	doc = frappe.get_doc("IB Container Import", container_import)
 	row = next((r for r in doc.items if r.item_code == item_code), None)

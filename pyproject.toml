@@ -11,6 +11,9 @@ dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
     "pytesseract",   # OCR for IB Document Intake — needs the tesseract-ocr system package too
     "pdf2image",     # PDF -> images for OCR — needs the poppler-utils system package too
+    "python-barcode",  # Code128 barcode PNGs for IB Container Import labels (imports as `barcode`)
+    "pyqrcode",        # QR PNGs for IB Container Import labels
+    "pypng",           # pyqrcode's PNG backend (png_as_base64_str needs it, not auto-pulled)
 ]
 
 [build-system]

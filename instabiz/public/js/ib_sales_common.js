@@ -73,18 +73,23 @@ function ib_decide_advance(frm, status) {
 // references table is rejected outright by core ERPNext validation. This opens
 // a plain on-account Payment Entry instead: no references row, just
 // custom_advance_for_so pointing back at this order (see payment_entry.js /
-// instabiz.overrides.payment_entry._update_advance_for_so).
+// instabiz.overrides.payment_entry._update_advance_for_so). Uses the
+// simplified dialog (ib_simple_payment_dialog.js, 2026-09-04) instead of the
+// full native Payment Entry form — same reasoning as the Payment Entry list's
+// own "+ Add" override, see payment_entry_list.js.
 frappe.ui.form.on("Sales Order", {
 	refresh(frm) {
 		if (frm.doc.docstatus !== 0 || frm.is_new()) return;
 		if (!frm.doc.customer) return;
 
 		frm.add_custom_button(__("Record Advance (Deposit)"), () => {
-			frappe.new_doc("Payment Entry", {
-				payment_type: "Receive",
-				party_type: "Customer",
-				party: frm.doc.customer,
-				custom_advance_for_so: frm.doc.name,
+			ib_show_simple_payment_dialog({
+				customer: frm.doc.customer,
+				lock_customer: true,
+				advance_for_so: frm.doc.name,
+				on_success(name) {
+					frappe.set_route("Form", "Payment Entry", name);
+				},
 			});
 		}, __("Create"));
 	},

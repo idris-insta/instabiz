@@ -11,7 +11,7 @@
  "is_hidden": 0,
  "label": "Instabiz",
  "links": [],
- "modified": "2026-08-31 13:51:45.777756",
+ "modified": "2026-09-08 18:08:57.557015",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "Instabiz",
@@ -169,7 +169,7 @@
    "doc_view": "List",
    "label": "Transport",
    "link_to": "IB Transport",
-   "restrict_to_role": "Sales Manager",
+   "restrict_to_role": "",
    "stats_filter": "[]",
    "type": "DocType"
   },

@@ -3739,6 +3739,9 @@ class IBProductionStages {
 			(can_adjust_qty && (wo.target_uom === "PCS" || wo.target_uom === "SQMT"))
 				? `<a class="dropdown-item" href="#" id="ib-wo-adjust-qty"><iconify-icon icon="lucide:sliders-horizontal" width="12" height="12" style="vertical-align:middle;margin-right:6px"></iconify-icon>Adjust Qty</a>`
 				: "",
+			cint(wo.produced_serials) > 0
+				? `<a class="dropdown-item" href="/printview?doctype=IB Work Order&name=${encodeURIComponent(wo.name)}&format=IB Serial Label" target="_blank" id="ib-wo-serial-labels"><iconify-icon icon="lucide:qr-code" width="12" height="12" style="vertical-align:middle;margin-right:6px"></iconify-icon>Print Serial Labels (${cint(wo.produced_serials)})</a>`
+				: "",
 		].filter(Boolean).join("");
 		const more_menu = menu_items
 			? `<div class="dropdown ib-ps-panel-more">
