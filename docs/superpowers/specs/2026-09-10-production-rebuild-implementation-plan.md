@@ -3,6 +3,7 @@
 **Date:** 2026-09-10
 **Status:** Plan for review. Companion to `2026-09-10-production-work-order-per-run-rebuild.md` (the model) — this doc is the *how*.
 **Branch:** `feature/wo-per-run` (do not touch `develop` production code until Phase 1 is merged)
+**Scope (user decision 2026-09-10):** rebuild the **running logic + the `IB Work Order` doctype**. **Keep the Production Dashboard UI** — same page, same tabs, same look; the JS is adapted to the new data shape, not rewritten, plus a handful of targeted UX fixes (see PART F). No layout or visual redesign.
 
 ---
 
@@ -241,36 +242,44 @@ Every one of these reads the WO + its children directly. No reconstruction, no a
 
 ---
 
-## PART F — Frontend (`ib_production_dashboard.js`, rebuilt tab by tab)
+## PART F — Frontend: KEEP THE UI, re-wire it + targeted UX fixes
 
-Uses the new `ib-ui-*` design system (`window.ibUI`, shipped this session).
+**Scope decision (user, 2026-09-10): the running logic and the doctype get rebuilt; the Production Dashboard UI stays.** Same page, same tabs (Dashboard / Order-wise / Item-wise / Stage-wise / Machine-wise), same look, same `ib-production-dashboard` route. `ib_production_dashboard.js` is **adapted, not rebuilt** — only what's needed to read the new WO shape, plus the specific UX fixes the user already flagged. No mass rewrite, no design change.
 
-### F1. Dashboard tab
-- KPI stat tiles (`ibUI.statGrid`): Runs In Progress / By Stage / Completed Today / Machines Busy / Wastage % (7d, real from stage_log). Each deep-links to the right filtered view at the **same grain** (run grain — no mismatch).
-- Active Runs list: one row per run — SO, customer, output SKUs, current stage pill, progress (route stages done / total), ETD risk. Row click → run panel.
+### F1. What each tab keeps vs. changes
 
-### F2. Stages tab — sub-tabs
-- **Runs** (default): flat list of runs, filters (location, status, priority, current stage), search. One row = one run.
-- **By Stage**: 5 stage columns, each listing the runs **currently at** that stage (never a future/past stage).
-- **By Machine**: machines, each with the run currently on it + today's real output/wastage/yield from stage_log.
-- **DPR**: real per-stage output / wastage / hours from stage_log, by day.
+| Tab | Keep | Change (data-shape only) |
+|---|---|---|
+| **Dashboard** | KPI cards, Active Production Plan list, comment popover, filters (location/priority/search), infinite scroll | Cards + list read from the run grain (`get_run_list` / `get_production_kpis`). One row = one run (not one item×stage). Deep-links land at the **same grain** they count (fixes the WO-count → Order-Sheet-filter mismatch, item 119). Wastage % card now shows real numbers from `stage_log`. |
+| **Order-wise** | Order-sheet list + drill-in detail, stage-chip row, progress bar, Print button, "Start All Items" | Detail rows read the run + its `outputs` / `route` / `stage_log`. Item↔WO match is by the run's own child rows — **no `item_code` join** (kills the recurring cross-contamination bug, items 119/134). WO side panel → **Run side panel** (see F3). |
+| **Item-wise** | Per-item stage matrix (done/current/pending), jumbo-roll chain | Reads the run's `route` child (`.done` flags) + `stage_log`. A future route stage correctly shows "pending", not "actionable". |
+| **Stage-wise** | Stage picker pills with live count badges, flat table, row → panel | Lists runs **currently at** that stage only (`current_stage` field — one row per run, never a future/past stage; fixes items 129/130). |
+| **Machine-wise** | Machine cards, WO list per machine, OEE fields | Shows the run currently on each machine + today's real output/wastage/yield from `stage_log` (not the dead `IB Production Entry` path, items 120/124). |
 
-### F3. Run side panel (replaces the WO panel)
-- Header: run id, SO/customer, source batch, route as chips (done = green, current = accent, pending = grey), outputs list with qty.
-- **One** primary button = `Advance to <next stage>` → opens the **output-qty prompt** (per output if multi-output) → posts. No stage picker, no modal-to-continue.
-- Secondary (dropdown): Hold / Resume, Skip Stage (reason), Print Job Order, Adjust output plan, Reassign machine.
-- On final advance: shows "Run complete — FG batch X, N serials, Repack SE Y" and a Print Serial Labels action.
+### F2. Run side panel (the current WO side panel, re-pointed)
+Same slide-in drawer, same visual language. Contents change to the run:
+- Header: run id, SO/customer, **source batch**, route as chips (done = green, current = accent, pending = grey), `outputs` list with qty.
+- **One** primary button — `Advance to <next stage>` → the existing actual-output prompt (`_prompt_actual_output`, per output row if multi-output) → posts. **No stage picker. No modal to continue.** (UX fix.)
+- Dropdown (existing `⋯`): Hold / Resume, Skip Stage (reason), Print Job Order, Adjust output plan, Reassign machine.
+- Final advance: inline "Run complete — FG batch X, N serials" + Print Serial Labels + Create Delivery Note.
 
-### F4. Start Production dialog (ONE dialog, first time only)
-Fields:
-1. **Source RM batch** (Link → IB Batch, kind=Raw Material, filtered to the run's input item) + **source qty** (D2).
-2. **Route** — pre-filled from item group, editable (MultiCheck to include/exclude + drag to reorder), shown as "Coating → Slitting → … → Packing".
-3. **Outputs** — grid, pre-filled with the Order Sheet items sharing that RM (D3): item_code, planned qty, pack count, and a per-row "＋ packing" expander (Brand/Core/CTN/Shrink Film/Packing Type).
+### F3. Start Production dialog (rework the existing dialog — ONE dialog, first start only)
+The current `_show_start_stage_dialog` / `_show_packing_details_dialog` / bulk dialog collapse into one:
+1. **Source RM batch** (Link → IB Batch, kind=Raw Material, filtered to the input item) + **source qty** (D2).
+2. **Route** — pre-filled from item group, shown as `Coating → Slitting → … → Packing`, editable (check/uncheck + reorder). **This is the plan, not a launch checklist** — checking stages does NOT start them (UX fix — the exact bug the user hit this session).
+3. **Outputs** — grid pre-filled with the Order Sheet items sharing that RM (D3): item_code, planned qty, pack count, per-row "＋ packing" expander (Brand/Core/CTN/Shrink Film/Packing Type).
 4. **Start at stage** — Select, default = first route stage.
-→ `create_run(...)`. Never shown again for that run; continuing is the one-click Advance.
+→ `create_run(...)`. Shown **once per run**. Continuing = the one-click Advance, no dialog. (UX fix — item this session: "completing a stage prompts the stage selector modal".)
 
-### F5. Order-wise deep-links, DPR page, Analytics-Hub production tab, Job Order / Job Order Summary print formats
-Re-pointed at runs + their outputs. Phase 5/6.
+### F4. UX improvements to add (small, on the kept screens)
+- Route chips on the Order-wise row + Run panel (see the plan at a glance).
+- "Start Production" and "Start All Items" buttons **hide** once the run's last route stage is Completed → "Create Delivery Note" shows instead (this session's fix, re-applied on the run grain).
+- Order-wise row click opens the Run panel (this session's ask).
+- One-line "Coating done — Slitting is next" toast after each advance, no interruption.
+- Real wastage / yield surfaced on the Machine-wise and DPR tabs (they show zeros today).
+
+### F5. DPR page, Analytics-Hub production tab, Job Order / Job Order Summary print formats
+Same pages/formats, re-pointed at the run + its `outputs` / `stage_log`. Phase 5/6.
 
 ---
 
@@ -315,14 +324,16 @@ Branch `feature/wo-per-run`. Merge to `develop` only after Phase 1 + its tests p
 
 | Phase | Deliverable | Gate to ship |
 |---|---|---|
-| **1** | New `IB Work Order` + 3 child doctypes + Frappe workflow (`IB Work Order Workflow` rebuilt). `create_run` / `advance_run` / `skip_stage` / `hold_run` / `_finish_run` (serials + FG batch, **no Repack yet**). `get_run_list` / `get_run_detail`. Order-wise tab + Run side panel + Start dialog. Migration script. T1–T3 (minus ledger), T6–T10, T13. | T1–T3/T6–T10/T13 pass; team runs 3 real orders end to end on the branch site |
+| **1** | New `IB Work Order` + 3 child doctypes + Frappe workflow (`IB Work Order Workflow` rebuilt). `create_run` / `advance_run` / `skip_stage` / `hold_run` / `_finish_run` (serials + FG batch, **no Repack yet**). `get_run_list` / `get_run_detail`. **Adapt** (not rebuild) the Dashboard + Order-wise tabs, the side panel → Run panel, and the Start dialog — same UI, new data shape, + the F4 UX fixes. Migration script. T1–T3 (minus ledger), T6–T10, T13. | T1–T3/T6–T10/T13 pass; team runs 3 real orders end to end on the branch site |
 | **2** | Serial labels per output (`IB Serial Label` re-pointed). Scan a serial / run on `ib-stock-scan`. | T5 serial parts, label PDF renders |
 | **3** | `_post_repack` + `reverse_run_stock` behind `site_config` flag `ib_production_posts_stock` (default off). Flip on after validation. T3 ledger parts, T4, T8, T15. | T4 GL balanced + valuation correct; T8 reverses cleanly; run on real Gujarat data for a week with the flag on |
 | **4** | ~~DN → RM batch link (direct-B2B trace)~~ | ✅ **shipped `8383b54`** |
-| **5** | By Stage / By Machine / DPR / Dashboard KPIs / Analytics-Hub production tab rebuilt on the run grain. T14. | all tabs show real numbers, deep-links land at the right grain |
+| **5** | **Adapt** Item-wise / Stage-wise / Machine-wise / DPR / Dashboard KPI cards / Analytics-Hub production tab to the run grain (same screens, real numbers). T14. | all tabs show real numbers, deep-links land at the right grain |
 | **6** | `IB Job Order` / `IB Job Order Summary` print formats re-pointed at run + outputs. | prints one run, its outputs, its stage×machine grid |
 
-**Effort:** Phase 1 ≈ 4–6 focused days. Phases 2–6 ≈ 1 week. Total ~1.5–2 weeks, one person, no interruptions.
+**Effort (UI kept, not rebuilt):** Phase 1 ≈ 3–4 focused days. Phases 2–6 ≈ 4–5 days. Total ~1.5 weeks, one person, no interruptions.
+
+**Not in scope:** any redesign of the Production Dashboard's layout, tabs, or visual language. `ib-ui-*` components may be used for the *new* small pieces (route chips, the Run panel's stage row) but the existing screens are left as they look today.
 
 ---
 
