@@ -1,7 +1,9 @@
 """instabiz.overrides.traceability
 
-Forward + backward genealogy for a Batch or Work Order (Phase 1).
-Serial-level trace lands in Phase 2.
+Forward + backward genealogy for an IB Batch, Work Order or IB FG Serial.
+IB Batch / IB FG Serial are lightweight annotation doctypes — they do NOT touch
+the native ERPNext stock ledger (that's Phase 3), so enabling traceability never
+changes how stock moves in/out.
 """
 from __future__ import annotations
 
@@ -9,10 +11,9 @@ import frappe
 from frappe import _
 
 _BATCH_FIELDS = [
-	"name", "item", "batch_qty", "supplier", "expiry_date",
-	"custom_batch_kind", "custom_container_import", "custom_container_no",
-	"custom_purchase_receipt", "custom_supplier_lot", "custom_received_date",
-	"custom_gsm", "custom_width_mm", "custom_work_order", "custom_parent_batches",
+	"name", "batch_id", "kind", "item", "item_name", "qty", "status",
+	"source_type", "container_import", "purchase_receipt", "supplier",
+	"supplier_lot", "received_date", "gsm", "width_mm", "work_order", "parent_batches",
 ]
 
 _WO_FIELDS = [
@@ -31,16 +32,16 @@ _SERIAL_FIELDS = [
 
 @frappe.whitelist()
 def get_trace(trace_id):
-	frappe.has_permission("Batch", "read", throw=True)
+	frappe.has_permission("IB Batch", "read", throw=True)
 	trace_id = (trace_id or "").strip()
 	if not trace_id:
-		frappe.throw(_("Enter a Batch or Work Order id"))
+		frappe.throw(_("Enter an IB Batch, Work Order or Serial id"))
 
 	if frappe.db.exists("IB FG Serial", trace_id):
 		return _trace_from_serial(trace_id)
 	if frappe.db.exists("IB Work Order", trace_id):
 		return _trace_from_wo(trace_id)
-	if frappe.db.exists("Batch", trace_id):
+	if frappe.db.exists("IB Batch", trace_id):
 		return _trace_from_batch(trace_id)
 
 	item = frappe.db.get_value("Item Barcode", {"barcode": trace_id}, "parent")
@@ -53,40 +54,34 @@ def get_trace(trace_id):
 	frappe.throw(_("Nothing found for '{0}'").format(trace_id))
 
 
-def _container_dict(name):
-	if not name:
-		return None
-	return frappe.db.get_value(
-		"IB Container Import",
-		name,
-		["name", "container_no", "supplier", "import_date", "warehouse", "docstatus"],
-		as_dict=True,
-	)
-
-
 def _source_doc(batch):
-	"""RM genealogy root — either an import (IB Container Import) or a domestic
-	purchase (Purchase Receipt)."""
-	if batch.get("custom_container_import"):
-		d = _container_dict(batch.custom_container_import)
+	"""RM genealogy root — an import (IB Container Import) or a domestic purchase
+	(Purchase Receipt)."""
+	if not batch:
+		return None
+	if batch.get("container_import"):
+		d = frappe.db.get_value(
+			"IB Container Import", batch.container_import,
+			["name", "container_no", "supplier", "import_date", "warehouse", "docstatus"],
+			as_dict=True,
+		)
 		if d:
 			d["source_type"] = "Container Import"
 			d["dt"] = "IB Container Import"
 		return d
-	if batch.get("custom_purchase_receipt"):
+	if batch.get("purchase_receipt"):
 		d = frappe.db.get_value(
-			"Purchase Receipt",
-			batch.custom_purchase_receipt,
+			"Purchase Receipt", batch.purchase_receipt,
 			["name", "supplier", "supplier_name", "posting_date", "set_warehouse", "docstatus"],
 			as_dict=True,
 		)
 		if d:
-			d["source_type"] = "Purchase Receipt"
-			d["dt"] = "Purchase Receipt"
-			d["container_no"] = ""
-			d["import_date"] = d.get("posting_date")
-			d["warehouse"] = d.get("set_warehouse")
-			d["supplier"] = d.get("supplier_name") or d.get("supplier")
+			d.update({
+				"source_type": "Purchase Receipt", "dt": "Purchase Receipt",
+				"container_no": "", "import_date": d.get("posting_date"),
+				"warehouse": d.get("set_warehouse"),
+				"supplier": d.get("supplier_name") or d.get("supplier"),
+			})
 		return d
 	return None
 
@@ -102,11 +97,8 @@ def _wos_for_batch(batch_name):
 
 def _fg_batches_for_parent(batch_name):
 	return frappe.get_all(
-		"Batch",
-		filters={
-			"custom_batch_kind": "Finished Good",
-			"custom_parent_batches": ["like", f"%{batch_name}%"],
-		},
+		"IB Batch",
+		filters={"kind": "Finished Good", "parent_batches": ["like", f"%{batch_name}%"]},
 		fields=_BATCH_FIELDS,
 	)
 
@@ -116,15 +108,13 @@ def _serials_for(filters):
 
 
 def _trace_from_batch(name):
-	batch = frappe.db.get_value("Batch", name, _BATCH_FIELDS, as_dict=True)
+	batch = frappe.db.get_value("IB Batch", name, _BATCH_FIELDS, as_dict=True)
 	source = _source_doc(batch)
 	work_orders = _wos_for_batch(name)
 	fg_batches = _fg_batches_for_parent(name)
-
-	# every SO touched downstream
 	sales_orders = sorted({wo.sales_order for wo in work_orders if wo.sales_order})
 
-	if batch.get("custom_batch_kind") == "Finished Good":
+	if batch.get("kind") == "Finished Good":
 		serials = _serials_for({"fg_batch": name})
 	else:
 		fg_names = [f.name for f in fg_batches]
@@ -144,22 +134,18 @@ def _trace_from_batch(name):
 def _trace_from_serial(name):
 	sn = frappe.db.get_value("IB FG Serial", name, _SERIAL_FIELDS, as_dict=True)
 	source_batch = (
-		frappe.db.get_value("Batch", sn.source_batch, _BATCH_FIELDS, as_dict=True)
-		if sn.get("source_batch")
-		else None
+		frappe.db.get_value("IB Batch", sn.source_batch, _BATCH_FIELDS, as_dict=True)
+		if sn.get("source_batch") else None
 	)
 	fg_batch = (
-		frappe.db.get_value("Batch", sn.fg_batch, _BATCH_FIELDS, as_dict=True)
-		if sn.get("fg_batch")
-		else None
+		frappe.db.get_value("IB Batch", sn.fg_batch, _BATCH_FIELDS, as_dict=True)
+		if sn.get("fg_batch") else None
 	)
-	source = _source_doc(source_batch) if source_batch else None
+	source = _source_doc(source_batch)
 	work_order = (
 		frappe.db.get_value("IB Work Order", sn.work_order, _WO_FIELDS, as_dict=True)
-		if sn.get("work_order")
-		else None
+		if sn.get("work_order") else None
 	)
-	# siblings from the same production run
 	siblings = _serials_for({"work_order": sn.work_order}) if sn.get("work_order") else [sn]
 
 	return {
@@ -176,11 +162,10 @@ def _trace_from_serial(name):
 def _trace_from_wo(name):
 	wo = frappe.db.get_value("IB Work Order", name, _WO_FIELDS, as_dict=True)
 	source_batch = (
-		frappe.db.get_value("Batch", wo.source_batch, _BATCH_FIELDS, as_dict=True)
-		if wo.get("source_batch")
-		else None
+		frappe.db.get_value("IB Batch", wo.source_batch, _BATCH_FIELDS, as_dict=True)
+		if wo.get("source_batch") else None
 	)
-	source = _source_doc(source_batch) if source_batch else None
+	source = _source_doc(source_batch)
 
 	siblings = frappe.get_all(
 		"IB Work Order",

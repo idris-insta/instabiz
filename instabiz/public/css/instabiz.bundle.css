@@ -73,6 +73,153 @@ body, .frappe-app, input, select, textarea, button {
     --ib-brand-strong:  #c0622f;
     --ib-surface:       var(--card-bg);
     --ib-border-soft:   var(--border-color);
+
+    /* ── IB Design System tokens (ib-ui-* components) ── */
+    --ib-primary:       #d97757;
+    --ib-space-1: 4px;  --ib-space-2: 8px;  --ib-space-3: 12px;
+    --ib-space-4: 16px; --ib-space-5: 24px; --ib-space-6: 32px;
+    --ib-r-sm: 8px; --ib-r-md: 12px; --ib-r-lg: 16px;
+    --ib-rm-bg:  color-mix(in srgb, #f59e0b 15%, transparent);
+    --ib-rm-fg:  #b45309;
+    --ib-fg-bg:  color-mix(in srgb, #10b981 15%, transparent);
+    --ib-fg-fg:  #047857;
+    --ib-ok-bg:  color-mix(in srgb, #10b981 15%, transparent);
+    --ib-ok-fg:  #047857;
+    --ib-warn-bg: color-mix(in srgb, #f59e0b 15%, transparent);
+    --ib-warn-fg: #b45309;
+    --ib-danger-bg: color-mix(in srgb, #ef4444 15%, transparent);
+    --ib-danger-fg: #b91c1c;
+    --ib-info-bg: color-mix(in srgb, var(--ib-primary) 12%, transparent);
+    --ib-info-fg: var(--ib-primary);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   IB DESIGN SYSTEM  —  reusable components for every custom page.
+   Theme-aware (all colors via Frappe CSS vars / color-mix).
+   Pair with window.ibUI (js/ib_ui.js) for markup helpers.
+   ══════════════════════════════════════════════════════════════════ */
+.ib-ui-page { max-width: 1120px; margin: 0 auto; padding: var(--ib-space-2) 0 60px; }
+.ib-ui-page--narrow { max-width: 640px; }
+
+.ib-ui-card {
+    border: 1px solid var(--border-color); border-radius: var(--ib-r-md);
+    background: var(--card-bg); padding: var(--ib-space-4);
+    transition: border-color .15s, transform .15s, box-shadow .15s;
+}
+.ib-ui-card--hover:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,.06); }
+.ib-ui-card-h { display: flex; align-items: center; gap: var(--ib-space-2); margin-bottom: var(--ib-space-2); }
+.ib-ui-card-h .t { font-weight: 650; font-size: 14px; }
+.ib-ui-card-h .k { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
+
+/* KPI stat tiles */
+.ib-ui-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--ib-space-3); }
+.ib-ui-stat {
+    border: 1px solid var(--border-color); border-radius: var(--ib-r-md);
+    background: var(--card-bg); padding: var(--ib-space-3) var(--ib-space-4);
+}
+.ib-ui-stat .v { font-size: 26px; font-weight: 700; line-height: 1.1; }
+.ib-ui-stat .l { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); margin-top: 2px; }
+.ib-ui-stat .sub { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+.ib-ui-stat--link { cursor: pointer; }
+.ib-ui-stat--link:hover { border-color: var(--ib-primary); }
+
+/* Big scan / search input */
+.ib-ui-search { position: relative; margin: var(--ib-space-3) 0 var(--ib-space-4); }
+.ib-ui-search input {
+    width: 100%; height: 52px; padding: 0 46px 0 44px; font-size: 15px;
+    border: 1.5px solid var(--border-color); border-radius: var(--ib-r-md);
+    background: var(--control-bg); color: var(--text-color);
+    transition: border-color .15s, box-shadow .15s; outline: none;
+}
+.ib-ui-search input:focus {
+    border-color: var(--ib-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ib-primary) 18%, transparent);
+}
+.ib-ui-search .ico { position: absolute; left: 14px; top: 16px; opacity: .5; pointer-events: none; }
+.ib-ui-search .go {
+    position: absolute; right: 8px; top: 8px; height: 36px; width: 36px;
+    border: 0; border-radius: 9px; background: var(--ib-primary); color: #fff;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+
+/* Pills / badges */
+.ib-ui-pill {
+    display: inline-block; padding: 2px 9px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; border: 1px solid transparent;
+}
+.ib-ui-pill--rm     { background: var(--ib-rm-bg);     color: var(--ib-rm-fg); }
+.ib-ui-pill--fg     { background: var(--ib-fg-bg);     color: var(--ib-fg-fg); }
+.ib-ui-pill--ok     { background: var(--ib-ok-bg);     color: var(--ib-ok-fg); }
+.ib-ui-pill--warn   { background: var(--ib-warn-bg);   color: var(--ib-warn-fg); }
+.ib-ui-pill--danger { background: var(--ib-danger-bg); color: var(--ib-danger-fg); }
+.ib-ui-pill--info   { background: var(--ib-info-bg);   color: var(--ib-info-fg); }
+.ib-ui-pill--muted  { background: var(--control-bg);   color: var(--text-muted); border-color: var(--border-color); }
+
+/* Key/value grid */
+.ib-ui-kv { display: grid; grid-template-columns: 140px 1fr; gap: 3px 10px; font-size: 12.5px; }
+.ib-ui-kv .k { color: var(--text-muted); }
+
+/* Clean table */
+.ib-ui-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ib-ui-table th {
+    text-align: left; padding: 8px 10px; font-size: 10px; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--text-muted); font-weight: 600;
+    border-bottom: 1px solid var(--border-color); position: sticky; top: 0; background: var(--card-bg);
+}
+.ib-ui-table td { padding: 7px 10px; border-bottom: 1px solid var(--border-color); }
+.ib-ui-table tbody tr { transition: background .1s; }
+.ib-ui-table tbody tr:hover { background: var(--control-bg); }
+.ib-ui-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.ib-ui-table-wrap { overflow-x: auto; }
+
+/* Filter chips + toolbar */
+.ib-ui-toolbar { display: flex; flex-wrap: wrap; gap: var(--ib-space-2); align-items: center; margin-bottom: var(--ib-space-3); }
+.ib-ui-chip {
+    display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px; font-size: 12px;
+    border-radius: 20px; border: 1px solid var(--border-color); color: var(--text-muted);
+    background: var(--card-bg); cursor: pointer; transition: all .12s;
+}
+.ib-ui-chip:hover { border-color: var(--ib-primary); color: var(--text-color); }
+.ib-ui-chip.is-active { background: var(--ib-primary); border-color: var(--ib-primary); color: #fff; }
+
+/* Skeleton loader */
+.ib-ui-skeleton {
+    height: 72px; border-radius: var(--ib-r-md); margin-bottom: var(--ib-space-3);
+    background: linear-gradient(90deg, var(--control-bg) 25%, var(--card-bg) 37%, var(--control-bg) 63%);
+    background-size: 400% 100%; animation: ib-ui-sk 1.2s ease-in-out infinite;
+}
+@keyframes ib-ui-sk { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+/* Empty state */
+.ib-ui-empty { text-align: center; color: var(--text-muted); padding: 50px 20px; }
+.ib-ui-empty svg { opacity: .3; margin-bottom: 10px; }
+
+/* Vertical genealogy / timeline chain */
+.ib-ui-chain { position: relative; padding-left: 30px; }
+.ib-ui-chain::before { content: ""; position: absolute; left: 11px; top: 14px; bottom: 14px; width: 2px; background: var(--border-color); }
+.ib-ui-node { position: relative; margin: 0 0 14px; }
+.ib-ui-node::before {
+    content: ""; position: absolute; left: -24px; top: 16px; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--card-bg); border: 2px solid var(--border-color);
+}
+.ib-ui-node.is-focus::before {
+    border-color: var(--ib-primary); background: var(--ib-primary);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--ib-primary) 20%, transparent);
+}
+.ib-ui-node.is-focus .ib-ui-card { border-color: var(--ib-primary); }
+
+/* Session feed */
+.ib-ui-feed { border: 1px solid var(--border-color); border-radius: var(--ib-r-md); background: var(--card-bg); padding: var(--ib-space-4); }
+.ib-ui-feed h6 { font-weight: 650; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0 0 var(--ib-space-2); }
+.ib-ui-feed-item { display: flex; align-items: center; gap: var(--ib-space-2); font-size: 12px; padding: 6px 0; border-top: 1px dashed var(--border-color); }
+.ib-ui-feed-item:first-of-type { border-top: 0; }
+
+.ib-ui-mono { font-family: var(--font-stack-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+.ib-ui-refresh-time { font-size: 11px; color: var(--text-muted); }
+
+@media (prefers-reduced-motion: reduce) {
+    .ib-ui-skeleton { animation: none; }
+    .ib-ui-card--hover:hover { transform: none; }
 }
 
 

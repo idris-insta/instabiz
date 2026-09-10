@@ -1,0 +1,39 @@
+{
+ "actions": [], "allow_rename": 0, "autoname": "field:batch_id",
+ "creation": "2026-09-10 00:00:00", "doctype": "DocType", "engine": "InnoDB",
+ "naming_rule": "By fieldname", "track_changes": 1,
+ "field_order": ["batch_id","kind","item","item_name","qty","status","col1",
+   "source_type","container_import","purchase_receipt","supplier","supplier_lot","received_date",
+   "sec2","work_order","parent_batches","col2","gsm","width_mm"],
+ "fields": [
+  {"fieldname":"batch_id","fieldtype":"Data","label":"Batch ID","reqd":1,"unique":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"kind","fieldtype":"Select","options":"Raw Material\nFinished Good","label":"Kind","in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"item","fieldtype":"Link","options":"Item","label":"Item","in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"item_name","fieldtype":"Data","label":"Item Name","in_list_view":1},
+  {"fieldname":"qty","fieldtype":"Float","label":"Qty"},
+  {"fieldname":"status","fieldtype":"Select","options":"Active\nConsumed\nCancelled","default":"Active","label":"Status","in_standard_filter":1},
+  {"fieldname":"col1","fieldtype":"Column Break"},
+  {"fieldname":"source_type","fieldtype":"Select","options":"Container Import\nPurchase Receipt\nProduction","label":"Source Type"},
+  {"fieldname":"container_import","fieldtype":"Link","options":"IB Container Import","label":"Container Import","read_only":1},
+  {"fieldname":"purchase_receipt","fieldtype":"Link","options":"Purchase Receipt","label":"Purchase Receipt","read_only":1},
+  {"fieldname":"supplier","fieldtype":"Link","options":"Supplier","label":"Supplier"},
+  {"fieldname":"supplier_lot","fieldtype":"Data","label":"Supplier Lot"},
+  {"fieldname":"received_date","fieldtype":"Date","label":"Received Date"},
+  {"fieldname":"sec2","fieldtype":"Section Break","label":"Production"},
+  {"fieldname":"work_order","fieldtype":"Link","options":"IB Work Order","label":"Work Order","read_only":1},
+  {"fieldname":"parent_batches","fieldtype":"Small Text","label":"Parent Batches (JSON)","read_only":1},
+  {"fieldname":"col2","fieldtype":"Column Break"},
+  {"fieldname":"gsm","fieldtype":"Float","label":"GSM"},
+  {"fieldname":"width_mm","fieldtype":"Float","label":"Width (mm)"}
+ ],
+ "links": [], "modified": "2026-09-10 00:00:00", "modified_by": "Administrator",
+ "module": "Instabiz", "name": "IB Batch", "owner": "Administrator",
+ "permissions": [
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1,"report":1,"export":1},
+  {"role":"Stock Manager","read":1,"write":1,"create":1,"delete":1,"report":1,"export":1},
+  {"role":"Stock User","read":1,"report":1},
+  {"role":"Factory Management","read":1,"write":1,"report":1},
+  {"role":"Factory Production","read":1,"report":1}
+ ],
+ "sort_field":"modified","sort_order":"DESC","states":[]
+}

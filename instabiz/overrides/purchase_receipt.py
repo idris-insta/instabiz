@@ -31,29 +31,41 @@ class CustomPurchaseReceipt(PurchaseReceipt):
 
 	def on_submit(self):
 		super().on_submit()
-		_enrich_grn_batches(self)
+		_make_grn_batches(self)
+
+	def on_cancel(self):
+		super().on_cancel()
+		for b in frappe.get_all("IB Batch", {"purchase_receipt": self.name}, pluck="name"):
+			frappe.delete_doc("IB Batch", b, ignore_permissions=True, force=True)
 
 
-def _enrich_grn_batches(doc):
+def _make_grn_batches(doc):
 	"""Domestic RM procurement is the other genealogy root beside IB Container
-	Import. ERPNext auto-creates a native Batch per received line (items now have
-	has_batch_no + create_new_batch); tag those batches as Raw Material and link
-	them back to this GRN so the trace page has a source-document node for
-	purchased material, not just imported."""
+	Import. Create one IB Batch (annotation only — not a native ERPNext Batch)
+	per received line so the trace page has a source-document node for purchased
+	material, not just imported."""
 	try:
 		for row in doc.items:
-			if not row.get("batch_no"):
+			batch_id = f"{doc.name}::{row.item_code}::{row.idx}"
+			if frappe.db.exists("IB Batch", batch_id):
 				continue
-			b = frappe.get_doc("Batch", row.batch_no)
-			if b.get("custom_batch_kind"):
-				continue
-			item = frappe.db.get_value("Item", row.item_code, ["gsm", "width_mm"], as_dict=True) or {}
-			b.custom_batch_kind = "Raw Material"
-			b.custom_purchase_receipt = doc.name
-			b.custom_supplier_lot = row.get("custom_supplier_lot") or ""
-			b.custom_received_date = doc.posting_date
-			b.custom_gsm = frappe.utils.flt(item.get("gsm"))
-			b.custom_width_mm = frappe.utils.flt(item.get("width_mm"))
-			b.save(ignore_permissions=True)
+			item = frappe.db.get_value(
+				"Item", row.item_code, ["gsm", "width_mm", "item_name"], as_dict=True
+			) or {}
+			b = frappe.new_doc("IB Batch")
+			b.batch_id = batch_id
+			b.kind = "Raw Material"
+			b.item = row.item_code
+			b.item_name = item.get("item_name")
+			b.qty = frappe.utils.flt(row.get("stock_qty") or row.qty)
+			b.status = "Active"
+			b.source_type = "Purchase Receipt"
+			b.purchase_receipt = doc.name
+			b.supplier = doc.supplier
+			b.supplier_lot = row.get("custom_supplier_lot") or ""
+			b.received_date = doc.posting_date
+			b.gsm = frappe.utils.flt(item.get("gsm"))
+			b.width_mm = frappe.utils.flt(item.get("width_mm"))
+			b.insert(ignore_permissions=True)
 	except Exception:
-		frappe.log_error("IB GRN batch enrich", frappe.get_traceback())
+		frappe.log_error("IB GRN batch create", frappe.get_traceback())

@@ -33,18 +33,20 @@ class IBContainerImport(Document):
 				frappe.throw(_("Row #{0}: No. of Boxes and Qty per Box must both be greater than 0").format(row.idx))
 			if not row.barcode:
 				frappe.throw(_("Row #{0}: barcode could not be resolved for {1}").format(row.idx, row.item_code))
-			if not row.batch_no and frappe.get_cached_value("Item", row.item_code, "has_batch_no"):
-				row.batch_no = _make_batch(self, row)
 
 	def on_submit(self) -> None:
 		stock_entry = _make_stock_entry(self)
 		self.db_set("stock_entry", stock_entry.name)
+		for row in self.items:
+			_make_batch(self, row)
 
 	def on_cancel(self) -> None:
 		if self.stock_entry:
 			se = frappe.get_doc("Stock Entry", self.stock_entry)
 			if se.docstatus == 1:
 				se.cancel()
+		for b in frappe.get_all("IB Batch", {"container_import": self.name}, pluck="name"):
+			frappe.delete_doc("IB Batch", b, ignore_permissions=True, force=True)
 
 
 # ── Barcode resolution ───────────────────────────────────────────────────────
@@ -85,24 +87,29 @@ def get_qr_data_uri(value: str) -> str:
 # ── Batching ──────────────────────────────────────────────────────────────────
 
 def _make_batch(doc: "IBContainerImport", row) -> str:
-	item = frappe.db.get_value("Item", row.item_code, ["gsm", "width_mm"], as_dict=True) or {}
-	batch = frappe.new_doc("Batch")
-	# Deterministic, readable RM batch id — one per container per item row.
-	batch.batch_id = f"{doc.container_no}::{row.item_code}::{row.idx}"
-	batch.item = row.item_code
-	batch.supplier = doc.supplier
-	batch.reference_doctype = doc.doctype
-	batch.reference_name = doc.name
-	batch.description = _("Container {0}").format(doc.container_no)
-	batch.custom_batch_kind = "Raw Material"
-	batch.custom_container_import = doc.name
-	batch.custom_container_no = doc.container_no
-	batch.custom_supplier_lot = row.get("custom_supplier_lot") or ""
-	batch.custom_received_date = doc.import_date
-	batch.custom_gsm = flt(item.get("gsm"))
-	batch.custom_width_mm = flt(item.get("width_mm"))
-	batch.insert(ignore_permissions=True)
-	return batch.name
+	"""Create the RM genealogy record (IB Batch — annotation only, not a native
+	ERPNext Batch, so items don't need has_batch_no and the outward stock flow
+	is untouched). One per container per item row."""
+	batch_id = f"{doc.name}::{row.item_code}::{row.idx}"
+	if frappe.db.exists("IB Batch", batch_id):
+		return batch_id
+	item = frappe.db.get_value("Item", row.item_code, ["gsm", "width_mm", "item_name"], as_dict=True) or {}
+	b = frappe.new_doc("IB Batch")
+	b.batch_id = batch_id
+	b.kind = "Raw Material"
+	b.item = row.item_code
+	b.item_name = item.get("item_name")
+	b.qty = flt(row.total_qty)
+	b.status = "Active"
+	b.source_type = "Container Import"
+	b.container_import = doc.name
+	b.supplier = doc.supplier
+	b.supplier_lot = row.get("custom_supplier_lot") or ""
+	b.received_date = doc.import_date
+	b.gsm = flt(item.get("gsm"))
+	b.width_mm = flt(item.get("width_mm"))
+	b.insert(ignore_permissions=True)
+	return b.name
 
 
 # ── Stock posting ────────────────────────────────────────────────────────────
@@ -120,9 +127,6 @@ def _make_stock_entry(doc: "IBContainerImport"):
 			"t_warehouse": doc.warehouse,
 			"uom": row.stock_uom,
 		}
-		if row.batch_no:
-			se_row["batch_no"] = row.batch_no
-			se_row["use_serial_batch_fields"] = 1
 		if flt(row.rate) > 0:
 			se_row["basic_rate"] = row.rate
 		elif not flt(frappe.get_cached_value("Item", row.item_code, "valuation_rate")):

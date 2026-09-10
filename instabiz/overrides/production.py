@@ -1776,16 +1776,20 @@ def _generate_fg_serials(doc):
 		) or {}
 
 		fg_batch_id = f"FG::{doc.item_code}::{doc.name}"
-		if not frappe.db.exists("Batch", fg_batch_id):
-			fb = frappe.new_doc("Batch")
+		if not frappe.db.exists("IB Batch", fg_batch_id):
+			fb = frappe.new_doc("IB Batch")
 			fb.batch_id = fg_batch_id
+			fb.kind = "Finished Good"
 			fb.item = doc.item_code
-			fb.custom_batch_kind = "Finished Good"
-			fb.custom_work_order = doc.name
-			fb.custom_received_date = today()
-			fb.custom_parent_batches = json.dumps([doc.source_batch] if doc.get("source_batch") else [])
-			fb.custom_gsm = flt(item.get("gsm"))
-			fb.custom_width_mm = flt(item.get("width_mm"))
+			fb.item_name = item.get("item_name")
+			fb.qty = flt(doc.get("completed_qty")) or flt(doc.get("target_qty"))
+			fb.status = "Active"
+			fb.source_type = "Production"
+			fb.work_order = doc.name
+			fb.received_date = today()
+			fb.parent_batches = json.dumps([doc.source_batch] if doc.get("source_batch") else [])
+			fb.gsm = flt(item.get("gsm"))
+			fb.width_mm = flt(item.get("width_mm"))
 			fb.insert(ignore_permissions=True)
 
 		stamp = _serial_stamp()
@@ -1836,7 +1840,7 @@ def _thread_source_batch(order_sheet_item, wo_name, explicit=None):
 			},
 			"source_batch",
 		)
-	if batch and frappe.db.exists("Batch", batch):
+	if batch and frappe.db.exists("IB Batch", batch):
 		frappe.db.set_value("IB Work Order", wo_name, "source_batch", batch)
 
 
@@ -1845,7 +1849,7 @@ def set_wo_source_batch(work_order, source_batch):
 	"""Manually set / correct the RM source batch on a Work Order — propagates
 	to every non-cancelled stage WO of the same order sheet item."""
 	_require_production_role()
-	if not frappe.db.exists("Batch", source_batch):
+	if not frappe.db.exists("IB Batch", source_batch):
 		frappe.throw(_("Batch {0} not found").format(source_batch))
 	osi = frappe.db.get_value("IB Work Order", work_order, "order_sheet_item")
 	targets = (

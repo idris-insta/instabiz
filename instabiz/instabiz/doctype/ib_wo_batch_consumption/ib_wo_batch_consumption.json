@@ -7,7 +7,7 @@
  "field_order": ["item_code", "batch", "qty", "uom"],
  "fields": [
   {"fieldname": "item_code", "fieldtype": "Link", "options": "Item", "label": "Item", "in_list_view": 1, "columns": 3},
-  {"fieldname": "batch", "fieldtype": "Link", "options": "Batch", "label": "Batch", "in_list_view": 1, "reqd": 1, "columns": 4},
+  {"fieldname": "batch", "fieldtype": "Link", "options": "IB Batch", "label": "Batch", "in_list_view": 1, "reqd": 1, "columns": 4},
   {"fieldname": "qty", "fieldtype": "Float", "label": "Qty Consumed", "in_list_view": 1, "columns": 2},
   {"fieldname": "uom", "fieldtype": "Link", "options": "UOM", "label": "UOM", "in_list_view": 1, "columns": 2}
  ],

@@ -143,28 +143,28 @@ class IBTrace {
 		}
 
 		if (b) {
-			const kind = b.custom_batch_kind || "";
+			const kind = b.kind || "";
 			nodes.push(node(
 				d.kind === "work_order" || d.kind === "serial" ? "Source (RM) Batch" : "Batch",
 				"layers",
-				link("Batch", b.name),
+				link("IB Batch", b.name),
 				kv([
 					["Kind", kind ? `<span class="ibt-pill ${kind === "Finished Good" ? "fg" : "rm"}">${esc(kind)}</span>` : ""],
 					["Item", esc(b.item)],
-					["Qty", b.batch_qty],
-					["Supplier Lot", esc(b.custom_supplier_lot)],
-					["Received", fmtDate(b.custom_received_date)],
-					["GSM", b.custom_gsm || ""],
-					["Width (mm)", b.custom_width_mm || ""],
+					["Qty", b.qty],
+					["Supplier Lot", esc(b.supplier_lot)],
+					["Received", fmtDate(b.received_date)],
+					["GSM", b.gsm || ""],
+					["Width (mm)", b.width_mm || ""],
 				]),
 				focus(b.name),
 			));
 		}
 
 		if (d.kind === "serial" && d.fg_batch) {
-			nodes.push(node("FG Batch", "layers", link("Batch", d.fg_batch.name), kv([
-				["Kind", `<span class="ibt-pill fg">${esc(d.fg_batch.custom_batch_kind || "Finished Good")}</span>`],
-				["Work Order", link("IB Work Order", d.fg_batch.custom_work_order)],
+			nodes.push(node("FG Batch", "layers", link("IB Batch", d.fg_batch.name), kv([
+				["Kind", `<span class="ibt-pill fg">${esc(d.fg_batch.kind || "Finished Good")}</span>`],
+				["Work Order", link("IB Work Order", d.fg_batch.work_order)],
 			]), focus(d.fg_batch.name)));
 		}
 

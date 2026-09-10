@@ -10,96 +10,25 @@ from frappe.utils import cint, nowdate
 _FG_BATCH_GROUPS = {"BOPP", "FOAM", "SPECIALTY"}
 
 
-# Groups that get native Batch tracking (traceability Phase 1). Everything
-# stockable that isn't internal-use / a service. Serial tracking (Phase 2) is a
-# tighter subset — the roll/sheet finished goods where each physical unit ships
-# individually.
+# Roll/sheet finished-good groups — used by production's FG-serial generation
+# (instabiz.overrides.production._generate_fg_serials) to decide which items get
+# an IB FG Serial per unit. NOT tied to native ERPNext has_serial_no (that was
+# tried and reverted 2026-09-10 — it forces batch/serial selection on every
+# outward stock movement and broke delivery for the whole existing catalogue).
 _SERIAL_ITEM_GROUPS = (
 	"PLASTIC", "FOAM", "FOAM - PE", "PAPER", "PVC", "CLOTH",
 	"FOIL", "FOIL - ALUMINIUM", "REFLECTIVE",
 )
 
 
-def _wants_batch(doc) -> bool:
-	return bool(
-		doc.is_stock_item
-		and not doc.has_variants
-		and (doc.item_group or "") not in _INTERNAL_ITEM_GROUPS
-	)
-
-
-def _wants_serial(doc) -> bool:
-	return bool(
-		doc.is_stock_item
-		and not doc.has_variants
-		and (doc.item_group or "") in _SERIAL_ITEM_GROUPS
-	)
-
-
 def set_batch_no_for_fg(doc, method=None):
-	"""Auto-enable native Batch (+ Serial for roll/sheet FG groups) tracking on
-	new stockable, non-internal Items. New items only — flipping the flag on an
-	existing item with untracked stock is done by the controlled backfills
-	(backfill_batch_tracking / backfill_serial_tracking), not on every save."""
-	if doc.is_new() and _wants_batch(doc) and not doc.has_batch_no:
-		doc.has_batch_no = 1
-		doc.create_new_batch = 1
-	if doc.is_new() and _wants_serial(doc) and not doc.has_serial_no:
-		doc.has_serial_no = 1
-
-
-@frappe.whitelist()
-def backfill_batch_tracking(dry_run=1):
-	"""One-off: set has_batch_no on existing enabled stockable non-internal
-	Items. Direct field write (bypasses the "stock exists without batch" guard)
-	— existing ledger rows stay batch-null, only new movements need a batch."""
-	frappe.only_for(["Stock Manager", "System Manager"])
-	dry_run = cint(dry_run)
-	pending = frappe.get_all(
-		"Item",
-		filters={
-			"disabled": 0,
-			"has_variants": 0,
-			"is_stock_item": 1,
-			"has_batch_no": 0,
-			"item_group": ["not in", _INTERNAL_ITEM_GROUPS],
-		},
-		pluck="name",
-		order_by="name asc",
-	)
-	if dry_run:
-		return {"dry_run": True, "count": len(pending), "sample": pending[:50]}
-	for code in pending:
-		frappe.db.set_value("Item", code, {"has_batch_no": 1, "create_new_batch": 1}, update_modified=False)
-	frappe.db.commit()
-	return {"dry_run": False, "updated": len(pending)}
-
-
-@frappe.whitelist()
-def backfill_serial_tracking(dry_run=1):
-	"""One-off: set has_serial_no on existing enabled roll/sheet FG Items
-	(_SERIAL_ITEM_GROUPS). Direct field write — existing serial-less stock rows
-	are left as-is, only new production output gets serials (Phase 2)."""
-	frappe.only_for(["Stock Manager", "System Manager"])
-	dry_run = cint(dry_run)
-	pending = frappe.get_all(
-		"Item",
-		filters={
-			"disabled": 0,
-			"has_variants": 0,
-			"is_stock_item": 1,
-			"has_serial_no": 0,
-			"item_group": ["in", _SERIAL_ITEM_GROUPS],
-		},
-		pluck="name",
-		order_by="name asc",
-	)
-	if dry_run:
-		return {"dry_run": True, "count": len(pending), "sample": pending[:50]}
-	for code in pending:
-		frappe.db.set_value("Item", code, "has_serial_no", 1, update_modified=False)
-	frappe.db.commit()
-	return {"dry_run": False, "updated": len(pending)}
+	"""No-op. Batch/serial genealogy uses the lightweight IB Batch / IB FG Serial
+	annotation doctypes (see instabiz.overrides.traceability) — native ERPNext
+	Batch/Serial tracking is deliberately NOT enabled on Items, because it makes
+	batch/serial selection mandatory on every Delivery Note / outward movement
+	and breaks dispatch of existing batch-null stock. Kept as a wired hook in
+	case per-item native tracking is ever wanted for a specific SKU."""
+	pass
 
 
 def sync_barcode_field(doc, method=None):

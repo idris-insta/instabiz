@@ -38,30 +38,30 @@ def resolve_barcode(barcode: str) -> dict:
 				"stock_uom": frappe.db.get_value("Item", sn.item_code, "stock_uom"),
 			}
 
-		# A batch label scans as the batch name itself.
+		# An IB Batch label scans as the batch id itself.
 		batch = frappe.db.get_value(
-			"Batch",
+			"IB Batch",
 			barcode,
-			["name", "item", "batch_qty", "custom_batch_kind", "custom_container_no", "custom_supplier_lot"],
+			["name", "item", "item_name", "qty", "kind", "source_type",
+			 "container_import", "purchase_receipt", "supplier_lot"],
 			as_dict=True,
 		)
 		if batch:
-			bal = frappe.get_all(
-				"Bin",
-				filters={"item_code": batch.item, "actual_qty": [">", 0]},
-				fields=["warehouse", "actual_qty"],
+			container_no = (
+				frappe.db.get_value("IB Container Import", batch.container_import, "container_no")
+				if batch.container_import else (batch.purchase_receipt or "")
 			)
 			return {
 				"kind": "batch",
 				"batch": batch.name,
-				"batch_kind": batch.custom_batch_kind,
-				"container_no": batch.custom_container_no,
-				"supplier_lot": batch.custom_supplier_lot,
+				"batch_kind": batch.kind,
+				"source_type": batch.source_type,
+				"container_no": container_no,
+				"supplier_lot": batch.supplier_lot,
 				"item_code": batch.item,
-				"item_name": frappe.db.get_value("Item", batch.item, "item_name"),
+				"item_name": batch.item_name or frappe.db.get_value("Item", batch.item, "item_name"),
 				"stock_uom": frappe.db.get_value("Item", batch.item, "stock_uom"),
-				"batch_qty": flt(batch.batch_qty),
-				"balances": bal,
+				"batch_qty": flt(batch.qty),
 			}
 		frappe.throw(_("No item found for barcode {0}").format(barcode))
 

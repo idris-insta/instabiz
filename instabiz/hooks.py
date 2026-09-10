@@ -453,6 +453,7 @@ app_include_css = ["instabiz.bundle.css"]
 app_include_js  = [
     "https://cdn.jsdelivr.net/npm/iconify-icon@2.1.0/dist/iconify-icon.min.js",  # Iconify icons (CDN)
     "/assets/instabiz/js/ib_color_map.js",            # item color name → hex mapping
+    "/assets/instabiz/js/ib_ui.js",                   # IB Design System markup helpers (window.ibUI) — pairs with .ib-ui-* CSS
     "/assets/instabiz/js/ib_icons.js",                # shared SVG icon registry (IB_ICONS.svg)
     "/assets/instabiz/js/ib_stock_common.js",         # shared stock page utilities (IBStock.*)
     "/assets/instabiz/js/pincode.js",               # shared pincode autofill utility
