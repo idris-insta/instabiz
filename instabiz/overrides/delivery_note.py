@@ -74,6 +74,51 @@ class CustomDeliveryNote(IbStatusMixin, DeliveryNote):
     def before_submit(self):
         _auto_create_sr_if_needed(self)
 
+    def on_submit(self):
+        super().on_submit()
+        link_dn_source_batches(self)
+
+    def on_cancel(self):
+        super().on_cancel()
+        for row in self.items:
+            if row.get("custom_source_batch"):
+                frappe.db.set_value("Delivery Note Item", row.name, "custom_source_batch", None,
+                                    update_modified=False)
+
+
+# ── Direct-B2B traceability: link the RM batch a non-produced line shipped from ─
+
+def link_dn_source_batches(doc, method=None):
+    """For any Delivery Note line that did NOT come from production (no IB FG
+    Serial for this Sales Order + item), stamp it with the raw-material IB Batch
+    it shipped from — FIFO, oldest Active batch of that item first. Lets a
+    directly-sold (imported-and-resold) unit still trace back to its container
+    and supplier lot. Informational only; does not change the shipped qty."""
+    try:
+        for row in doc.items:
+            if row.get("custom_source_batch"):
+                continue
+            so = row.get("against_sales_order")
+            # Came from production? then the serial/FG-batch chain already covers it.
+            if so and frappe.db.exists(
+                "IB FG Serial", {"sales_order": so, "item_code": row.item_code}
+            ):
+                continue
+            rm = frappe.db.get_all(
+                "IB Batch",
+                filters={"item": row.item_code, "kind": "Raw Material", "status": "Active"},
+                fields=["name"],
+                order_by="received_date asc, creation asc",
+                limit=1,
+            )
+            if rm:
+                frappe.db.set_value(
+                    "Delivery Note Item", row.name, "custom_source_batch", rm[0].name,
+                    update_modified=False,
+                )
+    except Exception:
+        frappe.log_error("IB DN batch link", frappe.get_traceback())
+
 
 # ── Per-row weight (same carton-weight math as IB Packing List) ───────────────
 

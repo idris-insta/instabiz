@@ -116,6 +116,31 @@ class IBTrace {
 		this.$result.html(`<div class="ibt-empty">${feather("package", 40)}<div>${msg}</div></div>`);
 	}
 
+	renderDN(d) {
+		const dn = d.delivery_note || {};
+		let html = node("Delivery Note", "truck", link("Delivery Note", dn.name), kv([
+			["Customer", esc(dn.customer_name)],
+			["Date", fmtDate(dn.posting_date)],
+			["Status", esc(dn.status)],
+			["Warehouse", esc(dn.set_warehouse)],
+		]), "is-focus");
+		(d.lines || []).forEach((ln) => {
+			const b = ln.source_batch;
+			const src = ln.source;
+			const body = kv([
+				["Item", esc(ln.item_code)],
+				["Qty", ln.qty],
+				["Sales Order", link("Sales Order", ln.sales_order)],
+				["Source (RM) Batch", b ? link("IB Batch", b.name) : `<span class="text-muted">${__("not linked")}</span>`],
+				["Supplier Lot", b ? esc(b.supplier_lot) : ""],
+				["From", src ? `${esc(src.source_type)} ${link(src.dt, src.name)}` : ""],
+				["Produced Serials", (ln.serials || []).length || ""],
+			]);
+			html += node(`Line — ${ln.item_code}`, "box", "", body, "");
+		});
+		this.$result.html(`<div class="ibt-chain">${html}</div>`);
+	}
+
 	render(d, queried) {
 		if (!d.kind) return this.renderEmpty(__("No result."));
 		if (d.kind === "item") {
@@ -124,6 +149,7 @@ class IBTrace {
 				 <div style="margin-top:8px">${link("Item", d.item)}</div></div>`,
 			);
 		}
+		if (d.kind === "delivery_note") return this.renderDN(d);
 
 		const nodes = [];
 		const focus = (k) => (queried && k === queried ? "is-focus" : "");
@@ -213,6 +239,15 @@ class IBTrace {
 					const nm = s.serial_no || s.name;
 					return `<span class="ibt-sn ${nm === (d.serial.serial_no || d.serial.name) ? "is-focus" : ""}" data-sn="${esc(nm)}">${esc(nm.split("::").slice(-1)[0])}</span>`;
 				}).join("")}</div>`, ""));
+		}
+
+		if (d.deliveries && d.deliveries.length) {
+			nodes.push(node("Shipped Direct (no production)", "truck",
+				`${d.deliveries.length} ${__("delivery note(s)")}`,
+				`<div class="ibt-kv">${d.deliveries.map((x) =>
+					`<div class="k">${link("Delivery Note", x.delivery_note)}</div>` +
+					`<div>${esc(x.customer)} · ${esc(x.qty)} · ${esc((x.items || []).join(", "))}</div>`,
+				).join("")}</div>`, ""));
 		}
 
 		if (d.sales_orders && d.sales_orders.length) {

@@ -43,6 +43,8 @@ def get_trace(trace_id):
 		return _trace_from_wo(trace_id)
 	if frappe.db.exists("IB Batch", trace_id):
 		return _trace_from_batch(trace_id)
+	if frappe.db.exists("Delivery Note", trace_id):
+		return _trace_from_dn(trace_id)
 
 	item = frappe.db.get_value("Item Barcode", {"barcode": trace_id}, "parent")
 	if item:
@@ -107,12 +109,32 @@ def _serials_for(filters):
 	return frappe.get_all("IB FG Serial", filters=filters, fields=_SERIAL_FIELDS, order_by="box_no asc")
 
 
+def _deliveries_for_batch(batch_name):
+	"""Delivery Notes that shipped directly from this RM batch (no production —
+	Path B). Grouped by DN, with the customer."""
+	rows = frappe.get_all(
+		"Delivery Note Item",
+		filters={"custom_source_batch": batch_name, "docstatus": 1},
+		fields=["parent", "item_code", "qty"],
+	)
+	out = {}
+	for r in rows:
+		d = out.setdefault(r.parent, {"delivery_note": r.parent, "qty": 0, "items": set()})
+		d["qty"] += r.qty
+		d["items"].add(r.item_code)
+	for d in out.values():
+		d["items"] = sorted(d["items"])
+		d["customer"] = frappe.db.get_value("Delivery Note", d["delivery_note"], "customer_name")
+	return list(out.values())
+
+
 def _trace_from_batch(name):
 	batch = frappe.db.get_value("IB Batch", name, _BATCH_FIELDS, as_dict=True)
 	source = _source_doc(batch)
 	work_orders = _wos_for_batch(name)
 	fg_batches = _fg_batches_for_parent(name)
 	sales_orders = sorted({wo.sales_order for wo in work_orders if wo.sales_order})
+	deliveries = _deliveries_for_batch(name)
 
 	if batch.get("kind") == "Finished Good":
 		serials = _serials_for({"fg_batch": name})
@@ -127,8 +149,35 @@ def _trace_from_batch(name):
 		"work_orders": work_orders,
 		"fg_batches": fg_batches,
 		"sales_orders": sales_orders,
+		"deliveries": deliveries,
 		"serials": serials,
 	}
+
+
+def _trace_from_dn(name):
+	dn = frappe.db.get_value(
+		"Delivery Note", name,
+		["name", "customer_name", "posting_date", "status", "set_warehouse"],
+		as_dict=True,
+	)
+	rows = frappe.get_all(
+		"Delivery Note Item", filters={"parent": name},
+		fields=["item_code", "qty", "custom_source_batch", "against_sales_order"],
+	)
+	lines = []
+	for r in rows:
+		src_batch = (
+			frappe.db.get_value("IB Batch", r.custom_source_batch, _BATCH_FIELDS, as_dict=True)
+			if r.custom_source_batch else None
+		)
+		lines.append({
+			"item_code": r.item_code, "qty": r.qty, "sales_order": r.against_sales_order,
+			"source_batch": src_batch,
+			"source": _source_doc(src_batch),
+			"serials": _serials_for({"sales_order": r.against_sales_order, "item_code": r.item_code})
+				if r.against_sales_order else [],
+		})
+	return {"kind": "delivery_note", "delivery_note": dn, "lines": lines}
 
 
 def _trace_from_serial(name):
