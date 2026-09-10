@@ -36,6 +36,8 @@ class CustomPurchaseReceipt(PurchaseReceipt):
 	def on_cancel(self):
 		super().on_cancel()
 		for b in frappe.get_all("IB Batch", {"purchase_receipt": self.name}, pluck="name"):
+			for wo in frappe.get_all("IB Work Order", {"source_batch": b}, pluck="name"):
+				frappe.db.set_value("IB Work Order", wo, "source_batch", None, update_modified=False)
 			frappe.delete_doc("IB Batch", b, ignore_permissions=True, force=True)
 
 

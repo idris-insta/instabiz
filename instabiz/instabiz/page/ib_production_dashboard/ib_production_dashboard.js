@@ -1225,10 +1225,16 @@ class IBProductionDashboard {
 	// independently — a shared "Same stage for all" toggle covers the
 	// common case (one order's dimension-variants all starting together)
 	// without forcing it.
-	_show_bulk_start_dialog(osiList) {
-		const items = osiList
-			.map((osi) => this._find_plan_item(osi))
-			.filter(Boolean);
+	// opts.items — pre-resolved item objects ({name, item_code, qty, uom,
+	//   next_stage_suggestion}) when the caller isn't the Dashboard plan
+	//   (e.g. the Order-wise "Start All Items" button). Falls back to
+	//   _find_plan_item() lookup when omitted.
+	// opts.onDone — called after a successful bulk start instead of the
+	//   plan-bulk-selected cleanup + full refresh.
+	_show_bulk_start_dialog(osiList, opts = {}) {
+		const items = (opts.items && opts.items.length)
+			? opts.items
+			: osiList.map((osi) => this._find_plan_item(osi)).filter(Boolean);
 		const item_codes = new Set(items.map((it) => it.item_code));
 		const mixedSuggestions = new Set(items.map((it) => it.next_stage_suggestion || "")).size > 1;
 
@@ -1337,9 +1343,13 @@ class IBProductionDashboard {
 							return;
 						}
 						this._show_bulk_start_results(r.message);
-						this._plan_bulk_selected.clear();
-						this._update_bulk_start_toolbar();
-						this.refresh();
+						if (opts.onDone) {
+							opts.onDone();
+						} else {
+							this._plan_bulk_selected.clear();
+							this._update_bulk_start_toolbar();
+							this.refresh();
+						}
 					},
 					error: () => {
 						d.get_primary_btn().prop("disabled", false).text("Start");
@@ -3306,7 +3316,20 @@ class IBProductionStages {
 				</tr>`;
 		}).join("");
 
+		// Items that can be started right now (nothing active/pending on them —
+		// same trigger the per-row Start Production button uses).
+		const startable = items.filter((it) => it.next_stage_suggestion);
+		const startAllBtn = startable.length
+			? `<div style="margin-bottom:10px">
+					<button class="btn btn-primary btn-sm ib-ps-owise-start-all">
+						<iconify-icon icon="lucide:play" width="12" height="12" style="vertical-align:middle;margin-right:4px"></iconify-icon>
+						Start Production — All Items (${startable.length})
+					</button>
+				</div>`
+			: "";
+
 		$body.html(`
+			${startAllBtn}
 			<div class="ib-ps-table-wrap">
 				<table class="ib-ps-table">
 					<thead><tr><th>Item Code</th><th>Item Name</th><th>Qty</th><th>Progress</th><th>Work Orders</th></tr></thead>
@@ -3314,6 +3337,12 @@ class IBProductionStages {
 				</table>
 			</div>`);
 
+		$body.off("click", ".ib-ps-owise-start-all").on("click", ".ib-ps-owise-start-all", () => {
+			this._show_bulk_start_dialog(
+				startable.map((it) => it.name),
+				{ items: startable, onDone: () => this._load_os_detail(this.current_os) },
+			);
+		});
 		$body.off("click", ".ib-ps-wo-chip").on("click", ".ib-ps-wo-chip", (e) => {
 			const woid = $(e.currentTarget).data("woid");
 			const wo = this._wo_data.get(woid);

@@ -46,6 +46,10 @@ class IBContainerImport(Document):
 			if se.docstatus == 1:
 				se.cancel()
 		for b in frappe.get_all("IB Batch", {"container_import": self.name}, pluck="name"):
+			# Don't leave Work Orders pointing at a batch that's about to vanish —
+			# a dangling source_batch Link blocks the WO from ever starting again.
+			for wo in frappe.get_all("IB Work Order", {"source_batch": b}, pluck="name"):
+				frappe.db.set_value("IB Work Order", wo, "source_batch", None, update_modified=False)
 			frappe.delete_doc("IB Batch", b, ignore_permissions=True, force=True)
 
 
