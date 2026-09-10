@@ -842,7 +842,11 @@ def get_order_sheet_detail(order_sheet):
 		if not any(wo.status in ("Pending", "In Progress", "On Hold") for wo in row_wos):
 			stage_route = _get_stage_route(item["item_code"], location)
 			completed_stages = {wo.stage for wo in row_wos if wo.status == "Completed"}
-			next_stage_suggestion = next((s for s in stage_route if s not in completed_stages), None)
+			# Once the item's LAST route stage is done it's finished — no "start"
+			# action, even if an earlier route stage was skipped (e.g. Slitting
+			# then Packing, Cutting never run).
+			if not (stage_route and stage_route[-1] in completed_stages):
+				next_stage_suggestion = next((s for s in stage_route if s not in completed_stages), None)
 		order_wise_view.append({
 			**item,
 			"work_orders": row_wos,
@@ -2066,8 +2070,18 @@ def bulk_start_item_stages(item_stages, brand=None, core=None, ctn=None,
 	for row in item_stages:
 		osi = row.get("order_sheet_item")
 		row_stages = row.get("stages") or []
+		# Per-item overrides beat the shared defaults for every packing field —
+		# needed when the selected items are genuinely different SKUs that don't
+		# share a Brand/Core/CTN/Shrink Film/Packing Type/Size/Logs.
 		row_size = row.get("size") or size
 		row_no_of_logs = row.get("no_of_logs") or no_of_logs
+		row_brand = row.get("brand") or brand
+		row_core = row.get("core") or core
+		row_ctn = row.get("ctn") or ctn
+		row_shrink = row.get("shrink_film") or shrink_film
+		row_packing_type = row.get("packing_type") or packing_type
+		row_has_own = any([row.get("size"), row.get("no_of_logs"), row.get("brand"),
+			row.get("core"), row.get("ctn"), row.get("shrink_film"), row.get("packing_type")])
 		item_label = frappe.db.get_value("IB Order Sheet Item", osi, "item_code") or osi
 		if not row_stages:
 			results.append({"order_sheet_item": osi, "item_code": item_label, "status": "skipped",
@@ -2080,13 +2094,14 @@ def bulk_start_item_stages(item_stages, brand=None, core=None, ctn=None,
 
 		captured = frappe.db.get_value("IB Order Sheet Item", osi, "custom_packing_captured")
 		if not captured:
-			if not shared_given and not row_size and not row_no_of_logs:
+			if not shared_given and not row_has_own:
 				results.append({"order_sheet_item": osi, "item_code": item_label, "status": "skipped",
 					"message": "Packing details not captured yet — start this one individually first."})
 				skipped += 1
 				continue
-			save_packing_details(osi, brand=brand, core=core, ctn=ctn, shrink_film=shrink_film,
-				no_of_logs=row_no_of_logs, packing_type=packing_type, size=row_size)
+			save_packing_details(osi, brand=row_brand, core=row_core, ctn=row_ctn,
+				shrink_film=row_shrink, no_of_logs=row_no_of_logs,
+				packing_type=row_packing_type, size=row_size)
 		for stage in ordered_stages:
 			try:
 				r = start_item_stage(osi, stage)
@@ -2361,7 +2376,7 @@ def get_production_plan(limit=None, start=0, location=None, search=None, priorit
 			item["route_length"] = len(route)
 			item["route_completed_count"] = len(completed)
 
-			if not item["current_stage"]:
+			if not item["current_stage"] and not (route and route[-1] in completed):
 				item["next_stage_suggestion"] = next((s for s in route if s not in completed), None)
 			else:
 				item["next_stage_suggestion"] = None

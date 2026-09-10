@@ -353,6 +353,167 @@ function _start_production_flow(order_sheet_item, item_code, suggestion, onDone)
 	});
 }
 
+// Bulk "Start Production" for several Order Sheet Items at once. Top-level (not
+// a class method) so BOTH IBProductionDashboard's Active Production Plan bulk
+// bar and IBProductionStages' Order-wise "Start All Items" button can use it.
+//   items  — resolved item objects: { name (osi), item_code, qty, uom, next_stage_suggestion }
+//   onDone — called after a successful bulk start (caller decides how to refresh)
+// Per-item stage grid + per-item packing override (each row can carry its own
+// Brand/Core/CTN/Shrink Film/Packing Type/Size/Logs) plus a shared "defaults"
+// section applied only to rows that didn't override AND haven't captured yet.
+function ibBulkStartDialog(items, onDone) {
+	items = (items || []).filter(Boolean);
+	if (!items.length) {
+		frappe.show_alert({ message: "Nothing to start.", indicator: "orange" });
+		return;
+	}
+	const osiList = items.map((it) => it.name);
+	const item_codes = new Set(items.map((it) => it.item_code));
+	const mixedSuggestions = new Set(items.map((it) => it.next_stage_suggestion || "")).size > 1;
+	const heterogeneous = item_codes.size > 1;
+	const subtitle = item_codes.size === 1
+		? `${osiList.length} lines of ${Array.from(item_codes)[0]}`
+		: `${osiList.length} items across ${item_codes.size} SKUs`;
+
+	const PK = (osi, f, ph, type) =>
+		`<input type="${type || "text"}" class="form-control input-sm ib-pd-bpk-${f}" data-osi="${frappe.utils.escape_html(osi)}" placeholder="${ph}" style="min-width:110px">`;
+
+	const gridRows = items.map((it) => {
+		const suggested = IB_STAGES.some((s) => s.label === it.next_stage_suggestion)
+			? it.next_stage_suggestion : IB_STAGES[0].label;
+		const cells = IB_STAGES.map((s) => `
+			<td style="text-align:center">
+				<input type="checkbox" class="ib-pd-bulk-stage-cell" data-osi="${frappe.utils.escape_html(it.name)}"
+					data-stage="${frappe.utils.escape_html(s.label)}" ${s.label === suggested ? "checked" : ""}>
+			</td>`).join("");
+		const pkRow = `
+			<tr class="ib-pd-bpk-row" data-osi="${frappe.utils.escape_html(it.name)}" style="display:none;background:var(--control-bg)">
+				<td colspan="${3 + IB_STAGES.length}">
+					<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:4px 0">
+						<span class="text-muted" style="font-size:11px">Packing for this item:</span>
+						${PK(it.name, "brand", "Brand")}
+						${PK(it.name, "core", "Core (item code)")}
+						${PK(it.name, "ctn", "CTN (item code)")}
+						${PK(it.name, "shrink_film", "Shrink Film")}
+						${PK(it.name, "packing_type", "Packing Type")}
+					</div>
+				</td>
+			</tr>`;
+		return `
+			<tr>
+				<td style="white-space:nowrap;padding-right:10px">
+					<strong>${frappe.utils.escape_html(it.item_code || "")}</strong>
+					<div class="text-muted" style="font-size:11px">${it.qty || 0} ${frappe.utils.escape_html(it.uom || "")}</div>
+					<a href="#" class="ib-pd-bpk-toggle" data-osi="${frappe.utils.escape_html(it.name)}" style="font-size:10px">＋ packing</a>
+				</td>
+				<td><input type="text" class="form-control input-sm ib-pd-bulk-size" data-osi="${frappe.utils.escape_html(it.name)}" placeholder="(default)" style="width:90px"></td>
+				<td><input type="number" class="form-control input-sm ib-pd-bulk-logs" data-osi="${frappe.utils.escape_html(it.name)}" placeholder="(default)" style="width:70px"></td>
+				${cells}
+			</tr>
+			${pkRow}`;
+	}).join("");
+
+	const gridHtml = `
+		${mixedSuggestions ? `<div class="text-muted" style="margin-bottom:6px;font-size:12px">Different next stage per row — check each one.</div>` : ""}
+		${heterogeneous ? `<div class="text-muted" style="margin-bottom:6px;font-size:12px">These are different SKUs — use each row's <b>＋ packing</b> link to set that item's own Brand/Core/CTN/etc; the shared fields below are only a fallback.</div>` : ""}
+		<div style="overflow-x:auto">
+			<table class="table table-bordered" style="margin-bottom:0">
+				<thead><tr>
+					<th>Item</th><th style="white-space:nowrap">Size</th><th style="white-space:nowrap">Logs</th>
+					${IB_STAGES.map((s) => `<th style="text-align:center;white-space:nowrap">${s.label}</th>`).join("")}
+				</tr></thead>
+				<tbody>${gridRows}</tbody>
+			</table>
+		</div>`;
+
+	const d = new frappe.ui.Dialog({
+		title: `Bulk Start Production — ${subtitle}`,
+		size: "large",
+		fields: [
+			{ fieldname: "grid", fieldtype: "HTML", options: gridHtml },
+			{ fieldname: "packing_sb", fieldtype: "Section Break", label: "Shared Packing Defaults" },
+			{ fieldname: "packing_note", fieldtype: "HTML", options: `<div class="text-muted" style="margin-bottom:6px;font-size:12px">Used only for rows that didn't set their own ＋ packing and haven't captured details yet. Leave blank to skip those instead.</div>` },
+			{ fieldname: "brand", fieldtype: "Link", options: "Brand", label: "Brand" },
+			{ fieldname: "core", fieldtype: "Link", options: "Item", label: "Core" },
+			{ fieldname: "col_pack", fieldtype: "Column Break" },
+			{ fieldname: "ctn", fieldtype: "Link", options: "Item", label: "CTN" },
+			{ fieldname: "shrink_film", fieldtype: "Link", options: "Item", label: "Shrink Film" },
+			{ fieldname: "packing_type", fieldtype: "Data", label: "Packing Type" },
+			{ fieldname: "no_of_logs", fieldtype: "Int", label: "No. of Logs (default)" },
+			{ fieldname: "size", fieldtype: "Data", label: "Size (default)" },
+		],
+		primary_action_label: "Start",
+		primary_action: (values) => {
+			const byOsi = {};
+			osiList.forEach((osi) => { byOsi[osi] = { stages: [] }; });
+			d.$wrapper.find(".ib-pd-bulk-stage-cell:checked").each(function () {
+				byOsi[$(this).data("osi")].stages.push($(this).data("stage"));
+			});
+			const grab = (cls, key) => d.$wrapper.find(cls).each(function () {
+				const v = String($(this).val() || "").trim();
+				if (v) byOsi[$(this).data("osi")][key] = v;
+			});
+			grab(".ib-pd-bulk-size", "size");
+			grab(".ib-pd-bulk-logs", "no_of_logs");
+			grab(".ib-pd-bpk-brand", "brand");
+			grab(".ib-pd-bpk-core", "core");
+			grab(".ib-pd-bpk-ctn", "ctn");
+			grab(".ib-pd-bpk-shrink_film", "shrink_film");
+			grab(".ib-pd-bpk-packing_type", "packing_type");
+
+			const item_stages = osiList.map((osi) => ({ order_sheet_item: osi, ...byOsi[osi] }));
+			if (!item_stages.some((r) => r.stages.length)) {
+				frappe.show_alert({ message: "Pick at least one stage for at least one item.", indicator: "orange" });
+				return;
+			}
+			d.get_primary_btn().prop("disabled", true).text("Starting…");
+			frappe.call({
+				method: "instabiz.overrides.production.bulk_start_item_stages",
+				args: {
+					item_stages: JSON.stringify(item_stages),
+					brand: values.brand, core: values.core, ctn: values.ctn,
+					shrink_film: values.shrink_film, no_of_logs: values.no_of_logs,
+					packing_type: values.packing_type, size: values.size,
+				},
+				callback: (r) => {
+					d.hide();
+					if (r.exc || !r.message) {
+						frappe.show_alert({ message: "Bulk start failed.", indicator: "red" });
+						return;
+					}
+					ibBulkStartResults(r.message);
+					if (onDone) onDone();
+				},
+				error: () => { d.get_primary_btn().prop("disabled", false).text("Start"); },
+			});
+		},
+	});
+	d.show();
+	d.$wrapper.on("click", ".ib-pd-bpk-toggle", function (e) {
+		e.preventDefault();
+		const osi = $(this).data("osi");
+		d.$wrapper.find(`.ib-pd-bpk-row[data-osi="${osi}"]`).toggle();
+	});
+}
+
+function ibBulkStartResults(result) {
+	const lines = [`<strong>${result.started}</strong> started`];
+	if (result.skipped) lines.push(`<strong>${result.skipped}</strong> skipped (packing details not captured)`);
+	if (result.failed) lines.push(`<strong>${result.failed}</strong> failed`);
+	const fail = (result.details || []).filter((r) => r.status === "error");
+	const skip = (result.details || []).filter((r) => r.status === "skipped");
+	let dh = "";
+	if (skip.length) dh += `<div style="margin-top:8px"><strong>Skipped:</strong><ul style="margin:4px 0 0 18px">` +
+		skip.map((r) => `<li>${frappe.utils.escape_html(r.item_code)}</li>`).join("") + `</ul></div>`;
+	if (fail.length) dh += `<div style="margin-top:8px"><strong>Failed:</strong><ul style="margin:4px 0 0 18px">` +
+		fail.map((r) => `<li>${frappe.utils.escape_html(r.item_code)} — ${frappe.utils.escape_html(r.stage)}: ${frappe.utils.escape_html(r.message || "")}</li>`).join("") + `</ul></div>`;
+	frappe.msgprint({
+		title: "Bulk Start Results",
+		indicator: result.failed ? "orange" : "green",
+		message: `<div>${lines.join(" · ")}</div>${dh}`,
+	});
+}
+
 // Actual-output-vs-target prompt shown before completing a stage — the
 // only real wastage capture path in the system (IB Production Entry, the
 // sole other thing that ever wrote wastage, has zero rows by design — see
@@ -1235,129 +1396,11 @@ class IBProductionDashboard {
 		const items = (opts.items && opts.items.length)
 			? opts.items
 			: osiList.map((osi) => this._find_plan_item(osi)).filter(Boolean);
-		const item_codes = new Set(items.map((it) => it.item_code));
-		const mixedSuggestions = new Set(items.map((it) => it.next_stage_suggestion || "")).size > 1;
-
-		const subtitle = item_codes.size === 1
-			? `${osiList.length} lines of ${Array.from(item_codes)[0]}`
-			: `${osiList.length} items across ${item_codes.size} SKUs`;
-
-		// Size and No. of Logs describe the physical line itself, not the SKU
-		// family — a 72-roll line and a 24-roll line of the same base item
-		// don't share a log count in practice, so both are per-row inputs
-		// here rather than folded into the shared packing-details fill below
-		// (Brand/Core/CTN/Shrink Film genuinely are constant across
-		// dimension-variants in practice, so those stay shared-only).
-		const gridRows = items.map((it) => {
-			const suggested = IB_STAGES.some((s) => s.label === it.next_stage_suggestion)
-				? it.next_stage_suggestion : IB_STAGES[0].label;
-			const cells = IB_STAGES.map((s) => `
-				<td style="text-align:center">
-					<input type="checkbox" class="ib-pd-bulk-stage-cell" data-osi="${frappe.utils.escape_html(it.name)}"
-						data-stage="${frappe.utils.escape_html(s.label)}" ${s.label === suggested ? "checked" : ""}>
-				</td>`).join("");
-			return `
-				<tr>
-					<td style="white-space:nowrap;padding-right:10px">
-						<strong>${frappe.utils.escape_html(it.item_code || "")}</strong>
-						<div class="text-muted" style="font-size:11px">${it.qty || 0} ${frappe.utils.escape_html(it.uom || "")}</div>
-					</td>
-					<td><input type="text" class="form-control input-sm ib-pd-bulk-size" data-osi="${frappe.utils.escape_html(it.name)}" placeholder="(default)" style="width:90px"></td>
-					<td><input type="number" class="form-control input-sm ib-pd-bulk-logs" data-osi="${frappe.utils.escape_html(it.name)}" placeholder="(default)" style="width:70px"></td>
-					${cells}
-				</tr>`;
-		}).join("");
-
-		const gridHtml = `
-			${mixedSuggestions ? `<div class="text-muted" style="margin-bottom:6px;font-size:12px">Different next stage per row — check each one.</div>` : ""}
-			<div style="overflow-x:auto">
-				<table class="table table-bordered" style="margin-bottom:0">
-					<thead><tr>
-						<th>Item</th>
-						<th style="white-space:nowrap">Size</th>
-						<th style="white-space:nowrap">Logs</th>
-						${IB_STAGES.map((s) => `<th style="text-align:center;white-space:nowrap">${s.label}</th>`).join("")}
-					</tr></thead>
-					<tbody>${gridRows}</tbody>
-				</table>
-			</div>`;
-
-		const d = new frappe.ui.Dialog({
-			title: `Bulk Start Production — ${subtitle}`,
-			size: "large",
-			fields: [
-				{ fieldname: "grid", fieldtype: "HTML", options: gridHtml },
-				{ fieldname: "packing_sb", fieldtype: "Section Break", label: "Packing Details" },
-				{ fieldname: "packing_note", fieldtype: "HTML", options: `<div class="text-muted" style="margin-bottom:6px;font-size:12px">Applies only to items not yet captured. Leave blank to skip those instead.</div>` },
-				{ fieldname: "brand", fieldtype: "Link", options: "Brand", label: "Brand" },
-				{ fieldname: "core", fieldtype: "Link", options: "Item", label: "Core",
-					get_query: () => ({ filters: { custom_is_internal_use: 1 } }) },
-				{ fieldname: "col_pack", fieldtype: "Column Break" },
-				{ fieldname: "ctn", fieldtype: "Link", options: "Item", label: "CTN",
-					get_query: () => ({ filters: { custom_is_internal_use: 1 } }) },
-				{ fieldname: "shrink_film", fieldtype: "Link", options: "Item", label: "Shrink Film",
-					get_query: () => ({ filters: { custom_is_internal_use: 1 } }) },
-				{ fieldname: "packing_type", fieldtype: "Data", label: "Packing Type" },
-				{ fieldname: "no_of_logs", fieldtype: "Int", label: "No. of Logs (default)" },
-				{ fieldname: "size", fieldtype: "Data", label: "Size (default)" },
-			],
-			primary_action_label: "Start",
-			primary_action: (values) => {
-				const byOsi = {};
-				osiList.forEach((osi) => { byOsi[osi] = { stages: [], size: null, no_of_logs: null }; });
-				d.$wrapper.find(".ib-pd-bulk-stage-cell:checked").each(function () {
-					const $c = $(this);
-					byOsi[$c.data("osi")].stages.push($c.data("stage"));
-				});
-				d.$wrapper.find(".ib-pd-bulk-size").each(function () {
-					const $c = $(this);
-					const v = $c.val().trim();
-					if (v) byOsi[$c.data("osi")].size = v;
-				});
-				d.$wrapper.find(".ib-pd-bulk-logs").each(function () {
-					const $c = $(this);
-					const v = $c.val();
-					if (v !== "") byOsi[$c.data("osi")].no_of_logs = v;
-				});
-				const item_stages = osiList.map((osi) => ({
-					order_sheet_item: osi, stages: byOsi[osi].stages,
-					size: byOsi[osi].size, no_of_logs: byOsi[osi].no_of_logs,
-				}));
-				if (!item_stages.some((r) => r.stages.length)) {
-					frappe.show_alert({ message: "Pick at least one stage for at least one item.", indicator: "orange" });
-					return;
-				}
-				d.get_primary_btn().prop("disabled", true).text("Starting…");
-				frappe.call({
-					method: "instabiz.overrides.production.bulk_start_item_stages",
-					args: {
-						item_stages: JSON.stringify(item_stages),
-						brand: values.brand, core: values.core, ctn: values.ctn,
-						shrink_film: values.shrink_film, no_of_logs: values.no_of_logs,
-						packing_type: values.packing_type, size: values.size,
-					},
-					callback: (r) => {
-						d.hide();
-						if (r.exc || !r.message) {
-							frappe.show_alert({ message: "Bulk start failed.", indicator: "red" });
-							return;
-						}
-						this._show_bulk_start_results(r.message);
-						if (opts.onDone) {
-							opts.onDone();
-						} else {
-							this._plan_bulk_selected.clear();
-							this._update_bulk_start_toolbar();
-							this.refresh();
-						}
-					},
-					error: () => {
-						d.get_primary_btn().prop("disabled", false).text("Start");
-					},
-				});
-			},
-		});
-		d.show();
+		ibBulkStartDialog(items, opts.onDone || (() => {
+			this._plan_bulk_selected.clear();
+			this._update_bulk_start_toolbar();
+			this.refresh();
+		}));
 	}
 
 	// Finds a selected item's own row data (item_code, next_stage_suggestion)
@@ -1369,34 +1412,6 @@ class IBProductionDashboard {
 			if (hit) return hit;
 		}
 		return null;
-	}
-
-	// Plain results summary after a bulk start — how many (item, stage) pairs
-	// actually started vs. were skipped (packing details not captured) vs.
-	// failed (e.g. stage not valid at this location), so a partial result
-	// is never silently indistinguishable from full success.
-	_show_bulk_start_results(result) {
-		const lines = [`<strong>${result.started}</strong> started`];
-		if (result.skipped) lines.push(`<strong>${result.skipped}</strong> skipped (packing details not captured)`);
-		if (result.failed) lines.push(`<strong>${result.failed}</strong> failed`);
-
-		const failedDetails = (result.details || []).filter((r) => r.status === "error");
-		const skippedDetails = (result.details || []).filter((r) => r.status === "skipped");
-		let detail_html = "";
-		if (skippedDetails.length) {
-			detail_html += `<div style="margin-top:8px"><strong>Skipped:</strong><ul style="margin:4px 0 0 18px">` +
-				skippedDetails.map((r) => `<li>${frappe.utils.escape_html(r.item_code)}</li>`).join("") + `</ul></div>`;
-		}
-		if (failedDetails.length) {
-			detail_html += `<div style="margin-top:8px"><strong>Failed:</strong><ul style="margin:4px 0 0 18px">` +
-				failedDetails.map((r) => `<li>${frappe.utils.escape_html(r.item_code)} — ${frappe.utils.escape_html(r.stage)}: ${frappe.utils.escape_html(r.message || "")}</li>`).join("") + `</ul></div>`;
-		}
-
-		frappe.msgprint({
-			title: "Bulk Start Results",
-			indicator: result.failed ? "orange" : "green",
-			message: `<div>${lines.join(" · ")}</div>${detail_html}`,
-		});
 	}
 
 	// Prev/Next pager for the Active Production Plan list — replaced the old
@@ -3338,10 +3353,7 @@ class IBProductionStages {
 			</div>`);
 
 		$body.off("click", ".ib-ps-owise-start-all").on("click", ".ib-ps-owise-start-all", () => {
-			this._show_bulk_start_dialog(
-				startable.map((it) => it.name),
-				{ items: startable, onDone: () => this._load_os_detail(this.current_os) },
-			);
+			ibBulkStartDialog(startable, () => this._load_os_detail(this.current_os));
 		});
 		$body.off("click", ".ib-ps-wo-chip").on("click", ".ib-ps-wo-chip", (e) => {
 			const woid = $(e.currentTarget).data("woid");
