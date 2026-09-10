@@ -33,7 +33,6 @@ jobs:
     needs: test
     if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
-    concurrency: deploy-prod
     steps:
       - name: fetch this sha
         run: |
