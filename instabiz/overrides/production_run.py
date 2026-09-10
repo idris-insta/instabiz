@@ -849,9 +849,19 @@ def get_run_detail(work_order):
 	}
 
 
+_STAGE_KEY = {s: s.lower().replace(" ", "_") for s in STAGES}
+
+
 @frappe.whitelist()
 def get_production_kpis(location=None):
-	"""Dashboard cards + stage pipeline — run grain."""
+	"""Dashboard cards + stage pipeline — run grain.
+
+	Shape kept compatible with the old production.get_production_dashboard so
+	ib_production_dashboard.js's _render_kpis / _render_pipeline need no change:
+	  {summary: {active_work_orders, pending, in_progress, completed_today,
+	             machines_active, avg_wastage_pct},
+	   pipeline: [{stage: <lc_key>, pending, in_progress, on_hold, completed}]}
+	"""
 	_require_production_role()
 	loc = location.lower() if location else None
 	cond = "WHERE 1=1"
@@ -867,23 +877,34 @@ def get_production_kpis(location=None):
 	today_d = getdate(today())
 	in_progress = sum(1 for r in rows if r.status == "In Progress")
 	on_hold = sum(1 for r in rows if r.status == "On Hold")
+	pending = sum(1 for r in rows if r.status == "Pending")
 	completed_today = sum(
 		1 for r in rows if r.status == "Completed" and r.completed_at
 		and getdate(r.completed_at) == today_d
 	)
 	machines_active = len({r.machine for r in rows if r.status == "In Progress" and r.machine})
 
+	# stage events completed today, grouped by stage (the "completed" pipeline count)
+	ev_today = frappe.db.sql(
+		"""SELECT e.stage, COUNT(*) n
+		   FROM `tabIB WO Stage Event` e JOIN `tabIB Work Order` w ON w.name = e.parent
+		   WHERE DATE(e.completed_at) = %(d)s""" + (" AND w.location = %(loc)s" if loc else "") + """
+		   GROUP BY e.stage""",
+		{"d": nowdate(), "loc": loc}, as_dict=True,
+	)
+	done_by_stage = {r.stage: r.n for r in ev_today}
+
 	pipeline = []
 	for s in STAGES:
 		at = [r for r in rows if r.current_stage == s]
 		pipeline.append({
-			"stage": s,
+			"stage": _STAGE_KEY[s],
 			"in_progress": sum(1 for r in at if r.status == "In Progress"),
 			"on_hold": sum(1 for r in at if r.status == "On Hold"),
 			"pending": sum(1 for r in at if r.status == "Pending"),
+			"completed": done_by_stage.get(s, 0),
 		})
 
-	# real wastage today from stage events
 	wr = frappe.db.sql(
 		"""SELECT AVG(e.wastage_pct) AS avg_pct, SUM(e.wastage_qty) AS total_qty
 		   FROM `tabIB WO Stage Event` e
@@ -896,7 +917,9 @@ def get_production_kpis(location=None):
 
 	return {
 		"summary": {
-			"runs_in_progress": in_progress,
+			"active_work_orders": in_progress + pending + on_hold,
+			"pending": pending,
+			"in_progress": in_progress,
 			"runs_on_hold": on_hold,
 			"completed_today": completed_today,
 			"machines_active": machines_active,
@@ -1204,3 +1227,288 @@ def on_work_order_update_notify(doc, method=None):
 		"from_user": "Administrator",
 	}).insert(ignore_permissions=True)
 	frappe.db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Dashboard-compat read APIs
+# ---------------------------------------------------------------------------
+# These keep the exact response contract the *existing* ib_production_dashboard.js
+# render functions expect (a run is presented as an Order-Sheet card with one
+# "item row" per output, and each row's `stage_map` is built from the run's
+# `route`), so the UI is adapted — not rebuilt — for the run model.
+
+_ROW_BTN_STATUS = {"In Progress": "In Progress", "On Hold": "On Hold",
+                   "Pending": "Pending", "Completed": "Completed", "Cancelled": "Cancelled"}
+
+
+def _latest_run_for_osi(soi, item_code, os_name):
+	"""The run currently producing an Order Sheet Item — matched by
+	outputs.sales_order_item, item_code fallback, newest non-cancelled first."""
+	rows = frappe.db.sql(
+		"""SELECT w.name, w.status, w.current_stage, w.machine, w.priority,
+		          w.source_batch, w.source_qty, w.posting_date, w.started_at,
+		          w.completed_at, w.fg_batch, o.uom, o.planned_qty, o.produced_qty
+		   FROM `tabIB Work Order` w
+		   JOIN `tabIB WO Output` o ON o.parent = w.name
+		   WHERE w.order_sheet = %(os)s AND w.status != 'Cancelled'
+		     AND (o.sales_order_item = %(soi)s OR (o.sales_order_item = '' AND o.item_code = %(ic)s))
+		   ORDER BY w.creation DESC LIMIT 1""",
+		{"os": os_name, "soi": soi or "", "ic": item_code}, as_dict=True,
+	)
+	return rows[0] if rows else None
+
+
+def _stage_map_for_run(run):
+	"""{StageLabel: {status, wo_name, completed_qty, target_qty, target_uom}} from
+	the run's route + stage_log."""
+	route = frappe.get_all(
+		"IB WO Route Stage", filters={"parent": run.name},
+		fields=["stage", "sequence", "done"], order_by="sequence asc",
+	)
+	events = {e.stage: e for e in frappe.get_all(
+		"IB WO Stage Event", filters={"parent": run.name, "skipped": 0},
+		fields=["stage", "output_qty"],
+	)}
+	tgt_uom = run.get("uom") or ""
+	smap = {}
+	for r in route:
+		if r.done:
+			st = "Completed"
+		elif r.stage == run.current_stage:
+			st = run.status if run.status in ("In Progress", "On Hold") else "Pending"
+		else:
+			st = "Pending"
+		smap[r.stage] = {
+			"status": st,
+			"wo_name": run.name,
+			"completed_qty": flt(events.get(r.stage, {}).get("output_qty")) if r.done else 0,
+			"target_qty": flt(run.get("source_qty")) or flt(run.get("planned_qty")),
+			"target_uom": tgt_uom,
+			"pcs_to_make": 0, "logs_to_make": 0,
+		}
+	return smap, route
+
+
+def _plan_item_row(osi, os_name, location):
+	run = _latest_run_for_osi(osi.get("sales_order_item"), osi["item_code"], os_name)
+	base = {
+		"name": osi["name"],
+		"item_code": osi["item_code"],
+		"item_name": osi.get("item_name"),
+		"qty": flt(osi.get("qty")),
+		"uom": osi.get("uom"),
+	}
+	if not run:
+		route = _get_stage_route(osi["item_code"], location)
+		base.update({
+			"current_stage": "",
+			"stage_map": {},
+			"route_length": len(route),
+			"route_completed_count": 0,
+			"is_fully_done": False,
+			"next_stage_suggestion": route[0] if route else "",
+		})
+		return base
+	smap, route = _stage_map_for_run(run)
+	done = sum(1 for r in route if r.done)
+	is_done = run.status == "Completed"
+	base.update({
+		"current_stage": "" if run.current_stage in (None, "Done", "Cancelled") else run.current_stage,
+		"stage_map": smap,
+		"route_length": len(route),
+		"route_completed_count": done,
+		"is_fully_done": is_done,
+		"next_stage_suggestion": "",
+		"run": run.name,
+		"run_status": run.status,
+	})
+	return base
+
+
+@frappe.whitelist()
+def get_run_plan(limit=None, start=0, location=None, search=None, priority=None):
+	"""Active Production Plan (Dashboard tab) — Order-Sheet cards, one item row
+	per Order Sheet Item, each row carrying its run's stage_map. Same
+	{order_wise: [...]} contract as the old production.get_production_plan."""
+	_require_production_role()
+	limit = cint(limit) or 25
+	start = cint(start)
+
+	conds = ["os.status != 'Cancelled'"]
+	params = {}
+	if location:
+		conds.append("LOWER(so.custom_location) = %(loc)s")
+		params["loc"] = location.lower()
+	if priority:
+		conds.append("os.priority = %(prio)s")
+		params["prio"] = priority
+	if search:
+		conds.append("(os.sales_order LIKE %(s)s OR os.customer_name LIKE %(s)s OR EXISTS "
+		             "(SELECT 1 FROM `tabIB Order Sheet Item` i WHERE i.parent = os.name AND i.item_code LIKE %(s)s))")
+		params["s"] = f"%{search}%"
+
+	sheets = frappe.db.sql(
+		f"""SELECT os.name, os.sales_order, os.customer, os.customer_name, os.status,
+		           os.priority, os.delivery_date, os.creation, so.custom_location AS location
+		    FROM `tabIB Order Sheet` os
+		    JOIN `tabSales Order` so ON so.name = os.sales_order
+		    WHERE {' AND '.join(conds)}
+		    ORDER BY FIELD(os.priority,'Urgent','High','Normal','Low'), os.creation DESC
+		    LIMIT %(lim)s OFFSET %(off)s""",
+		dict(params, lim=limit, off=start), as_dict=True,
+	)
+	out = []
+	for sh in sheets:
+		items = frappe.get_all(
+			"IB Order Sheet Item", filters={"parent": sh.name},
+			fields=["name", "item_code", "item_name", "qty", "uom", "sales_order_item"],
+		)
+		loc = (sh.location or "").lower() or None
+		rows = [_plan_item_row(dict(it), sh.name, loc) for it in items]
+		out.append({
+			"name": sh.name,
+			"sales_order": sh.sales_order,
+			"customer": sh.customer,
+			"customer_name": sh.customer_name,
+			"status": sh.status,
+			"priority": sh.priority,
+			"delivery_date": str(sh.delivery_date) if sh.delivery_date else None,
+			"creation": str(sh.creation),
+			"comment_count": 0,
+			"items": rows,
+		})
+	return {"order_wise": out}
+
+
+@frappe.whitelist()
+def get_order_sheet_detail(order_sheet):
+	"""Order-wise tab drill-in. Same {order_sheet, order_wise_view} contract as
+	the old production.get_order_sheet_detail — but `work_orders` per item row is
+	the run(s) producing it, expanded to one entry per route stage (so the
+	stage-chip row renders), each chip opening the run panel."""
+	_require_production_role()
+	os_doc = frappe.db.get_value(
+		"IB Order Sheet", order_sheet,
+		["name", "sales_order", "customer", "customer_name", "status", "priority",
+		 "delivery_date", "order_date"], as_dict=True,
+	)
+	if not os_doc:
+		frappe.throw(_("Order Sheet {0} not found").format(order_sheet))
+	location = (frappe.db.get_value("Sales Order", os_doc.sales_order, "custom_location") or "").lower() or None
+
+	items = frappe.get_all(
+		"IB Order Sheet Item", filters={"parent": order_sheet},
+		fields=["name", "item_code", "item_name", "qty", "uom", "sales_order_item"],
+	)
+	view = []
+	for it in items:
+		run = _latest_run_for_osi(it.sales_order_item, it.item_code, order_sheet)
+		wo_entries = []
+		next_sugg = ""
+		if run:
+			smap, route = _stage_map_for_run(run)
+			for r in route:
+				info = smap[r.stage]
+				wo_entries.append({
+					"name": run.name,
+					"stage": r.stage,
+					"status": info["status"],
+					"completed_qty": info["completed_qty"],
+					"target_qty": info["target_qty"],
+					"target_uom": info["target_uom"],
+					"creation": str(run.posting_date) if run.posting_date else None,
+					"pcs_to_make": 0, "logs_to_make": 0,
+				})
+			if run.status == "Completed":
+				next_sugg = ""
+			elif run.current_stage in (None, "Done"):
+				next_sugg = ""
+		else:
+			rt = _get_stage_route(it.item_code, location)
+			next_sugg = rt[0] if rt else ""
+		view.append({
+			"name": it.name,
+			"item_code": it.item_code,
+			"item_name": it.item_name,
+			"qty": flt(it.qty),
+			"uom": it.uom,
+			"next_stage_suggestion": next_sugg,
+			"work_orders": wo_entries,
+		})
+
+	return {
+		"order_sheet": {
+			"name": os_doc.name,
+			"sales_order": os_doc.sales_order,
+			"customer": os_doc.customer,
+			"customer_name": os_doc.customer_name,
+			"status": os_doc.status,
+			"priority": os_doc.priority,
+			"delivery_date": str(os_doc.delivery_date) if os_doc.delivery_date else None,
+			"order_date": str(os_doc.order_date) if os_doc.order_date else None,
+		},
+		"order_wise_view": view,
+	}
+
+
+@frappe.whitelist()
+def get_run_panel(work_order):
+	"""Flat `wo`-shaped dict the existing _render_wo_panel() expects, from the run.
+	stage_key it should be opened at = the run's current stage."""
+	w = frappe.db.get_value(
+		"IB Work Order", work_order,
+		["name", "status", "current_stage", "machine", "priority", "sales_order",
+		 "order_sheet", "source_batch", "source_item", "source_qty", "source_warehouse",
+		 "posting_date", "started_at", "completed_at", "fg_batch", "location", "notes",
+		 "total_output_qty", "total_wastage_qty"], as_dict=True,
+	)
+	if not w:
+		frappe.throw(_("Run {0} not found").format(work_order))
+	if w.sales_order:
+		_check_so_production_access(w.sales_order)
+	so = frappe.db.get_value(
+		"Sales Order", w.sales_order, ["customer_name", "delivery_date"], as_dict=True
+	) or {} if w.sales_order else {}
+	outs = frappe.get_all(
+		"IB WO Output", filters={"parent": work_order},
+		fields=["item_code", "item_name", "planned_qty", "produced_qty", "uom", "serial_count"],
+	)
+	primary = outs[0] if outs else {}
+	n_serials = sum(cint(o.serial_count) for o in outs)
+	route = frappe.get_all(
+		"IB WO Route Stage", filters={"parent": work_order},
+		fields=["stage", "done"], order_by="sequence asc",
+	)
+	next_stage = None
+	seq = [r.stage for r in route]
+	if w.current_stage in seq:
+		i = seq.index(w.current_stage)
+		next_stage = seq[i + 1] if i + 1 < len(seq) else None
+
+	return {
+		"name": w.name,
+		"status": w.status,
+		"stage": w.current_stage,
+		"current_stage": w.current_stage,
+		"next_stage": next_stage,
+		"machine": w.machine or "",
+		"priority": w.priority or "Normal",
+		"sales_order": w.sales_order,
+		"order_sheet": w.order_sheet,
+		"customer_name": so.get("customer_name") or "",
+		"delivery_date": str(so.get("delivery_date")) if so.get("delivery_date") else None,
+		"creation": str(w.posting_date) if w.posting_date else None,
+		"item_code": primary.get("item_code") or w.source_item or "",
+		"item_name": primary.get("item_name") or "",
+		"target_qty": flt(primary.get("planned_qty")) or flt(w.source_qty),
+		"target_uom": primary.get("uom") or "",
+		"produced_serials": n_serials,
+		"fg_batch": w.fg_batch,
+		"source_batch": w.source_batch,
+		"source_qty": flt(w.source_qty),
+		"total_output_qty": flt(w.total_output_qty),
+		"total_wastage_qty": flt(w.total_wastage_qty),
+		"pcs_to_make": 0, "logs_to_make": 0, "jumbo_roll": "",
+		"route": [{"stage": r.stage, "done": bool(r.done), "is_current": r.stage == w.current_stage} for r in route],
+		"outputs": [dict(o, planned_qty=flt(o.planned_qty), produced_qty=flt(o.produced_qty)) for o in outs],
+	}
