@@ -175,7 +175,6 @@ class IBTrace {
 				["Item", esc(w.item_code)],
 				["Current Stage", `<span class="ibt-stage">${esc(w.stage)}</span>`],
 				["Status", esc(w.status)],
-				["Order Sheet", link("IB Order Sheet", w.order_sheet)],
 				["Sales Order", link("Sales Order", w.sales_order)],
 				["Serials Produced", w.produced_serials || 0],
 			]) + woRows(d.stages, w.item_code), focus(w.name)));
@@ -187,7 +186,6 @@ class IBTrace {
 			const w = d.work_order;
 			nodes.push(node("Work Order", "settings", link("IB Work Order", w.name), kv([
 				["Final Stage", `<span class="ibt-stage">${esc(w.stage)}</span>`],
-				["Order Sheet", link("IB Order Sheet", w.order_sheet)],
 				["Sales Order", link("Sales Order", w.sales_order)],
 			]), focus(w.name)));
 		}
