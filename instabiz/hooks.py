@@ -376,6 +376,7 @@ permission_query_conditions = {
     "Employee Checkin":  "instabiz.overrides.checkin.employee_checkin_query_conditions",
     "IB Asset Loan":     "instabiz.instabiz.doctype.ib_asset_loan.ib_asset_loan.get_permission_query_conditions",
     "Payment Entry":     "instabiz.overrides.permissions.payment_entry_query_conditions",
+    "Territory":         "instabiz.overrides.territory.territory_query_conditions",
 }
 
 has_permission = {
