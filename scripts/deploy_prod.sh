@@ -1,76 +1,65 @@
 #!/usr/bin/env bash
-# Deploy instabiz to production. Usage: deploy_prod.sh <git-sha>
-# Idempotent. Backs up, deploys, health-checks, auto-rolls-back on failure.
+# Deploy instabiz to prod. Usage: deploy_prod.sh <git-sha>
+# The runner has ALREADY placed the new tree in apps/instabiz (git archive over SSH)
+# before calling this. This script: snapshot -> migrate -> build -> restart ->
+# health-check, and on any failure restores the snapshot + the pre-deploy DB backup.
 set -Eeuo pipefail
-
 SHA="${1:?need a git SHA}"
 BENCH=/home/frappe/frappe-bench
 SITE=instabizerp.com
 APP="$BENCH/apps/instabiz"
 URL="https://instabizerp.com/api/method/ping"
 LOG=/home/frappe/deploy.log
+MYSQL_ROOT="${PROD_MARIADB_ROOT:-}"
 exec > >(tee -a "$LOG") 2>&1
 echo "──────── $(date -Is)  deploy $SHA ────────"
-
-cd "$APP"
-PREV_SHA=$(git rev-parse HEAD)
-echo "current: $PREV_SHA   target: $SHA"
-[ "$PREV_SHA" = "$SHA" ] && { echo "already at target, nothing to do"; exit 0; }
-
 cd "$BENCH"
-PYPROJECT_CHANGED=$(git -C "$APP" diff --name-only "$PREV_SHA" "$SHA" -- pyproject.toml | wc -l || echo 0)
-LATEST_DB=""; LATEST_PUB=""; LATEST_PRIV=""
+
+SNAP="/home/frappe/.deploy_snap_instabiz.tgz"
+echo "snapshot current app tree…"
+tar czf "$SNAP" -C "$BENCH/apps" instabiz
+
+echo "backup site…"
+bench --site "$SITE" backup --with-files
+BK="$BENCH/sites/$SITE/private/backups"
+DB=$(ls -t $BK/*-database*.sql.gz 2>/dev/null | head -1 || true)
+PUB=$(ls -t $BK/*-files*.tar 2>/dev/null | grep -v private | head -1 || true)
+PRIV=$(ls -t $BK/*-private-files*.tar 2>/dev/null | head -1 || true)
 
 rollback() {
-  echo "!! DEPLOY FAILED — rolling back to $PREV_SHA"
-  git -C "$APP" reset --hard "$PREV_SHA" || true
-  if [ -n "$LATEST_DB" ] && [ -f "$LATEST_DB" ]; then
-    bench --site "$SITE" --force restore "$LATEST_DB" \
-      ${LATEST_PUB:+--with-public-files "$LATEST_PUB"} \
-      ${LATEST_PRIV:+--with-private-files "$LATEST_PRIV"} || true
+  echo "!! DEPLOY FAILED — restoring snapshot"
+  rm -rf "$APP" && mkdir -p "$APP" && tar xzf "$SNAP" -C "$BENCH/apps"
+  if [ -n "$DB" ] && [ -n "$MYSQL_ROOT" ]; then
+    bench --site "$SITE" --force restore "$DB" \
+      ${PUB:+--with-public-files "$PUB"} ${PRIV:+--with-private-files "$PRIV"} \
+      --mariadb-root-password "$MYSQL_ROOT" || true
   fi
   bench --site "$SITE" migrate || true
   bench build --app instabiz || true
   sudo supervisorctl restart all || true
   bench --site "$SITE" set-maintenance-mode off || true
-  echo "rolled back."
+  echo "rolled back to pre-deploy state."
   exit 1
 }
 trap rollback ERR
 
 bench --site "$SITE" set-maintenance-mode on
-
-echo "backup…"
-bench --site "$SITE" backup --with-files
-BK="$BENCH/sites/$SITE/private/backups"
-LATEST_DB=$(ls -t $BK/*-database*.sql.gz 2>/dev/null | head -1 || true)
-LATEST_PUB=$(ls -t $BK/*-files*.tar 2>/dev/null | grep -v private | head -1 || true)
-LATEST_PRIV=$(ls -t $BK/*-private-files*.tar 2>/dev/null | head -1 || true)
-
-echo "checkout $SHA…"
-git -C "$APP" fetch origin --tags --prune
-git -C "$APP" reset --hard "$SHA"
-
-if [ "$PYPROJECT_CHANGED" -gt 0 ]; then
-  echo "pyproject changed — reinstalling app deps"
-  "$BENCH/env/bin/pip" install --quiet -e "$APP"
-fi
-
-echo "migrate…"; bench --site "$SITE" migrate
-echo "build…";   bench build --app instabiz
-echo "restart…"; sudo supervisorctl restart all
+echo "record deployed sha…"; echo "$SHA" > "$APP/.deployed_sha"
+echo "pip -e (in case deps changed)…"; "$BENCH/env/bin/pip" install --quiet -e "$APP" || true
+echo "migrate…";  bench --site "$SITE" migrate
+echo "build…";    bench build --app instabiz
+echo "restart…";  sudo supervisorctl restart all
 sleep 6
-
 echo "health check…"
 ok=0
-for i in $(seq 1 10); do
-  code=$(curl -s -o /dev/null -w '%{http_code}' --resolve instabizerp.com:443:127.0.0.1 "$URL" || true)
-  if [ "$code" = "200" ]; then echo "healthy ($code)"; ok=1; break; fi
+for i in $(seq 1 12); do
+  c=$(curl -s -o /dev/null -w '%{http_code}' --resolve instabizerp.com:443:127.0.0.1 "$URL" || true)
+  [ "$c" = "200" ] && { echo "healthy"; ok=1; break; }
   sleep 3
 done
-[ "$ok" = "1" ] || { echo "unhealthy after 10 tries"; false; }
-
+[ "$ok" = 1 ] || { echo "unhealthy"; false; }
 bench --site "$SITE" set-maintenance-mode off
 trap - ERR
+rm -f "$SNAP"
 echo "✅ deployed $SHA  ($(date -Is))"
 ls -t $BK/*-database*.sql.gz 2>/dev/null | tail -n +11 | sed 's/-database.*//' | while read -r p; do rm -f "${p}"*; done || true

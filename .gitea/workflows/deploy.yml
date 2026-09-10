@@ -5,40 +5,29 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: checkout (manual — runner image has no node for JS actions)
+      - name: checkout (manual — no node in runner for JS actions)
         run: |
           command -v git || (command -v apk && apk add --no-cache git) || (apt-get update -qq && apt-get install -y git)
           git init -q .
-          git remote add origin "http://x-access:${{ github.token }}@gitea:3000/${{ github.repository }}.git"
+          git remote add origin "http://x:${{ github.token }}@gitea:3000/${{ github.repository }}.git"
           git -c protocol.version=2 fetch --depth 1 origin "${{ github.sha }}"
           git checkout -q FETCH_HEAD
           echo "checked out ${{ github.sha }}"
-
       - name: toolchain
         run: |
-          if ! command -v python3 || ! command -v node; then
-            if command -v apk; then apk add --no-cache python3 nodejs;
-            elif command -v apt-get; then apt-get update -qq && apt-get install -y python3 nodejs; fi
-          fi
+          command -v python3 && command -v node && exit 0
+          if command -v apk; then apk add --no-cache python3 nodejs;
+          elif command -v apt-get; then apt-get update -qq && apt-get install -y python3 nodejs; fi
           python3 --version; node --version
-
       - name: python compile
         run: |
-          n=0; for f in $(find instabiz -name '*.py' -not -path '*/node_modules/*'); do
-            python3 -m py_compile "$f" || exit 1; n=$((n+1)); done
-          echo "python OK ($n files)"
-
+          n=0; for f in $(find instabiz -name '*.py' -not -path '*/node_modules/*'); do python3 -m py_compile "$f" || exit 1; n=$((n+1)); done; echo "python OK ($n)"
       - name: js syntax
         run: |
-          n=0; for f in $(find instabiz -name '*.js' -not -path '*/node_modules/*' -not -path '*/dist/*'); do
-            node --check "$f" || exit 1; n=$((n+1)); done
-          echo "js OK ($n files)"
-
+          n=0; for f in $(find instabiz -name '*.js' -not -path '*/node_modules/*' -not -path '*/dist/*'); do node --check "$f" || exit 1; n=$((n+1)); done; echo "js OK ($n)"
       - name: json valid
         run: |
-          n=0; for f in $(find instabiz -name '*.json' -not -path '*/node_modules/*' -not -path '*/dist/*'); do
-            python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f" || exit 1; n=$((n+1)); done
-          echo "json OK ($n files)"
+          n=0; for f in $(find instabiz -name '*.json' -not -path '*/node_modules/*' -not -path '*/dist/*'); do python3 -c "import json,sys;json.load(open(sys.argv[1]))" "$f" || exit 1; n=$((n+1)); done; echo "json OK ($n)"
 
   deploy:
     needs: test
@@ -46,13 +35,21 @@ jobs:
     runs-on: ubuntu-latest
     concurrency: deploy-prod
     steps:
-      - name: SSH deploy to prod
+      - name: fetch this sha
         run: |
+          command -v git || (command -v apk && apk add --no-cache git openssh-client) || (apt-get update -qq && apt-get install -y git openssh-client)
           command -v ssh || (command -v apk && apk add --no-cache openssh-client)
+          git init -q .
+          git remote add origin "http://x:${{ github.token }}@gitea:3000/${{ github.repository }}.git"
+          git -c protocol.version=2 fetch --depth 1 origin "${{ github.sha }}"
+          git checkout -q FETCH_HEAD
+      - name: ship tree + run deploy
+        run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id && chmod 600 ~/.ssh/id
           ssh-keyscan -H "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -i ~/.ssh/id_ed25519 \
-            "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}" \
-            "bash /home/frappe/frappe-bench/apps/instabiz/scripts/deploy_prod.sh ${{ github.sha }}"
+          SSH="ssh -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -i ~/.ssh/id ${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}"
+          # place the new tree on prod (tracked files at this sha), keep .git untouched
+          git archive --format=tar "${{ github.sha }}" | $SSH "tar -x --overwrite -C /home/frappe/frappe-bench/apps/instabiz"
+          # run the deploy script (its own copy was just shipped); pass mariadb root for rollback
+          $SSH "PROD_MARIADB_ROOT='${{ secrets.PROD_MARIADB_ROOT }}' bash /home/frappe/frappe-bench/apps/instabiz/scripts/deploy_prod.sh ${{ github.sha }}"
