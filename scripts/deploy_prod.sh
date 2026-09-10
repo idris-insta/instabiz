@@ -49,16 +49,16 @@ echo "pip -e (in case deps changed)…"; "$BENCH/env/bin/pip" install --quiet -e
 echo "migrate…";  bench --site "$SITE" migrate
 echo "build…";    bench build --app instabiz
 echo "restart…";  sudo supervisorctl restart all
-sleep 6
+echo "maintenance off…"; bench --site "$SITE" set-maintenance-mode off
+sleep 8
 echo "health check…"
 ok=0
-for i in $(seq 1 12); do
+for i in $(seq 1 15); do
   c=$(curl -s -o /dev/null -w '%{http_code}' --resolve instabizerp.com:443:127.0.0.1 "$URL" || true)
-  [ "$c" = "200" ] && { echo "healthy"; ok=1; break; }
-  sleep 3
+  [ "$c" = "200" ] && { echo "healthy ($c)"; ok=1; break; }
+  echo "  attempt $i: $c"; sleep 4
 done
-[ "$ok" = 1 ] || { echo "unhealthy"; false; }
-bench --site "$SITE" set-maintenance-mode off
+[ "$ok" = 1 ] || { echo "unhealthy after 15 tries"; false; }
 trap - ERR
 rm -f "$SNAP"
 echo "✅ deployed $SHA  ($(date -Is))"
