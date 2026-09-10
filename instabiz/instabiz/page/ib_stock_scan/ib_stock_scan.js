@@ -8,8 +8,8 @@ frappe.pages["ib-stock-scan"].on_page_show = function (wrapper) {
 
 const IB_SS_CSS = `
 .ibss-wrap{max-width:560px;margin:0 auto;padding:10px 0 60px}
-.ibss-scan{position:relative;margin:12px 0 16px}
-.ibss-scan input{width:100%;height:56px;padding:0 16px 0 46px;font-size:16px;
+.ibss-scan{position:relative;margin:12px 0 16px;display:flex;gap:8px;align-items:stretch}
+.ibss-scan input{flex:1;height:56px;padding:0 16px 0 46px;font-size:16px;
   font-family:var(--font-stack-mono,ui-monospace,monospace);letter-spacing:.02em;
   border:1.5px solid var(--border-color);border-radius:14px;background:var(--control-bg);color:var(--text-color);
   outline:none;transition:border-color .15s,box-shadow .15s}
@@ -41,6 +41,15 @@ const IB_SS_CSS = `
 .ibss-actions button{flex:1;height:42px;border:0;border-radius:10px;font-weight:600;cursor:pointer;font-size:13px}
 .ibss-add{background:#10b981;color:#fff}
 .ibss-ded{background:#ef4444;color:#fff}
+.ibss-ded:disabled{background:var(--control-bg);color:var(--text-muted);cursor:default}
+.ibss-secondary{background:var(--control-bg);color:var(--text-muted);border:1px solid var(--border-color)!important}
+.ibss-cam{width:56px;flex:0 0 56px;border:1.5px solid var(--border-color);border-radius:14px;background:var(--control-bg);
+  color:var(--text-color);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.ibss-cam:hover{border-color:var(--primary);color:var(--primary)}
+.ibss-camwrap{margin:0 0 14px;text-align:center}
+.ibss-video{width:100%;max-height:280px;border-radius:14px;background:#000;object-fit:cover}
+.ibss-camstop{margin-top:8px;height:38px;padding:0 16px;border:1px solid var(--border-color);border-radius:9px;
+  background:var(--control-bg);color:var(--text-color);cursor:pointer}
 .ibss-trace{display:inline-flex;align-items:center;gap:6px;margin-top:12px;padding:9px 12px;border-radius:10px;
   background:color-mix(in srgb,var(--primary) 10%,transparent);color:var(--primary);font-weight:600;font-size:13px;text-decoration:none;border:1px solid color-mix(in srgb,var(--primary) 30%,transparent)}
 .ibss-trace:hover{background:color-mix(in srgb,var(--primary) 16%,transparent)}
@@ -73,11 +82,18 @@ class IBStockScan {
 			<div class="ibss-scan">
 				<span class="i">${ico("scan")}</span>
 				<input type="text" placeholder="${__("Scan barcode, batch or serial…")}" autocomplete="off" spellcheck="false">
+				<button class="ibss-cam" title="${__("Scan with phone camera")}">${ico("camera")}</button>
+			</div>
+			<div class="ibss-camwrap" style="display:none">
+				<video class="ibss-video" playsinline muted></video>
+				<button class="ibss-camstop">${__("Stop camera")}</button>
 			</div>
 			<div class="ibss-result"></div>
 			<div class="ibss-feed"><h6>${__("This session")}</h6><div class="ibss-feed-list ibss-muted">${__("No scans yet")}</div></div>
 		`);
 		this.$bc = this.$wrap.find(".ibss-scan input")[0];
+		this.$wrap.find(".ibss-cam").on("click", () => this._startCamera());
+		this.$wrap.find(".ibss-camstop").on("click", () => this._stopCamera());
 		this.$result = this.$wrap.find(".ibss-result");
 		this.$feedList = this.$wrap.find(".ibss-feed-list");
 
@@ -98,7 +114,66 @@ class IBStockScan {
 		setTimeout(() => this.$bc.focus(), 80);
 	}
 
+	_stripUrl(v) {
+		// phone camera reading the label QR returns the full trace URL
+		const m = String(v || "").match(/[?&]id=([^&\s]+)/);
+		return m ? decodeURIComponent(m[1]) : String(v || "").trim();
+	}
+
+	async _startCamera() {
+		if (!("BarcodeDetector" in window)) {
+			frappe.msgprint(
+				__("Camera scanning needs Chrome on Android (or a Chromium browser). Use a handheld scanner or type the code."),
+			);
+			return;
+		}
+		try {
+			this._det = new window.BarcodeDetector({
+				formats: ["qr_code", "code_128", "code_39", "ean_13", "codabar"],
+			});
+			this._stream = await navigator.mediaDevices.getUserMedia({
+				video: { facingMode: "environment" },
+			});
+			const v = this.$wrap.find(".ibss-video")[0];
+			v.srcObject = this._stream;
+			await v.play();
+			this.$wrap.find(".ibss-camwrap").show();
+			this._camLoop(v);
+		} catch (e) {
+			frappe.msgprint(__("Could not open the camera: {0}", [e.message || e]));
+			this._stopCamera();
+		}
+	}
+
+	async _camLoop(v) {
+		if (!this._stream) return;
+		try {
+			const hits = await this._det.detect(v);
+			if (hits && hits.length) {
+				const code = this._stripUrl(hits[0].rawValue);
+				if (navigator.vibrate) navigator.vibrate(60);
+				this._stopCamera();
+				this._resolve(code);
+				return;
+			}
+		} catch (_e) {
+			/* transient decode error — keep looping */
+		}
+		this._camRAF = requestAnimationFrame(() => this._camLoop(v));
+	}
+
+	_stopCamera() {
+		if (this._camRAF) cancelAnimationFrame(this._camRAF);
+		this._camRAF = null;
+		if (this._stream) {
+			this._stream.getTracks().forEach((t) => t.stop());
+			this._stream = null;
+		}
+		this.$wrap.find(".ibss-camwrap").hide();
+	}
+
 	_resolve(code) {
+		code = this._stripUrl(code);
 		if (!code) return;
 		frappe.call({
 			method: "instabiz.overrides.stock_scan.resolve_barcode",
@@ -124,26 +199,36 @@ class IBStockScan {
 
 	_renderResult(m) {
 		if (m.kind === "serial") {
+			const shipped = m.serial_status !== "In Stock";
 			this.$result.html(`
 				<div class="ibss-card kind-serial">
 					<div class="ibss-h">
 						<span class="ibss-badge">${__("Finished Unit")}</span>
 						<div style="flex:1">
 							<div class="ibss-name ibss-mono">${esc(m.serial)}</div>
-							<div class="ibss-sub">${esc(m.item_name || m.item_code)} · ${__("Box")} ${esc(m.box_no)} · <span class="ibss-pill g">${esc(m.serial_status || "In Stock")}</span></div>
+							<div class="ibss-sub">${esc(m.item_name || m.item_code)} · ${__("Box")} ${esc(m.box_no)} · <span class="ibss-pill ${shipped ? "a" : "g"}">${esc(m.serial_status || "In Stock")}</span></div>
 						</div>
 					</div>
 					<div style="margin-top:10px;font-size:12px;color:var(--text-muted)">
+						${__("Deducts")}: <b>${esc(flt(m.unit_qty))} ${esc(m.stock_uom || "")}</b>
+						${m.suggest_warehouse ? ` ${__("from")} ${esc(shortWh(m.suggest_warehouse))}` : ""}<br>
 						${m.fg_batch ? `${__("FG Batch")}: <span class="ibss-mono">${esc(m.fg_batch)}</span><br>` : ""}
 						${m.work_order ? `${__("Work Order")}: ${esc(m.work_order)} &nbsp; ` : ""}
 						${m.sales_order ? `${__("SO")}: ${esc(m.sales_order)}` : ""}
 					</div>
+					<div class="ibss-qtyrow"><div class="fld ibss-wh-mount"></div></div>
+					<div class="ibss-actions">
+						<button class="ibss-ded ibss-ship" ${shipped ? "disabled" : ""}>${ico("minus")} ${shipped ? __("Already {0}", [m.serial_status]) : __("Scan Out (deduct)")}</button>
+					</div>
 					${this._traceBtn(m.serial)}
 				</div>`);
-			this._done();
+			this.$result.find(".ibss-wh-mount").append(this.wh.$wrapper.show());
+			if (m.suggest_warehouse && !this.wh.get_value()) this.wh.set_value(m.suggest_warehouse);
+			this.$result.find(".ibss-ship").on("click", () => this._shipSerial(m));
 			return;
 		}
 		if (m.kind === "batch") {
+			const canDeduct = !!m.can_deduct;
 			this.$result.html(`
 				<div class="ibss-card kind-batch">
 					<div class="ibss-h">
@@ -153,10 +238,26 @@ class IBStockScan {
 							<div class="ibss-sub"><span class="ibss-mono">${esc(m.batch)}</span> · <span class="ibss-pill a">${esc(m.batch_kind || "Batch")}</span>${m.container_no ? ` · ${__("Container")} ${esc(m.container_no)}` : ""}</div>
 						</div>
 					</div>
-					${m.supplier_lot ? `<div style="margin-top:8px;font-size:12px;color:var(--text-muted)">${__("Supplier Lot")}: ${esc(m.supplier_lot)}</div>` : ""}
+					<div style="margin-top:8px;font-size:12px;color:var(--text-muted)">
+						${__("Remaining")}: <b>${esc(flt(m.batch_qty))} ${esc(m.stock_uom || "")}</b>
+						${m.supplier_lot ? `<br>${__("Supplier Lot")}: ${esc(m.supplier_lot)}` : ""}
+					</div>
+					${canDeduct ? `
+					<div class="ibss-qtyrow">
+						<div class="fld ibss-wh-mount"></div>
+						<div style="width:96px"><label>${__("Qty")}</label><input type="number" class="ibss-qty" min="0" step="any" value="${flt(m.batch_qty)}"></div>
+					</div>
+					<div class="ibss-actions"><button class="ibss-ded ibss-batchded">${ico("minus")} ${__("Scan Out (deduct)")}</button></div>
+					` : `<div class="ibss-muted" style="margin-top:8px">${m.batch_kind === "Raw Material" ? __("Raw material leaves through production, not a manual scan.") : __("Nothing left to deduct.")}</div>`}
 					${this._traceBtn(m.batch)}
 				</div>`);
-			this._done();
+			if (canDeduct) {
+				this.$result.find(".ibss-wh-mount").append(this.wh.$wrapper.show());
+				if (m.suggest_warehouse && !this.wh.get_value()) this.wh.set_value(m.suggest_warehouse);
+				this.$result.find(".ibss-batchded").on("click", () => this._adjustBatch(m));
+			} else {
+				this._done();
+			}
 			return;
 		}
 
@@ -184,13 +285,60 @@ class IBStockScan {
 					<div style="width:96px"><label>${__("Qty")}</label><input type="number" class="ibss-qty" min="0" step="any" value="1"></div>
 				</div>
 				<div class="ibss-actions">
-					<button class="ibss-add">${ico("plus")} ${__("Add")}</button>
 					<button class="ibss-ded">${ico("minus")} ${__("Deduct")}</button>
+					<button class="ibss-add ibss-secondary">${ico("plus")} ${__("Add (correction)")}</button>
 				</div>
 			</div>`);
 		this.$result.find(".ibss-wh-mount").append(this.wh.$wrapper.show());
+		if (m.suggest_warehouse && !this.wh.get_value()) this.wh.set_value(m.suggest_warehouse);
 		this.$result.find(".ibss-add").on("click", () => this._adjust("Add"));
 		this.$result.find(".ibss-ded").on("click", () => this._adjust("Deduct"));
+	}
+
+	_shipSerial(m) {
+		const warehouse = this.wh.get_value();
+		if (!warehouse) return frappe.msgprint(__("Select a warehouse"));
+		localStorage.setItem("ib_stock_scan_warehouse", warehouse);
+		frappe.call({
+			method: "instabiz.overrides.stock_scan.ship_serial",
+			args: { serial_no: m.serial, warehouse },
+			freeze: true,
+			callback: (r) => {
+				if (!r.message) return;
+				if (r.message.already) return frappe.show_alert({ message: r.message.message, indicator: "orange" });
+				frappe.show_alert({
+					message: __("Shipped {0} — {1} {2} → {3}", [m.serial, r.message.qty, m.item_code, r.message.new_qty]),
+					indicator: "orange",
+				});
+				this._feed.unshift({ t: frappe.datetime.now_time(), tag: "OUT", txt: `${m.serial}`, se: r.message.stock_entry });
+				this._renderFeed();
+				this._resolved = null;
+				this.$result.html("");
+				this._done();
+			},
+		});
+	}
+
+	_adjustBatch(m) {
+		const warehouse = this.wh.get_value();
+		const qty = flt(this.$result.find(".ibss-qty").val());
+		if (!warehouse) return frappe.msgprint(__("Select a warehouse"));
+		if (!qty || qty <= 0) return frappe.msgprint(__("Enter a qty greater than 0"));
+		localStorage.setItem("ib_stock_scan_warehouse", warehouse);
+		frappe.call({
+			method: "instabiz.overrides.stock_scan.adjust_batch_stock",
+			args: { batch: m.batch, warehouse, qty, direction: "Deduct" },
+			freeze: true,
+			callback: (r) => {
+				if (!r.message) return;
+				frappe.show_alert({ message: __("Deducted {0} × {1} → {2}", [qty, m.item_code, r.message.new_qty]), indicator: "orange" });
+				this._feed.unshift({ t: frappe.datetime.now_time(), tag: "OUT", txt: `${qty} × ${m.item_code} (${m.batch})`, se: r.message.stock_entry });
+				this._renderFeed();
+				this._resolved = null;
+				this.$result.html("");
+				this._done();
+			},
+		});
 	}
 
 	_done() {
@@ -248,6 +396,7 @@ function shortWh(w) {
 function ico(name) {
 	const P = {
 		scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',
+		camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
 		plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
 		minus: '<path d="M5 12h14"/>',
 		"git-branch": '<line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',

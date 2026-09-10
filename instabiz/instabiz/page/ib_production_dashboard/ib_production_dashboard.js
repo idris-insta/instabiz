@@ -206,295 +206,152 @@ function _etd_badge(dateStr) {
 	</span>`;
 }
 
-// JIT stage picker (2026-08-13, user's explicit decision) — the single entry
-// point for starting work on an item/stage. Shared by both classes (Active
-// Production Plan rows, WO panel's post-complete prompt, Item-wise) so
-// "start/next" always means the same interaction everywhere on this page,
-// not a per-tab reinvention. suggestion is a stage LABEL (e.g. "Packing" —
-// matches _get_stage_route()'s own return shape in production.py, NOT the
-// lowercase IB_STAGES `key`) since it comes straight from the server's
-// next_stage_suggestion / next_stage fields; falls back to the first stage
-// if blank/unrecognized.
-// Pre-stage packing-details form (2026-08-13) — asked once per Order Sheet
-// Item, before its first stage picker, never again after (server tracks via
-// custom_packing_captured, checked fresh on every call so it holds no matter
-// which tab/entry-point triggered the stage picker — see
-// get_packing_capture_status's own docstring for why not client-cached).
-function _show_packing_details_dialog(order_sheet_item, item_code, onSaved) {
-	const d = new frappe.ui.Dialog({
-		title: `Packing Details — ${item_code || ""}`,
-		fields: [
-			{ fieldname: "brand", fieldtype: "Link", options: "Brand", label: "Brand" },
-			{ fieldname: "core", fieldtype: "Link", options: "Item", label: "Core",
-				get_query: () => ({ filters: { custom_is_internal_use: 1 } }) },
-			{ fieldname: "ctn", fieldtype: "Link", options: "Item", label: "CTN",
-				get_query: () => ({ filters: { custom_is_internal_use: 1 } }) },
-			{ fieldname: "shrink_film", fieldtype: "Link", options: "Item", label: "Shrink Film",
-				get_query: () => ({ filters: { custom_is_internal_use: 1 } }) },
-			{ fieldname: "no_of_logs", fieldtype: "Int", label: "No. of Logs" },
-			{ fieldname: "packing_type", fieldtype: "Data", label: "Packing Type" },
-			{ fieldname: "size", fieldtype: "Data", label: "Size" },
-		],
-		primary_action_label: "Save & Continue",
-		primary_action: (values) => {
-			d.get_primary_btn().prop("disabled", true).text("Saving…");
-			frappe.call({
-				method: "instabiz.overrides.production.save_packing_details",
-				args: { order_sheet_item, ...values },
-				callback: (r) => {
-					if (r.exc) {
-						frappe.show_alert({ message: "Failed to save packing details.", indicator: "red" });
-						d.get_primary_btn().prop("disabled", false).text("Save & Continue");
-						return;
-					}
-					d.hide();
-					if (onSaved) onSaved();
-				},
-			});
-		},
-	});
-	d.show();
-}
-
-function _show_start_stage_dialog(order_sheet_item, item_code, suggestion, onDone) {
-	const suggested = IB_STAGES.some((s) => s.label === suggestion) ? suggestion : IB_STAGES[0].label;
-
-	const d = new frappe.ui.Dialog({
-		title: `Start Production — ${item_code || ""}`,
-		fields: [
-			{
-				fieldname: "stages",
-				fieldtype: "MultiCheck",
-				label: "Stages",
-				columns: 2,
-				sort_options: false, // keep production-sequence order, not alphabetical
-				options: IB_STAGES.map((s) => ({
-					label: s.label,
-					value: s.label,
-					checked: s.label === suggested,
-				})),
-				description: "Pre-checked with the item's next stage — check others too to start several at once (e.g. Coating + Slitting), or uncheck it and pick a different one to skip ahead.",
-			},
-		],
-		primary_action_label: "Start",
-		primary_action: () => {
-			// Fire in the same order production actually runs in (IB_STAGES'
-			// own order), not the order checkboxes were clicked — each stage
-			// still gets its own start_item_stage call/lock, run one at a
-			// time so an earlier stage's WO/machine assignment is committed
-			// before the next stage's call reads order-sheet state.
-			const picked = d.get_value("stages") || [];
-			const stages = IB_STAGES.map((s) => s.label).filter((label) => picked.includes(label));
-			if (!stages.length) {
-				frappe.show_alert({ message: "Pick at least one stage.", indicator: "orange" });
-				return;
-			}
-
-			d.get_primary_btn().prop("disabled", true).text("Starting…");
-			const started = [];
-			const failed = [];
-
-			const runNext = (i) => {
-				if (i >= stages.length) {
-					if (started.length) {
-						frappe.show_alert({
-							message: `${started.join(", ")} started`
-								+ (failed.length ? ` — ${failed.join(", ")} failed` : ""),
-							indicator: failed.length ? "orange" : "green",
-						}, 4);
-					} else {
-						frappe.show_alert({ message: `Failed to start ${failed.join(", ")}.`, indicator: "red" });
-					}
-					if (started.length) {
-						d.hide();
-						if (onDone) onDone();
-					} else {
-						d.get_primary_btn().prop("disabled", false).text("Start");
-					}
-					return;
-				}
-				const stage = stages[i];
-				frappe.call({
-					method: "instabiz.overrides.production.start_item_stage",
-					args: { order_sheet_item, stage },
-					callback: (r) => {
-						if (r.exc) {
-							failed.push(stage);
-						} else {
-							started.push(stage);
-						}
-						runNext(i + 1);
-					},
-				});
-			};
-			runNext(0);
-		},
-	});
-	d.show();
-}
-
-// Entry point every "Start Production" trigger on this page now calls
-// instead of _show_start_stage_dialog directly — checks whether this item's
-// packing details were already captured, and only interposes the form when
-// they weren't.
+// Every "Start Production" / "start next stage" trigger on this page routes
+// through the single grid dialog (ibBulkStartDialog, defined just below). One
+// item opens a one-row grid — identical interaction to bulk, no separate modal.
+// The old single-item MultiCheck stage picker (_show_start_stage_dialog) and the
+// standalone packing-details dialog (_show_packing_details_dialog) were removed
+// 2026-09-11 (user: the grid dialog is the bullseye — make it the default).
+// `suggestion` is a stage LABEL (matches _get_stage_route's return shape in
+// production.py); ibBulkStartDialog falls back to the first stage if blank.
 function _start_production_flow(order_sheet_item, item_code, suggestion, onDone) {
+	// server helper — the client can't read IB Order Sheet Item (istable) directly
 	frappe.call({
-		method: "instabiz.overrides.production.get_packing_capture_status",
+		method: "instabiz.overrides.production_run.get_osi_context",
 		args: { order_sheet_item },
 		callback: (r) => {
-			if (r.message) {
-				_show_start_stage_dialog(order_sheet_item, item_code, suggestion, onDone);
-			} else {
-				_show_packing_details_dialog(order_sheet_item, item_code, () => {
-					_show_start_stage_dialog(order_sheet_item, item_code, suggestion, onDone);
-				});
-			}
+			const c = r.message;
+			if (!c) { frappe.show_alert({ message: "Could not load the item.", indicator: "red" }); return; }
+			_ibStartRunDialog(c.order_sheet, [{
+				name: c.order_sheet_item,
+				sales_order_item: c.sales_order_item,
+				item_code: c.item_code || item_code,
+				qty: c.qty || 0,
+				uom: c.uom || "",
+				width_mm: c.width_mm, length_mtr: c.length_mtr, gsm: c.gsm,
+				route: c.route || [],
+				next_stage_suggestion: suggestion || (c.route || [])[0] || "",
+			}], onDone);
 		},
 	});
 }
 
-// Bulk "Start Production" for several Order Sheet Items at once. Top-level (not
-// a class method) so BOTH IBProductionDashboard's Active Production Plan bulk
-// bar and IBProductionStages' Order-wise "Start All Items" button can use it.
-//   items  — resolved item objects: { name (osi), item_code, qty, uom, next_stage_suggestion }
-//   onDone — called after a successful bulk start (caller decides how to refresh)
-// Per-item stage grid + per-item packing override (each row can carry its own
-// Brand/Core/CTN/Shrink Film/Packing Type/Size/Logs) plus a shared "defaults"
-// section applied only to rows that didn't override AND haven't captured yet.
+// Start Production — WO-per-run model (2026-09-11). ONE run = one RM source
+// batch -> one or more finished outputs, produced together through a route.
+// `items` — [{ name(osi), item_code, qty, uom, next_stage_suggestion }]. Multiple
+// items become multiple outputs on ONE run (the common "N dimension-variants of
+// one SKU from one jumbo" case). onDone() fires after create_run succeeds.
 function ibBulkStartDialog(items, onDone) {
 	items = (items || []).filter(Boolean);
 	if (!items.length) {
 		frappe.show_alert({ message: "Nothing to start.", indicator: "orange" });
 		return;
 	}
-	const osiList = items.map((it) => it.name);
-	const item_codes = new Set(items.map((it) => it.item_code));
-	const mixedSuggestions = new Set(items.map((it) => it.next_stage_suggestion || "")).size > 1;
-	const heterogeneous = item_codes.size > 1;
-	const subtitle = item_codes.size === 1
-		? `${osiList.length} lines of ${Array.from(item_codes)[0]}`
-		: `${osiList.length} items across ${item_codes.size} SKUs`;
-
-	const PK = (osi, f, ph, type) =>
-		`<input type="${type || "text"}" class="form-control input-sm ib-pd-bpk-${f}" data-osi="${frappe.utils.escape_html(osi)}" placeholder="${ph}" style="min-width:110px">`;
-
-	const gridRows = items.map((it) => {
-		const suggested = IB_STAGES.some((s) => s.label === it.next_stage_suggestion)
-			? it.next_stage_suggestion : IB_STAGES[0].label;
-		const cells = IB_STAGES.map((s) => `
-			<td style="text-align:center">
-				<input type="checkbox" class="ib-pd-bulk-stage-cell" data-osi="${frappe.utils.escape_html(it.name)}"
-					data-stage="${frappe.utils.escape_html(s.label)}" ${s.label === suggested ? "checked" : ""}>
-			</td>`).join("");
-		const pkRow = `
-			<tr class="ib-pd-bpk-row" data-osi="${frappe.utils.escape_html(it.name)}" style="display:none;background:var(--control-bg)">
-				<td colspan="${3 + IB_STAGES.length}">
-					<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:4px 0">
-						<span class="text-muted" style="font-size:11px">Packing for this item:</span>
-						${PK(it.name, "brand", "Brand")}
-						${PK(it.name, "core", "Core (item code)")}
-						${PK(it.name, "ctn", "CTN (item code)")}
-						${PK(it.name, "shrink_film", "Shrink Film")}
-						${PK(it.name, "packing_type", "Packing Type")}
-					</div>
-				</td>
-			</tr>`;
-		return `
-			<tr>
-				<td style="white-space:nowrap;padding-right:10px">
-					<strong>${frappe.utils.escape_html(it.item_code || "")}</strong>
-					<div class="text-muted" style="font-size:11px">${it.qty || 0} ${frappe.utils.escape_html(it.uom || "")}</div>
-					<a href="#" class="ib-pd-bpk-toggle" data-osi="${frappe.utils.escape_html(it.name)}" style="font-size:10px">＋ packing</a>
-				</td>
-				<td><input type="text" class="form-control input-sm ib-pd-bulk-size" data-osi="${frappe.utils.escape_html(it.name)}" placeholder="(default)" style="width:90px"></td>
-				<td><input type="number" class="form-control input-sm ib-pd-bulk-logs" data-osi="${frappe.utils.escape_html(it.name)}" placeholder="(default)" style="width:70px"></td>
-				${cells}
-			</tr>
-			${pkRow}`;
-	}).join("");
-
-	const gridHtml = `
-		${mixedSuggestions ? `<div class="text-muted" style="margin-bottom:6px;font-size:12px">Different next stage per row — check each one.</div>` : ""}
-		${heterogeneous ? `<div class="text-muted" style="margin-bottom:6px;font-size:12px">These are different SKUs — use each row's <b>＋ packing</b> link to set that item's own Brand/Core/CTN/etc; the shared fields below are only a fallback.</div>` : ""}
-		<div style="overflow-x:auto">
-			<table class="table table-bordered" style="margin-bottom:0">
-				<thead><tr>
-					<th>Item</th><th style="white-space:nowrap">Size</th><th style="white-space:nowrap">Logs</th>
-					${IB_STAGES.map((s) => `<th style="text-align:center;white-space:nowrap">${s.label}</th>`).join("")}
-				</tr></thead>
-				<tbody>${gridRows}</tbody>
-			</table>
-		</div>`;
-
-	const d = new frappe.ui.Dialog({
-		title: `Bulk Start Production — ${subtitle}`,
-		size: "large",
-		fields: [
-			{ fieldname: "grid", fieldtype: "HTML", options: gridHtml },
-			{ fieldname: "packing_sb", fieldtype: "Section Break", label: "Shared Packing Defaults" },
-			{ fieldname: "packing_note", fieldtype: "HTML", options: `<div class="text-muted" style="margin-bottom:6px;font-size:12px">Used only for rows that didn't set their own ＋ packing and haven't captured details yet. Leave blank to skip those instead.</div>` },
-			{ fieldname: "brand", fieldtype: "Link", options: "Brand", label: "Brand" },
-			{ fieldname: "core", fieldtype: "Link", options: "Item", label: "Core" },
-			{ fieldname: "col_pack", fieldtype: "Column Break" },
-			{ fieldname: "ctn", fieldtype: "Link", options: "Item", label: "CTN" },
-			{ fieldname: "shrink_film", fieldtype: "Link", options: "Item", label: "Shrink Film" },
-			{ fieldname: "packing_type", fieldtype: "Data", label: "Packing Type" },
-			{ fieldname: "no_of_logs", fieldtype: "Int", label: "No. of Logs (default)" },
-			{ fieldname: "size", fieldtype: "Data", label: "Size (default)" },
-		],
-		primary_action_label: "Start",
-		primary_action: (values) => {
-			const byOsi = {};
-			osiList.forEach((osi) => { byOsi[osi] = { stages: [] }; });
-			d.$wrapper.find(".ib-pd-bulk-stage-cell:checked").each(function () {
-				byOsi[$(this).data("osi")].stages.push($(this).data("stage"));
-			});
-			const grab = (cls, key) => d.$wrapper.find(cls).each(function () {
-				const v = String($(this).val() || "").trim();
-				if (v) byOsi[$(this).data("osi")][key] = v;
-			});
-			grab(".ib-pd-bulk-size", "size");
-			grab(".ib-pd-bulk-logs", "no_of_logs");
-			grab(".ib-pd-bpk-brand", "brand");
-			grab(".ib-pd-bpk-core", "core");
-			grab(".ib-pd-bpk-ctn", "ctn");
-			grab(".ib-pd-bpk-shrink_film", "shrink_film");
-			grab(".ib-pd-bpk-packing_type", "packing_type");
-
-			const item_stages = osiList.map((osi) => ({ order_sheet_item: osi, ...byOsi[osi] }));
-			if (!item_stages.some((r) => r.stages.length)) {
-				frappe.show_alert({ message: "Pick at least one stage for at least one item.", indicator: "orange" });
+	// resolve the parent Order Sheet server-side (istable — client get_value is blocked)
+	frappe.call({
+		method: "instabiz.overrides.production_run.get_osi_context",
+		args: { order_sheet_item: items[0].name },
+		callback: (r) => {
+			const c = r.message;
+			if (!c || !c.order_sheet) {
+				frappe.show_alert({ message: "Could not resolve the Order Sheet.", indicator: "red" });
 				return;
 			}
+			// carry the server's suggestion/dims onto the first row if the caller didn't
+			items[0] = Object.assign({
+				sales_order_item: c.sales_order_item,
+				width_mm: c.width_mm, length_mtr: c.length_mtr, gsm: c.gsm,
+				route: c.route || [],
+			}, items[0]);
+			if (!items[0].route || !items[0].route.length) items[0].route = c.route || [];
+			if (!items[0].next_stage_suggestion) items[0].next_stage_suggestion = (c.route || [])[0] || "";
+			_ibStartRunDialog(c.order_sheet, items, onDone);
+		},
+	});
+}
+
+function _ibStartRunDialog(order_sheet, items, onDone) {
+	const ALL_LABELS = IB_STAGES.map((s) => s.label);
+	// the run's route = the first item's route (all outputs share one route);
+	// fall back to all canonical stages only if the server sent none.
+	const route = (items[0] && items[0].route && items[0].route.length) ? items[0].route.slice() : ALL_LABELS.slice();
+	const firstSuggestion = items.map((it) => it.next_stage_suggestion).find((s) => route.includes(s)) || route[0];
+	const item_codes = new Set(items.map((it) => it.item_code));
+	const subtitle = item_codes.size === 1
+		? `${items.length} output(s) of ${Array.from(item_codes)[0]}`
+		: `${items.length} outputs across ${item_codes.size} SKUs`;
+
+	const rows = items.map((it, i) => `
+		<tr data-i="${i}">
+			<td style="white-space:nowrap"><strong>${frappe.utils.escape_html(it.item_code || "")}</strong>
+				<div class="text-muted" style="font-size:11px">${it.uom || ""}</div></td>
+			<td><input type="number" class="form-control input-sm ib-sr-qty" value="${flt(it.qty) || 0}" step="any" style="width:110px"></td>
+			<td><input type="number" class="form-control input-sm ib-sr-pack" placeholder="boxes/rolls" step="1" style="width:110px"></td>
+			<td>
+				<input type="text" class="form-control input-sm ib-sr-brand" placeholder="Brand" style="width:100px;display:inline-block">
+				<input type="text" class="form-control input-sm ib-sr-core" placeholder="Core" style="width:90px;display:inline-block">
+			</td>
+		</tr>`).join("");
+
+	const d = new frappe.ui.Dialog({
+		title: `Start Production — ${subtitle}`,
+		size: "large",
+		fields: [
+			{ fieldname: "source_batch", fieldtype: "Link", options: "IB Batch", label: "Source RM Batch", reqd: 1,
+				get_query: () => ({ filters: { kind: "Raw Material", status: "Active" } }),
+				description: "The one raw-material / jumbo batch this run consumes." },
+			{ fieldname: "source_qty", fieldtype: "Float", label: "RM Qty Consumed",
+				description: "Leave blank to use the sum of output planned quantities." },
+			{ fieldname: "start_stage", fieldtype: "Select", label: "Start At Stage",
+				options: route.join("\n"), default: firstSuggestion, reqd: 1,
+				description: `This run's route: ${route.join(" → ")}` },
+			{ fieldname: "grid", fieldtype: "HTML", options: `
+				<div style="overflow-x:auto"><table class="table table-bordered" style="margin-bottom:0">
+					<thead><tr><th>Output Item</th><th>Planned Qty</th><th>Pack Count</th><th>Packing (optional)</th></tr></thead>
+					<tbody>${rows}</tbody>
+				</table></div>` },
+		],
+		primary_action_label: "Start Run",
+		primary_action: (v) => {
+			if (!v.source_batch) { frappe.show_alert({ message: "Pick a source RM batch.", indicator: "orange" }); return; }
+			const outputs = items.map((it, i) => {
+				const $r = d.$wrapper.find(`tr[data-i="${i}"]`);
+				return {
+					order_sheet_item: it.name,
+					sales_order_item: it.sales_order_item || undefined,
+					item_code: it.item_code,
+					planned_qty: flt($r.find(".ib-sr-qty").val()) || flt(it.qty) || 0,
+					uom: it.uom,
+					pack_count: cint($r.find(".ib-sr-pack").val()) || 0,
+					brand: String($r.find(".ib-sr-brand").val() || "").trim() || undefined,
+					core: String($r.find(".ib-sr-core").val() || "").trim() || undefined,
+				};
+			});
 			d.get_primary_btn().prop("disabled", true).text("Starting…");
 			frappe.call({
-				method: "instabiz.overrides.production.bulk_start_item_stages",
+				method: "instabiz.overrides.production_run.create_run",
 				args: {
-					item_stages: JSON.stringify(item_stages),
-					brand: values.brand, core: values.core, ctn: values.ctn,
-					shrink_film: values.shrink_film, no_of_logs: values.no_of_logs,
-					packing_type: values.packing_type, size: values.size,
+					order_sheet, source_batch: v.source_batch,
+					source_qty: v.source_qty || null,
+					outputs: JSON.stringify(outputs),
+					start_stage: v.start_stage,
 				},
 				callback: (r) => {
 					d.hide();
 					if (r.exc || !r.message) {
-						frappe.show_alert({ message: "Bulk start failed.", indicator: "red" });
+						frappe.show_alert({ message: "Failed to start the run.", indicator: "red" });
 						return;
 					}
-					ibBulkStartResults(r.message);
+					frappe.show_alert({ message: `Run ${r.message} started`, indicator: "green" }, 4);
 					if (onDone) onDone();
 				},
-				error: () => { d.get_primary_btn().prop("disabled", false).text("Start"); },
+				error: () => { d.get_primary_btn().prop("disabled", false).text("Start Run"); },
 			});
 		},
 	});
 	d.show();
-	d.$wrapper.on("click", ".ib-pd-bpk-toggle", function (e) {
-		e.preventDefault();
-		const osi = $(this).data("osi");
-		d.$wrapper.find(`.ib-pd-bpk-row[data-osi="${osi}"]`).toggle();
-	});
 }
+
 
 function ibBulkStartResults(result) {
 	const lines = [`<strong>${result.started}</strong> started`];

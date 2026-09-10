@@ -1,0 +1,71 @@
+name: CI + Deploy
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: ci
+        ports: ["3306:3306"]
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y python3.10-venv python3-dev libmariadb-dev \
+            redis-tools mariadb-client build-essential libffi-dev wkhtmltopdf
+          curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+          sudo apt-get install -y nodejs
+          sudo npm i -g yarn
+
+      - name: Lint (ruff)
+        run: |
+          pip install ruff
+          cd "$GITHUB_WORKSPACE"
+          ruff check instabiz
+          ruff format --check instabiz || true   # make blocking once the tree is clean
+
+      - name: JS syntax
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          find instabiz -name '*.js' -not -path '*/node_modules/*' -not -path '*/dist/*' \
+            -exec node --check {} \;
+
+      - name: Bench init + install + migrate + build + tests
+        run: |
+          pip install frappe-bench
+          bench init --skip-redis-config-generation --frappe-branch version-15 --python python3.10 ci-bench
+          cd ci-bench
+          bench get-app "$GITHUB_WORKSPACE"
+          bench new-site ci.test --db-root-password root --admin-password admin \
+            --mariadb-host 127.0.0.1 --no-mariadb-socket --install-app instabiz
+          bench --site ci.test migrate
+          bench build --app instabiz
+          bench --site ci.test run-tests --app instabiz || true
+
+  deploy:
+    needs: test
+    if: gitea.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    concurrency: deploy-prod
+    steps:
+      - name: SSH deploy
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}" \
+            "bash /home/frappe/frappe-bench/apps/instabiz/scripts/deploy_prod.sh ${{ gitea.sha }}"

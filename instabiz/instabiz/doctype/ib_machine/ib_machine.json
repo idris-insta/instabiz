@@ -18,7 +18,23 @@
   "wastage_norm_pct",
   "status",
   "notes",
-  "linked_asset"
+  "linked_asset",
+  "sec_capability",
+  "cap_help",
+  "max_input_width_mm",
+  "max_output_width_mm",
+  "min_slit_width_mm",
+  "knife_positions",
+  "col_break_cap",
+  "max_roll_diameter_mm",
+  "min_length_m",
+  "max_length_m",
+  "gsm_min",
+  "gsm_max",
+  "col_break_cap2",
+  "speed_m_per_min",
+  "changeover_min",
+  "current_setup_sig"
  ],
  "fields": [
   {
@@ -98,6 +114,109 @@
    "label": "Linked Asset",
    "options": "Asset",
    "description": "Optional link to the ERPNext Asset record for this machine, for OEE/maintenance-downtime tracking. Not required — most real machines here have no corresponding Asset record yet."
+  },
+  {
+   "fieldname": "sec_capability",
+   "fieldtype": "Section Break",
+   "label": "Physical Capability",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "cap_help",
+   "fieldtype": "HTML",
+   "options": "<p class='text-muted small'>Physical limits used by machine assignment. <b>Every field left blank = no constraint</b> — the machine then behaves exactly like today (load-balanced only). Fill these in per machine once the shop-floor numbers are known. Only the fields relevant to this machine's type matter (a Packing station needs none).</p>"
+  },
+  {
+   "fieldname": "max_input_width_mm",
+   "fieldtype": "Float",
+   "label": "Max Input Width (mm)",
+   "precision": "1",
+   "description": "Widest jumbo / roll this machine accepts. Coating, Slitting, Rewinding."
+  },
+  {
+   "fieldname": "max_output_width_mm",
+   "fieldtype": "Float",
+   "label": "Max Output Width (mm)",
+   "precision": "1",
+   "description": "Widest finished roll this machine can produce. Cutting, Rewinding."
+  },
+  {
+   "fieldname": "min_slit_width_mm",
+   "fieldtype": "Float",
+   "label": "Min Slit / Cut Width (mm)",
+   "precision": "1",
+   "description": "Narrowest strip a knife/blade can hold. Slitting, Cutting."
+  },
+  {
+   "fieldname": "knife_positions",
+   "fieldtype": "Int",
+   "label": "Knife / Blade Positions",
+   "description": "Max simultaneous output rolls in one pass. Slitting, Cutting."
+  },
+  {
+   "fieldname": "col_break_cap",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "max_roll_diameter_mm",
+   "fieldtype": "Float",
+   "label": "Max Roll Diameter (mm)",
+   "precision": "1",
+   "description": "Slitting, Rewinding, Cutting."
+  },
+  {
+   "fieldname": "min_length_m",
+   "fieldtype": "Float",
+   "label": "Min Finished Length (m)",
+   "precision": "2",
+   "description": "Cutting."
+  },
+  {
+   "fieldname": "max_length_m",
+   "fieldtype": "Float",
+   "label": "Max Finished Length (m)",
+   "precision": "2",
+   "description": "Cutting."
+  },
+  {
+   "fieldname": "gsm_min",
+   "fieldtype": "Float",
+   "label": "GSM Min",
+   "precision": "1",
+   "description": "Coating."
+  },
+  {
+   "fieldname": "gsm_max",
+   "fieldtype": "Float",
+   "label": "GSM Max",
+   "precision": "1",
+   "description": "Coating."
+  },
+  {
+   "fieldname": "col_break_cap2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "speed_m_per_min",
+   "fieldtype": "Float",
+   "label": "Line Speed (m/min)",
+   "precision": "1",
+   "description": "Drives time-based load (queued minutes). Blank = fall back to queued-WO count."
+  },
+  {
+   "fieldname": "changeover_min",
+   "fieldtype": "Float",
+   "label": "Changeover (min)",
+   "precision": "1",
+   "default": "30",
+   "description": "Rough minutes to re-set for a new width/knife layout. Used only to rank machines, not scheduled exactly."
+  },
+  {
+   "fieldname": "current_setup_sig",
+   "fieldtype": "Data",
+   "label": "Current Setup Signature",
+   "read_only": 1,
+   "description": "Auto: the last run's width/knife signature on this machine. A new run matching it incurs zero changeover in the ranking."
   }
  ],
  "links": [],

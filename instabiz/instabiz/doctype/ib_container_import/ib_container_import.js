@@ -56,10 +56,26 @@ frappe.ui.form.on("IB Container Import Item", {
 	qty_per_box(frm, cdt, cdn) {
 		_ib_ctn_recalc(frm, cdt, cdn);
 	},
+	roll_width_mm(frm, cdt, cdn) {
+		_ib_ctn_recalc(frm, cdt, cdn);
+	},
+	roll_length_m(frm, cdt, cdn) {
+		_ib_ctn_recalc(frm, cdt, cdn);
+	},
+	item_code(frm, cdt, cdn) {
+		// stock_uom fetches async after item_code is set — recalc once it lands
+		setTimeout(() => _ib_ctn_recalc(frm, cdt, cdn), 400);
+	},
 });
 
 function _ib_ctn_recalc(frm, cdt, cdn) {
 	const row = frappe.get_doc(cdt, cdn);
-	row.total_qty = flt(row.no_of_boxes) * flt(row.qty_per_box);
+	const is_sqmt = (row.stock_uom || "").trim().toUpperCase() === "SQMT";
+	if (is_sqmt) {
+		row.area_per_unit = (flt(row.roll_width_mm) / 1000) * flt(row.roll_length_m);
+		row.total_qty = flt(row.no_of_boxes) * flt(row.area_per_unit);
+	} else {
+		row.total_qty = flt(row.no_of_boxes) * flt(row.qty_per_box);
+	}
 	frm.refresh_field("items");
 }

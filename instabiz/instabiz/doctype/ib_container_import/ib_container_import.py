@@ -19,18 +19,34 @@ from frappe.utils import flt, cint
 _MAX_LABEL_COUNT = 2000
 
 
+def _is_sqmt(uom: str) -> bool:
+	return (uom or "").strip().upper() == "SQMT"
+
+
 class IBContainerImport(Document):
 	# ── Lifecycle ─────────────────────────────────────────────────────────────
 
 	def validate(self) -> None:
 		for row in self.items:
-			row.total_qty = flt(row.no_of_boxes) * flt(row.qty_per_box)
+			if _is_sqmt(row.stock_uom):
+				# Area UOM: qty = area of one roll × number of rolls.
+				# area_per_unit mirrors the Sales Order Item SQMT rule
+				# (width_mm/1000 × length_mtr), then × the roll count.
+				row.area_per_unit = flt(row.roll_width_mm) / 1000.0 * flt(row.roll_length_m)
+				row.total_qty = flt(row.no_of_boxes) * flt(row.area_per_unit)
+			else:
+				row.total_qty = flt(row.no_of_boxes) * flt(row.qty_per_box)
 			row.barcode = _resolve_barcode(row.item_code)
 
 	def before_submit(self) -> None:
 		for row in self.items:
-			if cint(row.no_of_boxes) <= 0 or flt(row.qty_per_box) <= 0:
-				frappe.throw(_("Row #{0}: No. of Boxes and Qty per Box must both be greater than 0").format(row.idx))
+			if cint(row.no_of_boxes) <= 0:
+				frappe.throw(_("Row #{0}: No. of Boxes / Rolls must be greater than 0").format(row.idx))
+			if _is_sqmt(row.stock_uom):
+				if flt(row.roll_width_mm) <= 0 or flt(row.roll_length_m) <= 0:
+					frappe.throw(_("Row #{0}: Roll Width (mm) and Roll Length (m) are required for SQMT items").format(row.idx))
+			elif flt(row.qty_per_box) <= 0:
+				frappe.throw(_("Row #{0}: Qty per Box must be greater than 0").format(row.idx))
 			if not row.barcode:
 				frappe.throw(_("Row #{0}: barcode could not be resolved for {1}").format(row.idx, row.item_code))
 
@@ -69,22 +85,42 @@ def _resolve_barcode(item_code: str) -> str:
 
 
 @frappe.whitelist()
-def get_barcode_data_uri(value: str) -> str:
+def get_barcode_data_uri(value: str, vertical: int = 0) -> str:
+	"""High-res Code128 PNG. Rendered big at source so it stays sharp when the
+	4x4-per-page sticker scales it down. `vertical=1` rotates the PNG 90° here
+	(server-side) so the print format can place a plain tall <img> — wkhtmltopdf
+	does not render CSS `transform: rotate` reliably."""
 	import barcode as barcode_lib
 	from barcode.writer import ImageWriter
 
 	code = barcode_lib.get("code128", value, writer=ImageWriter())
 	buf = io.BytesIO()
-	code.write(buf, options={"write_text": False, "quiet_zone": 1})
+	code.write(buf, options={
+		"write_text": False,
+		"quiet_zone": 2,
+		"module_width": 0.30,
+		"module_height": 14.0,
+		"dpi": 300,
+	})
+	if int(vertical):
+		from PIL import Image
+
+		img = Image.open(buf).rotate(90, expand=True)
+		buf = io.BytesIO()
+		img.save(buf, format="PNG")
 	encoded = base64.b64encode(buf.getvalue()).decode()
 	return f"data:image/png;base64,{encoded}"
 
 
 @frappe.whitelist()
-def get_qr_data_uri(value: str) -> str:
+def get_qr_data_uri(value: str, scale: int = 10) -> str:
+	"""QR PNG at a high source scale (10 px/module) with error-correction M so a
+	phone still reads it after the sticker downscales it to ~16-18mm."""
 	import pyqrcode
 
-	encoded = pyqrcode.create(value).png_as_base64_str(scale=4, quiet_zone=1)
+	encoded = pyqrcode.create(str(value), error="M").png_as_base64_str(
+		scale=int(scale), quiet_zone=3,
+	)
 	return f"data:image/png;base64,{encoded}"
 
 
@@ -110,8 +146,12 @@ def _make_batch(doc: "IBContainerImport", row) -> str:
 	b.supplier = doc.supplier
 	b.supplier_lot = row.get("custom_supplier_lot") or ""
 	b.received_date = doc.import_date
-	b.gsm = flt(item.get("gsm"))
-	b.width_mm = flt(item.get("width_mm"))
+	# For SQMT rows the operator entered the real imported-roll dimensions —
+	# these can differ from the Item master and are what downstream slitting
+	# feasibility keys on. Fall back to the Item master otherwise.
+	b.gsm = flt(row.roll_gsm) or flt(item.get("gsm"))
+	b.width_mm = flt(row.roll_width_mm) or flt(item.get("width_mm"))
+	b.length_mtr = flt(row.roll_length_m)
 	b.insert(ignore_permissions=True)
 	return b.name
 

@@ -31,6 +31,10 @@ from instabiz.overrides.production import (
 	_WAREHOUSE_ONLY_LOCATIONS,
 	_WAREHOUSE_STAGE_ROUTE,
 	_assign_machine_load_balanced,
+	_assign_machine,
+	_spec_from_run,
+	_setup_sig,
+	_stamp_machine_setup,
 	_check_so_production_access,
 	_get_stage_route,
 	_notify_floor_update,
@@ -158,6 +162,39 @@ def get_route_for_item(item_code, location=None):
 
 
 @frappe.whitelist()
+def get_osi_context(order_sheet_item):
+	"""Server-side lookup for the Start Production dialog — the client can't
+	read `IB Order Sheet Item` (an istable) directly (PermissionError, even for
+	Administrator). Returns the parent Order Sheet + row basics + route."""
+	_require_production_role()
+	row = frappe.db.get_value(
+		"IB Order Sheet Item", order_sheet_item,
+		["name", "parent", "item_code", "item_name", "qty", "uom", "sales_order_item"],
+		as_dict=True,
+	)
+	if not row:
+		frappe.throw(_("Order Sheet Item {0} not found").format(order_sheet_item))
+	location = _run_location(frappe._dict({"order_sheet": row.parent}))
+	dims = frappe.db.get_value(
+		"Item", row.item_code, ["width_mm", "length_mtr", "gsm"], as_dict=True
+	) or {}
+	return {
+		"order_sheet": row.parent,
+		"order_sheet_item": row.name,
+		"sales_order_item": row.sales_order_item,
+		"item_code": row.item_code,
+		"item_name": row.item_name,
+		"qty": flt(row.qty),
+		"uom": row.uom,
+		"width_mm": flt(dims.get("width_mm")),
+		"length_mtr": flt(dims.get("length_mtr")),
+		"gsm": flt(dims.get("gsm")),
+		"route": _get_stage_route(row.item_code, location),
+		"location": location,
+	}
+
+
+@frappe.whitelist()
 def get_order_sheet_runs_context(order_sheet):
 	"""Everything the Start Production dialog needs for one Order Sheet:
 	its items (grouped by item so an operator can pick which share one RM batch),
@@ -210,6 +247,133 @@ def get_order_sheet_runs_context(order_sheet):
 		"rm_batches": batches,
 		"stages": list(STAGES),
 	}
+
+
+@frappe.whitelist()
+def propose_runs(order_sheet, source_batches):
+	"""Bin-pack an Order Sheet's not-yet-produced lines onto slitting passes.
+
+	For each picked RM batch: take the OS lines whose finished item shares that
+	batch's RM item, sort widest-first, greedily fill passes where
+	  Σ widths ≤ batch_width − TRIM  AND  line count ≤ slitter knife positions.
+	Each pass = one proposed run (its lines become `outputs`). The operator can
+	merge / split / re-assign a jumbo before confirming — this is a suggestion.
+	"""
+	_require_production_role()
+	from instabiz.overrides.production import _ASSUMED_TRIM_MM
+	source_batches = _parse(source_batches) or []
+	if isinstance(source_batches, str):
+		source_batches = [source_batches]
+
+	os_doc = frappe.get_doc("IB Order Sheet", order_sheet)
+	location = _run_location(frappe._dict({"order_sheet": order_sheet}))
+
+	# knife positions: max across active slitters (0 = no limit known)
+	knives = frappe.db.sql(
+		"""SELECT COALESCE(MAX(knife_positions), 0) FROM `tabIB Machine`
+		   WHERE machine_type='Slitting' AND status='Active'"""
+	)[0][0] or 0
+
+	proposals = []
+	for b in source_batches:
+		bat = frappe.db.get_value("IB Batch", b, ["name", "item", "qty", "width_mm"], as_dict=True)
+		if not bat:
+			continue
+		usable = flt(bat.width_mm) - _ASSUMED_TRIM_MM if flt(bat.width_mm) else 0
+
+		lines = []
+		for it in os_doc.items:
+			if frappe.db.get_value("IB WO Output",
+			                       {"sales_order_item": it.sales_order_item, "docstatus": ["<", 2]}, "name"):
+				continue  # already in a run
+			# finished -> RM via IB Production Recipe (if one exists for this item)
+			rm = frappe.db.get_value("IB Production Recipe", {"finished_item": it.item_code}, "recipe_item")
+			if rm and rm != bat.item:
+				continue
+			dims = frappe.db.get_value("Sales Order Item", it.sales_order_item,
+			                           ["width_mm", "length_mtr"], as_dict=True) or {}
+			im = frappe.db.get_value("Item", it.item_code,
+			                         ["width_mm", "length_mtr", "gsm", "stock_uom"], as_dict=True) or {}
+			lines.append({
+				"order_sheet_item": it.name,
+				"sales_order_item": it.sales_order_item,
+				"item_code": it.item_code,
+				"item_name": it.item_name,
+				"planned_qty": flt(it.qty),
+				"uom": it.uom or im.get("stock_uom"),
+				"width_mm": flt(dims.get("width_mm") or im.get("width_mm")),
+				"length_mtr": flt(dims.get("length_mtr") or im.get("length_mtr")),
+				"gsm": flt(im.get("gsm")),
+			})
+
+		lines.sort(key=lambda x: x["width_mm"], reverse=True)
+		passes = []
+		for ln in lines:
+			placed = False
+			for p in passes:
+				fits_width = (not usable) or (sum(o["width_mm"] for o in p) + ln["width_mm"] <= usable)
+				fits_count = (not knives) or (len(p) + 1 <= knives)
+				if fits_width and fits_count:
+					p.append(ln)
+					placed = True
+					break
+			if not placed:
+				passes.append([ln])
+
+		route = _get_stage_route(lines[0]["item_code"], location) if lines else list(STAGES)
+		for idx, p in enumerate(passes, 1):
+			proposals.append({
+				"source_batch": bat.name,
+				"source_batch_item": bat.item,
+				"source_batch_width_mm": flt(bat.width_mm),
+				"pass_no": idx,
+				"total_pass_width_mm": sum(o["width_mm"] for o in p),
+				"route": route,
+				"outputs": p,
+			})
+
+	return {
+		"order_sheet": order_sheet,
+		"location": location,
+		"knife_positions": knives,
+		"trim_mm": _ASSUMED_TRIM_MM,
+		"proposals": proposals,
+	}
+
+
+@frappe.whitelist()
+def get_setup_batches(stage, location=None):
+	"""Runs currently AT `stage` grouped by machine-setup signature. Any group
+	with 2+ runs = 'set the knives once, run these N' — surfaced on Machine-wise.
+	"""
+	_require_production_role()
+	filters = {"current_stage": stage, "status": ["in", ["In Progress", "On Hold"]]}
+	runs = frappe.get_all("IB Work Order", filters=filters, fields=["name", "machine", "location"])
+	groups = {}
+	for r in runs:
+		if location and (r.location or "").lower() != location.lower():
+			continue
+		doc = frappe.get_doc("IB Work Order", r.name)
+		spec = _spec_from_run(doc)
+		sig = _setup_sig(stage, spec)
+		g = groups.setdefault(sig, {"sig": sig, "stage": stage, "runs": [], "machines": set()})
+		g["runs"].append({
+			"work_order": r.name,
+			"machine": r.machine,
+			"output_widths_mm": spec["output_widths_mm"],
+			"output_length_m": spec["output_length_m"],
+		})
+		if r.machine:
+			g["machines"].add(r.machine)
+	out = []
+	for g in groups.values():
+		if len(g["runs"]) < 2:
+			continue
+		g["machines"] = sorted(g["machines"])
+		g["run_count"] = len(g["runs"])
+		out.append(g)
+	out.sort(key=lambda x: -x["run_count"])
+	return out
 
 
 # ---------------------------------------------------------------------------
@@ -290,13 +454,21 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 			im = frappe.db.get_value(
 				"Item", item_code, ["item_name", "stock_uom", "width_mm", "length_mtr", "gsm"], as_dict=True
 			) or {}
+			# Finished dims: explicit (from the dialog) -> the originating Sales
+			# Order Item's own dimensions (one item_code can vary W/L per SO line)
+			# -> the Item master. Order Sheet Item carries no dims.
+			soi = {}
+			if o.get("sales_order_item"):
+				soi = frappe.db.get_value(
+					"Sales Order Item", o["sales_order_item"], ["width_mm", "length_mtr"], as_dict=True
+				) or {}
 			doc.append("outputs", {
 				"item_code": item_code,
 				"item_name": im.get("item_name"),
 				"planned_qty": flt(o.get("planned_qty")),
 				"uom": o.get("uom") or im.get("stock_uom"),
-				"width_mm": flt(o.get("width_mm") or im.get("width_mm")),
-				"length_mtr": flt(o.get("length_mtr") or im.get("length_mtr")),
+				"width_mm": flt(o.get("width_mm") or soi.get("width_mm") or im.get("width_mm")),
+				"length_mtr": flt(o.get("length_mtr") or soi.get("length_mtr") or im.get("length_mtr")),
 				"gsm": flt(o.get("gsm") or im.get("gsm")),
 				"pack_count": cint(o.get("pack_count")),
 				"brand": o.get("brand"),
@@ -320,7 +492,9 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 			_mark_route_done(doc, s)
 
 		doc.current_stage = start_stage
-		machine = _assign_machine_load_balanced(start_stage, location) or ""
+		# dimension-aware pick (feasible -> least changeover -> least load).
+		# outputs + source_batch are on `doc` already, so the spec is complete.
+		machine = _assign_machine(start_stage, location, _spec_from_run(doc)) or ""
 		doc.machine = machine
 		doc.insert(ignore_permissions=True)
 
@@ -384,9 +558,10 @@ def advance_run(work_order, output_qty=None, outputs_qty=None,
 				last_completed = ev.completed_at
 				break
 		ts = now()
+		ran_on = machine or doc.machine
 		doc.append("stage_log", {
 			"stage": stage,
-			"machine": machine or doc.machine,
+			"machine": ran_on,
 			"operator": operator or frappe.session.user,
 			"skipped": 0,
 			"started_at": last_completed or doc.started_at or ts,
@@ -397,10 +572,14 @@ def advance_run(work_order, output_qty=None, outputs_qty=None,
 		})
 		_mark_route_done(doc, stage)
 
+		spec = _spec_from_run(doc)
+		# remember what this machine is now set up for -> zero changeover for the next match
+		_stamp_machine_setup(ran_on, stage, spec)
+
 		nxt = _next_stage_after(doc, stage)
 		if nxt:
 			doc.current_stage = nxt
-			doc.machine = _assign_machine_load_balanced(nxt, _run_location(doc)) or ""
+			doc.machine = _assign_machine(nxt, _run_location(doc), spec) or ""
 			doc.save(ignore_permissions=True)
 			frappe.db.commit()
 			_notify_floor_update()
@@ -445,7 +624,7 @@ def skip_stage(work_order, reason=None):
 		nxt = _next_stage_after(doc, stage)
 		if nxt:
 			doc.current_stage = nxt
-			doc.machine = _assign_machine_load_balanced(nxt, _run_location(doc)) or ""
+			doc.machine = _assign_machine(nxt, _run_location(doc), _spec_from_run(doc)) or ""
 			doc.save(ignore_permissions=True)
 			frappe.db.commit()
 			_notify_floor_update()
@@ -478,7 +657,7 @@ def hold_run(work_order, reason=None):
 def resume_run(work_order):
 	_require_production_role()
 	doc = frappe.get_doc("IB Work Order", work_order)
-	machine = _assign_machine_load_balanced(doc.current_stage, _run_location(doc)) or ""
+	machine = _assign_machine(doc.current_stage, _run_location(doc), _spec_from_run(doc)) or ""
 	_wf(doc, "Resume", {"machine": machine})
 	frappe.db.commit()
 	_notify_floor_update()

@@ -22,6 +22,14 @@
 		"trending-up": '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
 		users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
 		tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
+		"refresh-cw": '<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M8 16H3v5"/>',
+		"alert-triangle": '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+		"check-circle": '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/>',
+		"calendar": '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+		"factory": '<path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M17 18h1"/><path d="M12 18h1"/><path d="M7 18h1"/>',
+		"wallet": '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+		"file-text": '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+		"activity": '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
 	};
 
 	function esc(v) {
@@ -79,6 +87,94 @@
 				.map((r) => `<tr>${r.map((c) => `<td>${c === null || c === undefined ? "" : c}</td>`).join("")}</tr>`)
 				.join("");
 			return `<div class="ib-ui-table-wrap"><table class="ib-ui-table"><thead>${h}</thead><tbody>${b}</tbody></table></div>`;
+		},
+
+		// ── page shell ──────────────────────────────────────────────────────
+		// Mounts a fresh .ib-ui-page into page.main (never wipes page.main
+		// itself — see feedback_frappe_page_shell_gotcha). Returns the jQuery
+		// body element to render into.
+		mount(page, { narrow = false } = {}) {
+			const $el = $(`<div class="ib-ui-page${narrow ? " ib-ui-page--narrow" : ""}"></div>`);
+			$(page.main).find(".ib-ui-page").remove();
+			$(page.main).append($el);
+			return $el;
+		},
+
+		btn(label, { variant = "", icon, attrs = "" } = {}) {
+			const v = variant ? ` ib-ui-btn--${variant}` : "";
+			return `<button class="ib-ui-btn${v}" ${attrs}>${icon ? ibUI.icon(icon, 13) : ""}${esc(label)}</button>`;
+		},
+
+		toolbar(inner) {
+			return `<div class="ib-ui-toolbar">${Array.isArray(inner) ? inner.join("") : inner || ""}</div>`;
+		},
+
+		// returns { el, input } — caller appends el, binds input events
+		search(placeholder = "Search…") {
+			const el = $(`<div class="ib-ui-search"><span class="ico">${ibUI.icon("search")}</span>` +
+				`<input type="text" placeholder="${esc(placeholder)}" autocomplete="off" spellcheck="false"></div>`);
+			return { el, input: el.find("input")[0], $input: el.find("input") };
+		},
+
+		// tabs — returns { el, setActive(id) }. onSwitch(id) fired on click.
+		tabs(list, active, onSwitch) {
+			const el = $(`<div class="ib-ui-tabs">${(list || [])
+				.map((t) => `<button class="ib-ui-tab${t.id === active ? " is-active" : ""}" data-tab="${esc(t.id)}">${esc(t.label)}</button>`)
+				.join("")}</div>`);
+			el.on("click", ".ib-ui-tab", function () {
+				el.find(".ib-ui-tab").removeClass("is-active");
+				$(this).addClass("is-active");
+				onSwitch && onSwitch($(this).data("tab"));
+			});
+			return { el, setActive: (id) => { el.find(".ib-ui-tab").removeClass("is-active");
+				el.find(`[data-tab="${id}"]`).addClass("is-active"); } };
+		},
+
+		section(title, bodyHtml, { action } = {}) {
+			return `<div class="ib-ui-section"><div class="ib-ui-section-h"><h5>${esc(title)}</h5>` +
+				`${action || ""}</div>${bodyHtml || ""}</div>`;
+		},
+
+		bar(pct, { showLabel = true } = {}) {
+			const p = Math.max(0, Math.min(100, Math.round(pct || 0)));
+			const cls = p >= 75 ? "ok" : p >= 40 ? "warn" : "danger";
+			return `<div class="ib-ui-bar"><span class="track"><span class="fill ${cls}" style="width:${p}%"></span></span>` +
+				`${showLabel ? `<span class="pctlbl">${p}%</span>` : ""}</div>`;
+		},
+
+		feed(items, heading = "Recent") {
+			const body = (items || []).length
+				? (items || []).map((it) =>
+					`<div class="ib-ui-feed-item"><span class="ib-ui-hint">${esc(it.t || "")}</span>` +
+					`${it.tag ? `<span class="ib-ui-pill ib-ui-pill--muted">${esc(it.tag)}</span>` : ""}` +
+					`<span>${it.text || ""}</span>${it.right ? `<span style="margin-left:auto">${it.right}</span>` : ""}</div>`).join("")
+				: `<div class="ib-ui-hint">${esc("Nothing yet")}</div>`;
+			return `<div class="ib-ui-feed"><h6>${esc(heading)}</h6>${body}</div>`;
+		},
+
+		refreshTime(d) {
+			const t = (d || new Date()).toLocaleTimeString();
+			return `<span class="ib-ui-refresh-time">${ibUI.icon("refresh-cw", 11)} ${esc(t)}</span>`;
+		},
+
+		// ── formatting ──────────────────────────────────────────────────────
+		money(v) {
+			return `<span class="ib-ui-num">${frappe.format(v || 0, { fieldtype: "Currency" })}</span>`;
+		},
+		num(v, dp = 0) {
+			return `<span class="ib-ui-num">${frappe.format(flt(v || 0), { fieldtype: "Float", precision: dp })}</span>`;
+		},
+		pct(v) {
+			return `<span class="ib-ui-num">${Math.round(v || 0)}%</span>`;
+		},
+
+		// wire every [data-route="app/xyz"] inside $root to navigate on click
+		wireRoutes($root) {
+			$root.on("click", "[data-route]", function (e) {
+				e.stopPropagation();
+				const r = $(this).attr("data-route");
+				if (r) frappe.set_route(r.split("/").filter(Boolean));
+			});
 		},
 	};
 

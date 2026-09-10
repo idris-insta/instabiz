@@ -217,9 +217,53 @@ body, .frappe-app, input, select, textarea, button {
 .ib-ui-mono { font-family: var(--font-stack-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
 .ib-ui-refresh-time { font-size: 11px; color: var(--text-muted); }
 
+/* ── tabs ── */
+.ib-ui-tabs { display: flex; gap: var(--ib-space-1); border-bottom: 1px solid var(--border-color);
+    margin-bottom: var(--ib-space-4); overflow-x: auto; }
+.ib-ui-tab { appearance: none; border: 0; background: none; cursor: pointer; white-space: nowrap;
+    padding: 9px 14px; font-size: 13px; font-weight: 550; color: var(--text-muted);
+    border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .12s, border-color .12s; }
+.ib-ui-tab:hover { color: var(--text-color); }
+.ib-ui-tab.is-active { color: var(--ib-primary); border-bottom-color: var(--ib-primary); }
+
+/* ── section ── */
+.ib-ui-section { margin: var(--ib-space-5) 0 var(--ib-space-3); }
+.ib-ui-section-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--ib-space-3); }
+.ib-ui-section-h h5 { margin: 0; font-size: 13px; font-weight: 650; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--text-muted); }
+
+/* ── progress bar ── */
+.ib-ui-bar { display: flex; align-items: center; gap: var(--ib-space-2); }
+.ib-ui-bar .track { flex: 1; height: 7px; border-radius: 5px; background: var(--control-bg); overflow: hidden; }
+.ib-ui-bar .fill { height: 100%; border-radius: 5px; background: var(--ib-primary);
+    transition: width .3s ease; }
+.ib-ui-bar .fill.ok { background: #10b981; } .ib-ui-bar .fill.warn { background: #f59e0b; }
+.ib-ui-bar .fill.danger { background: #ef4444; }
+.ib-ui-bar .pctlbl { min-width: 40px; text-align: right; font-size: 11px; font-weight: 600; color: var(--text-muted); }
+
+/* ── button ── */
+.ib-ui-btn { appearance: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-color);
+    border-radius: var(--ib-r-sm); padding: 7px 13px; font-size: 12px; font-weight: 600;
+    transition: border-color .12s, background .12s, color .12s; }
+.ib-ui-btn:hover { border-color: var(--ib-primary); color: var(--ib-primary); }
+.ib-ui-btn--primary { background: var(--ib-primary); border-color: var(--ib-primary); color: #fff; }
+.ib-ui-btn--primary:hover { filter: brightness(1.05); color: #fff; }
+.ib-ui-btn--ghost { border-color: transparent; background: transparent; color: var(--text-muted); }
+
+/* ── misc layout ── */
+.ib-ui-grid { display: grid; gap: var(--ib-space-3); }
+.ib-ui-grid--2 { grid-template-columns: repeat(2, 1fr); }
+.ib-ui-grid--3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 760px) { .ib-ui-grid--2, .ib-ui-grid--3 { grid-template-columns: 1fr; } }
+.ib-ui-row { display: flex; align-items: center; gap: var(--ib-space-2); flex-wrap: wrap; }
+.ib-ui-hint { font-size: 11px; color: var(--text-muted); }
+.ib-ui-num { font-variant-numeric: tabular-nums; }
+
 @media (prefers-reduced-motion: reduce) {
     .ib-ui-skeleton { animation: none; }
     .ib-ui-card--hover:hover { transform: none; }
+    .ib-ui-bar .fill { transition: none; }
 }
 
 
