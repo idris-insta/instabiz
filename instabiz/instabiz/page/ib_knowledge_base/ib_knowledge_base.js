@@ -1681,9 +1681,16 @@ const KB_SECTIONS = [
 				tags: "ageing stock age old report",
 			},
 			{
-				num: "34", title: "Batch Tracking Auto-Set",
-				desc: "Items in groups BOPP, CLOTH, FOAM, SPECIALTY automatically have Batch Tracking enabled. Select the batch on Delivery Notes and Stock Entries.",
-				tags: "batch tracking group item",
+				num: "STK-TRACE-1", title: "Traceability — Imported / Purchased Material → Production → Finished Units",
+				desc: "One scannable chain from raw material arrival to the box on the customer's dock. <b>Genealogy roots:</b> submitting an <b>IB Container Import</b> (imports) or a <b>Purchase Receipt</b> (domestic purchase) creates one <b>IB Batch</b> per line, tagged <i>Raw Material</i> with the supplier lot, GSM/width, and a link back to the source document. <b>Production:</b> when a Work Order stage is started you can pick that RM batch as the Source Batch; it carries forward automatically to every later stage of the same item. <b>Finished units:</b> completing the final stage creates a Finished-Good IB Batch plus one <b>IB FG Serial</b> per physical box/roll (count = the Work Order's Logs/Pcs-to-Make), each stamped with the full chain.<br><b>Traceability page</b> (Stock / Production workspace): type or scan a Batch, Work Order, or Serial id — see the whole chain both directions, from supplier lot forward to every customer, or from a shipped unit back to its supplier lot.<br>This is a reporting/annotation layer — it does <b>not</b> change how stock moves; you never have to pick a batch on a Delivery Note.",
+				link: "/app/ib-trace", linkLabel: "Open Traceability",
+				tags: "trace traceability batch serial genealogy lineage lot recall container import purchase receipt grn work order finished good qr scan",
+			},
+			{
+				num: "STK-TRACE-2", title: "Labels — Barcode vs QR, and Scanning",
+				desc: "Every label (container box + finished-unit serial) carries <b>both</b> a barcode and a QR, doing different jobs:<br><b>Barcode (Code128)</b> = the id string. A warehouse <b>handheld laser scanner</b> reads it straight into the Scan Stock page's input.<br><b>QR</b> = a link to the Traceability page for that batch/serial. A <b>phone camera</b> scan opens the full trace — for anyone without a handheld scanner (auditor, manager, customer).<br><b>Scan Stock page</b>: scanning a SKU barcode → add/deduct stock as before; scanning an IB Batch or IB FG Serial → shows what it is + an <i>Open Traceability</i> button (trace-only, no stock change).<br><b>Generate Missing Barcodes</b> button on the Item list (Stock Manager / System Manager) gives every stock SKU a Code128 barcode = its own item code, so the whole catalogue is scannable. The barcode also shows, with its scannable image, on the Item form's Details tab.",
+				link: "/app/ib-stock-scan", linkLabel: "Open Scan Stock",
+				tags: "barcode qr code128 label scan handheld phone camera generate missing item barcode",
 			},
 			{
 				num: "28", title: "Reorder Alerts",
