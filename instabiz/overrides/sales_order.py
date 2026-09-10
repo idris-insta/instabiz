@@ -212,6 +212,21 @@ def _dn_qty_adjustment_note(sales_order_item):
         "IB Order Sheet Item", {"sales_order_item": sales_order_item}, "name"
     )
     if not osi:
+        # Fallback for Order Sheet Items created before sales_order_item was
+        # populated (2026-08-05) — match by the SO Item's own item_code on an
+        # Order Sheet linked to this Sales Order.
+        soi = frappe.db.get_value(
+            "Sales Order Item", sales_order_item, ["parent", "item_code"], as_dict=True
+        )
+        if soi:
+            osi = frappe.db.sql(
+                """SELECT osi.name FROM `tabIB Order Sheet Item` osi
+                   JOIN `tabIB Order Sheet` os ON os.name = osi.parent
+                   WHERE os.sales_order = %s AND osi.item_code = %s LIMIT 1""",
+                (soi.parent, soi.item_code),
+            )
+            osi = osi[0][0] if osi else None
+    if not osi:
         return None
 
     wos = frappe.db.get_all(
@@ -221,9 +236,12 @@ def _dn_qty_adjustment_note(sales_order_item):
     )
     lines = []
     for wo in wos:
-        adjusted = wo.pcs_to_make if wo.target_uom == "PCS" else wo.logs_to_make if wo.target_uom == "SQMT" else None
+        # UOM-agnostic — the Adjust Qty dialog writes pcs_to_make OR logs_to_make
+        # per the item's UOM; either one being set and different from target is
+        # an adjustment worth surfacing (KG / ROLL / any UOM, not just PCS/SQMT).
+        adjusted = wo.pcs_to_make or wo.logs_to_make or None
         if adjusted and adjusted != wo.target_qty:
-            lines.append(f"{wo.stage}: {wo.target_qty} → {adjusted} {wo.target_uom}")
+            lines.append(f"{wo.stage}: {wo.target_qty} → {adjusted} {wo.target_uom or ''}".strip())
     if not lines:
         return None
     return "Qty adjusted in production — " + " | ".join(lines)
