@@ -95,13 +95,24 @@ def get_barcode_data_uri(value: str, vertical: int = 0) -> str:
 
 	code = barcode_lib.get("code128", value, writer=ImageWriter())
 	buf = io.BytesIO()
-	code.write(buf, options={
-		"write_text": False,
+	# Human-readable digits under the bars, like a normal barcode — but only for
+	# the non-rotated orientation. Baking write_text=True into a PNG that then
+	# gets rotate(90) below produces garbled overlapping text (tried it, it's
+	# unreadable) — the rotated/vertical labels get their HRI text as plain
+	# rotated CSS text in the print format instead, not baked into the image.
+	options = {
 		"quiet_zone": 2,
 		"module_width": 0.30,
 		"module_height": 14.0,
 		"dpi": 300,
-	})
+	}
+	if int(vertical):
+		options["write_text"] = False
+	else:
+		options["write_text"] = True
+		options["text_distance"] = 5.0
+		options["font_size"] = 9
+	code.write(buf, options=options)
 	if int(vertical):
 		from PIL import Image
 
