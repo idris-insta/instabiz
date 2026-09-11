@@ -185,7 +185,8 @@ _SIG_STAGES = ("Coating", "Slitting", "Rewinding", "Cutting", "Packing")
 _MACHINE_CAP_COLS = [
 	"name", "location", "capacity", "floor",
 	"max_input_width_mm", "max_output_width_mm", "min_slit_width_mm", "knife_positions",
-	"max_roll_diameter_mm", "min_length_m", "max_length_m", "gsm_min", "gsm_max",
+	"max_roll_diameter_mm", "min_core_diameter_mm", "max_core_diameter_mm",
+	"min_length_m", "max_length_m", "gsm_min", "gsm_max",
 	"speed_m_per_min", "changeover_min", "current_setup_sig",
 ]
 
@@ -197,7 +198,10 @@ def _setup_sig(stage, spec):
 	ow = sorted(int(round(flt(w))) for w in (spec.get("output_widths_mm") or []) if flt(w) > 0)
 	core = spec.get("core_id") or ""
 	if stage == "Coating":
-		return "C|{0}|{1}".format(int(round(flt(spec.get("input_width_mm")))), int(round(flt(spec.get("gsm")))))
+		return "C|{0}|{1}|{2}".format(
+			int(round(flt(spec.get("input_width_mm")))), int(round(flt(spec.get("gsm")))),
+			spec.get("adhesive_type") or "",
+		)
 	if stage == "Slitting":
 		return "S|{0}|{1}".format("-".join(map(str, ow)), core)
 	if stage == "Rewinding":
@@ -220,6 +224,7 @@ def _machine_feasible(m, stage, spec):
 	iw = flt(spec.get("input_width_mm"))
 	ows = [flt(w) for w in (spec.get("output_widths_mm") or []) if flt(w) > 0]
 	dia = flt(spec.get("output_diameter_mm"))
+	core_dia = flt(spec.get("core_diameter_mm"))
 	length = flt(spec.get("output_length_m"))
 	gsm = flt(spec.get("gsm"))
 	n_out = len(ows)
@@ -243,11 +248,19 @@ def _machine_feasible(m, stage, spec):
 			return False
 		if not le(dia, m.get("max_roll_diameter_mm")):
 			return False
+		if not le(core_dia, m.get("max_core_diameter_mm")):
+			return False
+		if not ge(core_dia, m.get("min_core_diameter_mm")):
+			return False
 		return True
 	if stage == "Rewinding":
 		if ows and not le(max(ows), m.get("max_input_width_mm")):
 			return False
 		if not le(dia, m.get("max_roll_diameter_mm")):
+			return False
+		if not le(core_dia, m.get("max_core_diameter_mm")):
+			return False
+		if not ge(core_dia, m.get("min_core_diameter_mm")):
 			return False
 		return True
 	if stage == "Cutting":
@@ -340,14 +353,20 @@ def _spec_from_run(doc):
 	src_w = 0.0
 	if doc.get("source_batch"):
 		src_w = flt(frappe.db.get_value("IB Batch", doc.source_batch, "width_mm"))
+	core = (outs[0].core if outs else "") or ""
+	core_dia = flt(frappe.get_cached_value("Item", core, "custom_core_diameter_mm")) if core else 0.0
+	adhesive_item = doc.get("source_item") or (outs[0].item_code if outs else "")
+	adhesive = (frappe.get_cached_value("Item", adhesive_item, "custom_adhesive_type") or "") if adhesive_item else ""
 	return {
 		"input_width_mm": src_w or (max(widths) if widths else 0.0),
 		"output_widths_mm": widths,
 		"output_length_m": max(lengths) if lengths else 0.0,
 		"output_diameter_mm": flt(doc.get("roll_diameter_mm")),
+		"core_diameter_mm": core_dia,
 		"gsm": flt(outs[0].gsm) if outs else 0.0,
-		"core_id": (outs[0].core if outs else "") or "",
+		"core_id": core,
 		"box_type": (outs[0].packing_type if outs else "") or "",
+		"adhesive_type": adhesive,
 	}
 
 

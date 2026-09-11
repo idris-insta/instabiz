@@ -14,7 +14,7 @@
   "sec_route","route",
   "sec_outputs","outputs",
   "sec_log","stage_log",
-  "sec_result","fg_batch","stock_entry","col_result","total_output_qty","total_wastage_qty",
+  "sec_result","fg_batch","stock_entry","col_result","total_output_qty","total_wastage_qty","roll_diameter_mm",
   "sec_notes","notes"
  ],
  "fields": [
@@ -48,6 +48,7 @@
   {"fieldname":"col_result","fieldtype":"Column Break"},
   {"fieldname":"total_output_qty","fieldtype":"Float","label":"Total Output Qty","read_only":1},
   {"fieldname":"total_wastage_qty","fieldtype":"Float","label":"Total Wastage Qty","read_only":1},
+  {"fieldname":"roll_diameter_mm","fieldtype":"Float","label":"Finished Roll Diameter (MM)","precision":"1","description":"Outer diameter of the wound roll this run produces — feeds machine-assignment's max_roll_diameter_mm feasibility check."},
   {"fieldname":"sec_notes","fieldtype":"Section Break"},
   {"fieldname":"notes","fieldtype":"Small Text","label":"Notes"}
  ],

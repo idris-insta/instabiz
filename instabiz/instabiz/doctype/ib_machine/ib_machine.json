@@ -27,6 +27,8 @@
   "knife_positions",
   "col_break_cap",
   "max_roll_diameter_mm",
+  "min_core_diameter_mm",
+  "max_core_diameter_mm",
   "min_length_m",
   "max_length_m",
   "gsm_min",
@@ -163,6 +165,20 @@
    "label": "Max Roll Diameter (mm)",
    "precision": "1",
    "description": "Slitting, Rewinding, Cutting."
+  },
+  {
+   "fieldname": "min_core_diameter_mm",
+   "fieldtype": "Float",
+   "label": "Min Core Diameter (mm)",
+   "precision": "1",
+   "description": "Smallest core this machine's chuck/mandrel can hold. Slitting, Rewinding."
+  },
+  {
+   "fieldname": "max_core_diameter_mm",
+   "fieldtype": "Float",
+   "label": "Max Core Diameter (mm)",
+   "precision": "1",
+   "description": "Largest core this machine's chuck/mandrel can hold. Slitting, Rewinding."
   },
   {
    "fieldname": "min_length_m",
