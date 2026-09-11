@@ -597,6 +597,176 @@ def advance_run(work_order, output_qty=None, outputs_qty=None,
 
 
 @frappe.whitelist()
+def get_length_split_plan(work_order):
+	"""Read-only: if this run's next stage is Cutting and its finished length
+	exceeds every real Cutting machine's max_length_m, suggest an even split
+	into N batches that each fit a real machine. A job that's infeasible for
+	other reasons too (width, knife count) isn't helped by splitting length —
+	returns needed=False, same as a job that already fits."""
+	_require_production_role()
+	doc = frappe.get_doc("IB Work Order", work_order)
+	stage = doc.current_stage
+	nxt = _next_stage_after(doc, stage)
+	if nxt != "Cutting":
+		return {"needed": False}
+	spec = _spec_from_run(doc)
+	length = flt(spec.get("output_length_m"))
+	if not length:
+		return {"needed": False}
+	location = _run_location(doc)
+	machines = frappe.db.get_all(
+		"IB Machine", filters={"machine_type": "Cutting", "status": "Active"},
+		fields=["name", "max_length_m", "location"],
+	)
+	if location:
+		pref = [m for m in machines if m.location == location]
+		machines = pref or machines
+	real_caps = [flt(m.max_length_m) for m in machines if flt(m.max_length_m) > 0]
+	if not real_caps:
+		return {"needed": False}  # no real length limit known on any machine — nothing to split for
+	best = max(real_caps)
+	if length <= best:
+		return {"needed": False}
+	import math
+	batches = math.ceil(length / best)
+	return {
+		"needed": True, "next_stage": nxt, "total_length_m": length,
+		"best_machine_capacity_m": best, "batches": batches,
+		"batch_length_m": round(length / batches, 2),
+	}
+
+
+@frappe.whitelist()
+def advance_with_length_split(work_order, batches, output_qty=None, operator=None, notes=None):
+	"""Same "complete the current stage" half as advance_run(), but instead of
+	one _assign_machine() call for the next stage (which would just throw
+	again), splits the run into N sibling runs — same width/core, each 1/N of
+	the finished length — so each independently fits a real Cutting machine's
+	max_length_m. Every sibling stays on the SAME sales_order (a run is
+	always exactly one order's job, IB Work Order.sales_order is a single
+	Link — it can't span customers); cross-order efficiency instead comes
+	from get_setup_batches() grouping same-setup runs — this order's new
+	batches included — for one shared knife setup, not from merging orders
+	into one run's data.
+
+	Known simplification: qty/pack_count are split evenly (length_mtr / N,
+	planned_qty / N, pack_count // N) rather than via a real per-product
+	length->weight formula — good enough for a first version; a batch's
+	numbers can be corrected by hand afterward if the real split isn't even.
+	"""
+	_require_production_role()
+	batches = cint(batches)
+	if batches < 2:
+		frappe.throw(_("Need at least 2 batches to split."))
+
+	lock = f"IB-WO-{work_order}"
+	if not frappe.db.sql("SELECT GET_LOCK(%s, 5)", lock)[0][0]:
+		frappe.throw(_("Could not acquire lock for run {0}. Please try again.").format(work_order))
+	try:
+		doc = frappe.get_doc("IB Work Order", work_order)
+		if doc.status != "In Progress":
+			frappe.throw(_("Run {0} must be In Progress to advance (it is {1}).").format(
+				work_order, doc.status))
+		stage = doc.current_stage
+		if not stage or stage == "Done":
+			frappe.throw(_("Run {0} has no active stage.").format(work_order))
+		nxt = _next_stage_after(doc, stage)
+		if not nxt:
+			frappe.throw(_("Run {0} has no next stage to split into.").format(work_order))
+
+		input_qty = _prev_output_qty(doc)
+		out_qty = flt(output_qty) if output_qty is not None else input_qty
+		ts = now()
+		last_completed = None
+		for ev in reversed(doc.stage_log or []):
+			if ev.completed_at:
+				last_completed = ev.completed_at
+				break
+		doc.append("stage_log", {
+			"stage": stage, "machine": doc.machine, "operator": operator or frappe.session.user,
+			"skipped": 0, "started_at": last_completed or doc.started_at or ts, "completed_at": ts,
+			"input_qty": input_qty, "output_qty": out_qty,
+			"notes": ((notes or "") + " [split into {0} batches at {1} — length exceeded machine capacity]"
+			          .format(batches, nxt)).strip(),
+		})
+		_mark_route_done(doc, stage)
+		spec = _spec_from_run(doc)
+		_stamp_machine_setup(doc.machine, stage, spec)
+
+		route_stages = _route_stages(doc)
+		nxt_idx = route_stages.index(nxt)
+		location = _run_location(doc)
+
+		children = []
+		for i in range(batches):
+			child = frappe.new_doc("IB Work Order")
+			child.sales_order = doc.sales_order
+			child.order_sheet = doc.order_sheet
+			child.priority = doc.priority
+			child.location = doc.location
+			child.posting_date = today()
+			child.source_batch = doc.source_batch
+			child.source_item = doc.source_item
+			child.source_qty = flt(doc.source_qty) / batches if doc.source_qty else 0
+			child.source_warehouse = doc.source_warehouse
+			child.notes = _("Batch {0}/{1} split from {2} (length exceeded machine capacity)").format(
+				i + 1, batches, doc.name)
+
+			for r in doc.route:
+				child.append("route", {
+					"stage": r.stage, "sequence": r.sequence,
+					"machine_type": r.machine_type, "done": r.done,
+				})
+			for o in doc.outputs:
+				child.append("outputs", {
+					"item_code": o.item_code, "item_name": o.item_name,
+					"planned_qty": flt(o.planned_qty) / batches,
+					"uom": o.uom, "width_mm": o.width_mm,
+					"length_mtr": flt(o.length_mtr) / batches if o.length_mtr else 0,
+					"gsm": o.gsm,
+					"pack_count": (cint(o.pack_count) // batches) or cint(o.pack_count),
+					"brand": o.brand, "core": o.core, "ctn": o.ctn,
+					"shrink_film": o.shrink_film, "packing_type": o.packing_type,
+					"sales_order_item": o.sales_order_item,
+				})
+			# Carry the parent's real stage history forward (scaled down) rather
+			# than marking earlier stages "skipped" — the work genuinely
+			# happened once, on the parent, before the split.
+			for ev in doc.stage_log:
+				child.append("stage_log", {
+					"stage": ev.stage, "machine": ev.machine, "operator": ev.operator,
+					"skipped": ev.skipped, "started_at": ev.started_at, "completed_at": ev.completed_at,
+					"input_qty": flt(ev.input_qty) / batches if ev.input_qty else 0,
+					"output_qty": flt(ev.output_qty) / batches if ev.output_qty else 0,
+					"notes": ev.notes,
+				})
+			for r in child.route[:nxt_idx]:
+				r.done = 1
+			child.current_stage = nxt
+			child.machine = _assign_machine(nxt, location, _spec_from_run(child)) or ""
+			child.insert(ignore_permissions=True)
+			_wf(child, "Start", {"started_at": ts, "machine": child.machine, "current_stage": nxt})
+			children.append(child.name)
+
+		# Original run is superseded by its children — Cancel via the real
+		# workflow transition (not a raw db_set), same as every other status
+		# change in this file.
+		doc.save(ignore_permissions=True)
+		_wf(doc, "Cancel")
+		frappe.db.set_value(
+			"IB Work Order", doc.name, "notes",
+			(doc.notes or "") + "\n[Split] {0} done, {1} needs {2} shorter passes — continued as {3}".format(
+				stage, nxt, batches, ", ".join(children)),
+		)
+
+		frappe.db.commit()
+		_notify_floor_update()
+		return {"ok": True, "batches": children, "next_stage": nxt}
+	finally:
+		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock)
+
+
+@frappe.whitelist()
 def skip_stage(work_order, reason=None):
 	"""Bypass the current stage (no work done) and move on."""
 	_require_production_role()

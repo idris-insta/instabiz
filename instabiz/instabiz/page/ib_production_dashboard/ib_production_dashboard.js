@@ -404,6 +404,70 @@ function _prompt_actual_output(wo, onConfirm) {
 	d.show();
 }
 
+// Shared by both places a run gets advanced (Active Production Plan row +
+// WO side panel) — checks whether the NEXT stage is Cutting and the run's
+// finished length exceeds every real cutter's max_length_m before even
+// trying the normal advance. If so, offers to split into N shorter batches
+// (production_run.advance_with_length_split) instead of just throwing "no
+// machine can run this job" with no way forward. onOk/onFail get the same
+// {status, message, next_stage} shape either way so callers don't need to
+// know which path actually ran.
+function _advance_with_split_check(wo_name, actual_qty, onOk, onFail) {
+	frappe.call({
+		method: "instabiz.overrides.production_run.get_length_split_plan",
+		args: { work_order: wo_name },
+		callback: (r) => {
+			const plan = r.message || {};
+			if (!plan.needed) {
+				return _do_plain_advance(wo_name, actual_qty, onOk, onFail);
+			}
+			frappe.confirm(
+				__(
+					"This run's finished length ({0}m) is longer than any {1} machine can cut in one pass (best: {2}m). Split it into {3} batches of ~{4}m each and continue?",
+					[plan.total_length_m, plan.next_stage, plan.best_machine_capacity_m, plan.batches, plan.batch_length_m]
+				),
+				() => {
+					frappe.call({
+						method: "instabiz.overrides.production_run.advance_with_length_split",
+						args: { work_order: wo_name, batches: plan.batches, output_qty: actual_qty },
+						freeze: true,
+						freeze_message: __("Splitting into {0} batches…", [plan.batches]),
+						callback: (r2) => {
+							if (r2.exc || !r2.message || !r2.message.ok) {
+								onFail(r2.message?.message || __("Failed to split."));
+								return;
+							}
+							onOk({
+								status: "ok",
+								message: __("Split into {0} batches — each now assigned and running.", [plan.batches]),
+								next_stage: null,
+							});
+						},
+					});
+				},
+				() => onFail(__("Not advanced — length still exceeds machine capacity.")),
+			);
+		},
+		error: () => _do_plain_advance(wo_name, actual_qty, onOk, onFail),
+	});
+}
+
+function _do_plain_advance(wo_name, actual_qty, onOk, onFail) {
+	const args = { work_order: wo_name };
+	if (actual_qty !== undefined) args.actual_qty = actual_qty;
+	frappe.call({
+		method: "instabiz.overrides.production.advance_to_next_stage",
+		args,
+		callback: (r) => {
+			if (r.exc || !r.message || r.message.status !== "ok") {
+				onFail(r.message?.message || __("Failed to advance."));
+				return;
+			}
+			onOk(r.message);
+		},
+	});
+}
+
 const PLAN_PAGE_SIZE = 25;
 
 // Small animated "actively running" indicator — a soft pulsing ring around a
@@ -1155,19 +1219,17 @@ class IBProductionDashboard {
 				{ target_qty: $btn.data("targetQty"), target_uom: $btn.data("targetUom") },
 				(actual_qty) => {
 					$btn.prop("disabled", true);
-					frappe.call({
-						method: "instabiz.overrides.production.advance_to_next_stage",
-						args: { work_order: wo, actual_qty },
-						callback: (r) => {
-							if (r.exc || !r.message || r.message.status !== "ok") {
-								frappe.show_alert({ message: r.message?.message || "Failed to advance.", indicator: "red" });
-								$btn.prop("disabled", false);
-								return;
-							}
-							frappe.show_alert({ message: r.message.message || "Advanced.", indicator: "green" }, 3);
+					_advance_with_split_check(
+						wo, actual_qty,
+						(msg) => {
+							frappe.show_alert({ message: msg.message || "Advanced.", indicator: "green" }, 3);
 							this.refresh();
 						},
-					});
+						(err) => {
+							frappe.show_alert({ message: err, indicator: "red" });
+							$btn.prop("disabled", false);
+						},
+					);
 				},
 			);
 		});
@@ -3370,7 +3432,9 @@ class IBProductionStages {
 					<div class="ib-mw-code-row">
 						<code class="ib-ps-machine-code" style="color:${type_color}">${frappe.utils.escape_html(selected.machine_code || "")}</code>
 						<span class="ib-ps-type-chip" style="background:${type_color}18;color:${type_color};border:1px solid ${type_color}30">${frappe.utils.escape_html(selected.machine_type || "")}</span>
-						<span class="indicator green" title="Active"></span>
+						${(selected.active_load || 0) > 0
+							? _live_pulse_svg((selected.active_load || 0) + " job(s) running right now")
+							: `<span class="indicator green" title="Active, idle"></span>`}
 					</div>
 					<div class="ib-mw-name-row">
 						<span class="ib-ps-machine-name">${frappe.utils.escape_html(selected.machine_name || "")}</span>
@@ -3388,8 +3452,8 @@ class IBProductionStages {
 						<span style="font-size:11px;color:var(--text-muted)">Machine Load</span>
 						<span style="font-size:12px;font-weight:700;color:${load_color}">${load_pct}%</span>
 					</div>
-					<div class="ib-mw-load-bar-wrap">
-						<div class="ib-mw-load-bar" style="width:${Math.min(100, load_pct)}%;background:${load_color}"></div>
+					<div class="ib-mw-load-bar-wrap${(selected.active_load || 0) > 0 ? " ib-ps-progress-wrap--running" : ""}">
+						<div class="ib-mw-load-bar ib-ps-progress-bar" style="width:${Math.min(100, load_pct)}%;background:${load_color}"></div>
 					</div>
 					<div style="font-size:10px;color:var(--text-muted);margin-top:4px">
 						${selected.active_load || 0} active · ${(selected.current_wos || []).length} queued
@@ -3424,9 +3488,9 @@ class IBProductionStages {
 					<td>${wo.sales_order ? `<a class="ib-ps-os-link" data-so-nav="${frappe.utils.escape_html(wo.sales_order)}">${frappe.utils.escape_html(wo.sales_order)}</a>` : "—"}</td>
 					<td>${frappe.utils.escape_html(wo.customer_name || "")}</td>
 					<td>${_ib_status_pill(wo.priority || "Normal", "sm")}</td>
-					<td>${_ib_status_pill(wo.status, "sm")}</td>
+					<td>${_ib_status_pill(wo.status, "sm")}${wo.status === "In Progress" ? _live_pulse_svg("Running now") : ""}</td>
 					<td>
-						<div class="ib-ps-progress-wrap" style="min-width:70px">
+						<div class="ib-ps-progress-wrap${wo.status === "In Progress" ? " ib-ps-progress-wrap--running" : ""}" style="min-width:70px">
 							<div class="ib-ps-progress-bar" style="width:${pct}%;background:var(--ib-primary)"></div>
 						</div>
 						<small>${wo.completed_qty || 0}/${wo.target_qty || 0} ${frappe.utils.escape_html(wo.target_uom || "")}</small>
@@ -3440,6 +3504,7 @@ class IBProductionStages {
 			${top_toolbar}
 			<div class="ib-sw-pills">${pills}</div>
 			<div class="ib-mw-selected-card">${machine_header}</div>
+			<div id="ib-mw-bundle-hint"></div>
 			${search_toolbar}
 			<div class="ib-ps-table-wrap">
 				<table class="ib-ps-table">
@@ -3477,6 +3542,41 @@ class IBProductionStages {
 		$c.on("click", "tr[data-woid]", (e) => {
 			const wo = this._wo_data.get($(e.currentTarget).data("woid"));
 			if (wo) this._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || "");
+		});
+
+		this._load_setup_bundle_hint(selected);
+	}
+
+	// "Efficiently with similar orders" — get_setup_batches() (production_run.py)
+	// already groups every run currently sitting at this machine's stage by
+	// exact setup signature (width/length/core), across ALL sales orders, not
+	// just this machine's own queue — built alongside the run model but never
+	// actually surfaced anywhere until now. A run always belongs to exactly
+	// one order (IB Work Order.sales_order is a single Link, can't span
+	// customers) — this is how cross-order efficiency actually happens: same
+	// setup, sequenced back-to-back, one changeover instead of several.
+	_load_setup_bundle_hint(selected) {
+		const $hint = this._content().find("#ib-mw-bundle-hint");
+		if (!selected.machine_type) return;
+		frappe.call({
+			method: "instabiz.overrides.production_run.get_setup_batches",
+			args: { stage: selected.machine_type, location: selected.location || "" },
+			callback: (r) => {
+				const groups = r.message || [];
+				if (!groups.length) return;
+				$hint.html(groups.map((g) => {
+					const on_this_machine = g.machines.includes(this.machine_wise_pill);
+					const widths = (g.runs[0]?.output_widths_mm || []).map((w) => Math.round(w)).join("×") || "—";
+					const length = g.runs[0]?.output_length_m ? `, ${Math.round(g.runs[0].output_length_m)}m` : "";
+					return `
+						<div class="ib-mw-bundle-hint${on_this_machine ? " ib-mw-bundle-hint--here" : ""}">
+							<iconify-icon icon="lucide:link-2" width="13" height="13"></iconify-icon>
+							<span><strong>${g.run_count} runs</strong> share this setup (${widths}mm${length}) across
+							${g.machines.length > 1 ? g.machines.join(", ") : g.machines[0] || "—"} —
+							sequence them together for one changeover instead of ${g.run_count}.</span>
+						</div>`;
+				}).join(""));
+			},
 		});
 	}
 
@@ -3995,30 +4095,28 @@ class IBProductionStages {
 	// a different button for. Only the last stage (Packing, via
 	// #ib-wo-complete/_update_wo_status instead) has nothing left to prompt.
 	_advance_wo(wo, stage_key, actual_qty) {
-		const args = { work_order: wo.name };
-		if (actual_qty !== undefined) args.actual_qty = actual_qty;
-		frappe.call({
-			method: "instabiz.overrides.production.advance_to_next_stage",
-			args,
-			callback: (r) => {
-				if (r.exc || !r.message || r.message.status !== "ok") {
-					frappe.show_alert({ message: r.message?.message || "Failed to advance.", indicator: "red" });
-					this._reenable_panel_buttons();
-					return;
-				}
-				frappe.show_alert({ message: r.message.message || "Advanced.", indicator: "green" }, 3);
+		_advance_with_split_check(
+			wo.name, actual_qty,
+			(msg) => {
+				frappe.show_alert({ message: msg.message || "Advanced.", indicator: "green" }, 3);
 				this._close_side_panel();
-				const next_stage = r.message.next_stage;
+				const next_stage = msg.next_stage;
 				if (next_stage && wo.order_sheet_item) {
 					// Complete → immediately prompt for the next stage, same
 					// picker as the Dashboard's Start Production button and
-					// Order-wise's "+" cell — one continuous action.
+					// Order-wise's "+" cell — one continuous action. A split
+					// (next_stage: null, several new WOs instead of one) just
+					// refreshes — there's no single "next" run to prompt for.
 					_start_production_flow(wo.order_sheet_item, wo.item_code, next_stage, () => this.refresh());
 				} else {
 					this.refresh();
 				}
 			},
-		});
+			(err) => {
+				frappe.show_alert({ message: err, indicator: "red" });
+				this._reenable_panel_buttons();
+			},
+		);
 	}
 
 	// Reached Completed at Packing for this item — jump straight to
@@ -4256,6 +4354,22 @@ class IBProductionStages {
 	margin-bottom: 3px;
 }
 .ib-ps-progress-bar { height: 100%; border-radius: 3px; transition: width 0.3s; }
+/* Subtle moving stripe on an In-Progress row's own fill — "this one is
+   actively running right now", distinct from a static/paused bar at the
+   same %. Only the filled portion animates (background-size 200%, not the
+   wrapper), so it reads correctly at any fill level including near-0%. */
+.ib-ps-progress-wrap--running .ib-ps-progress-bar {
+	background-image: linear-gradient(
+		135deg, rgba(255,255,255,.35) 25%, transparent 25%, transparent 50%,
+		rgba(255,255,255,.35) 50%, rgba(255,255,255,.35) 75%, transparent 75%, transparent
+	);
+	background-size: 14px 14px;
+	animation: ib-ps-progress-stripe 1s linear infinite;
+}
+@keyframes ib-ps-progress-stripe { from { background-position: 0 0; } to { background-position: 14px 0; } }
+@media (prefers-reduced-motion: reduce) {
+	.ib-ps-progress-wrap--running .ib-ps-progress-bar { animation: none; }
+}
 .ib-ps-progress-label { font-size: 10px; color: var(--text-muted); }
 
 /* Work Order stage-pill chips (Order-wise tab) — same visual language as the
@@ -4686,6 +4800,16 @@ tr.ib-ps-wo-sub-item--clickable:hover td { background: var(--subtle-fg, #f8fafc)
 .ib-mw-load-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .ib-mw-load-bar-wrap { height: 6px; background: var(--border-color); border-radius: 3px; overflow: hidden; }
 .ib-mw-load-bar { height: 100%; border-radius: 3px; transition: width .4s; }
+
+.ib-mw-bundle-hint {
+	display: flex; align-items: flex-start; gap: 7px;
+	background: color-mix(in srgb, var(--ib-primary) 8%, var(--fg-color, #f9fafb));
+	border: 1px solid color-mix(in srgb, var(--ib-primary) 25%, var(--border-color));
+	border-radius: 7px; padding: 8px 11px; margin: 10px 0;
+	font-size: 11.5px; color: var(--text-color); line-height: 1.4;
+}
+.ib-mw-bundle-hint iconify-icon { flex: 0 0 auto; margin-top: 1px; color: var(--ib-primary); }
+.ib-mw-bundle-hint--here { border-width: 1.5px; }
 
 /* Stats — spread across the remaining width, icon+value tiles separated by
    dividers instead of a tight 4-col grid squeezed into a narrow box. */
