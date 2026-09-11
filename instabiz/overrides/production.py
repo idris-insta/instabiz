@@ -244,7 +244,16 @@ def _machine_feasible(m, stage, spec):
 			return False
 		if ows and not ge(min(ows), m.get("min_slit_width_mm")):
 			return False
-		if iw and ows and sum(ows) > iw - _ASSUMED_TRIM_MM:
+		# Trim only actually gets lost when the pass genuinely narrows the web
+		# (real cuts made -> real edge waste). A single output at (near) the
+		# full input width is a pass-through, not a slit -- nothing is being
+		# trimmed off, so the -_ASSUMED_TRIM_MM penalty shouldn't apply. Found
+		# live: a real 380kg run with output width == source batch width
+		# (1315mm both) was wrongly rejected here ("no machine can run this
+		# job") purely because 1315 > 1315-20, despite SM-01 being physically
+		# fine with it.
+		is_passthrough = n_out == 1 and iw and abs(ows[0] - iw) < 0.01
+		if not is_passthrough and iw and ows and sum(ows) > iw - _ASSUMED_TRIM_MM:
 			return False
 		if not le(dia, m.get("max_roll_diameter_mm")):
 			return False
@@ -2227,11 +2236,42 @@ def get_machine_wise_dashboard(location=None):
 		current_wos = frappe.db.get_all(
 			"IB Work Order",
 			filters={"machine": m.name, "status": ["in", ["Pending", "In Progress"]]},
-			fields=["name", "item_code", "item_name", "stage", "status",
-			        "target_qty", "completed_qty", "order_sheet", "jumbo_roll",
-			        "started_at", "priority", "creation"],
+			fields=["name", "current_stage", "status", "total_output_qty",
+			        "order_sheet", "source_batch", "started_at", "priority", "creation"],
 			order_by="started_at asc",
 		)
+		# IB Work Order stopped carrying item_code/item_name/stage/target_qty/
+		# completed_qty/jumbo_roll directly once the WO-per-run rewrite landed
+		# (a run's finished SKUs live on its `outputs` child table, can be more
+		# than one — Shape A, same item_code at different dims). Those old
+		# columns are still physically in the DB (never dropped) and always
+		# NULL/0 for a real run, so the query above never errors — it just
+		# silently returns nothing useful, which is what left this tab's Item
+		# column blank. Aliased onto the same key names the frontend already
+		# reads (wo.item_code/item_name/stage/target_qty/completed_qty/
+		# target_uom) rather than rewriting the JS's field names too.
+		wo_names = [wo.name for wo in current_wos]
+		outputs_by_wo = {}
+		if wo_names:
+			for o in frappe.db.get_all(
+				"IB WO Output",
+				filters={"parent": ["in", wo_names]},
+				fields=["parent", "item_code", "item_name", "planned_qty", "uom"],
+				order_by="parent asc, idx asc",
+			):
+				outputs_by_wo.setdefault(o.parent, []).append(o)
+		for wo in current_wos:
+			outs = outputs_by_wo.get(wo.name) or []
+			wo["stage"] = wo.get("current_stage")
+			wo["completed_qty"] = flt(wo.get("total_output_qty"))
+			wo["target_qty"] = sum(flt(o.planned_qty) for o in outs)
+			if len(outs) == 1:
+				wo["item_code"] = outs[0].item_code
+				wo["item_name"] = outs[0].item_name
+			elif outs:
+				wo["item_code"] = "{0} +{1} more".format(outs[0].item_code, len(outs) - 1)
+				wo["item_name"] = "{0} item(s)".format(len(outs))
+			wo["target_uom"] = outs[0].uom if outs else None
 		# WOs on one machine can belong to different orders (no single shared
 		# parent ETD like the order-scoped views have), so fetch each WO's own
 		# Order Sheet delivery_date + customer here. Also carries customer_name
