@@ -920,32 +920,51 @@ def _finish_run(doc, outputs_qty=None):
 		o.produced_qty = produced.get(o.name, 0.0)
 	doc.save(ignore_permissions=True)
 
-	# FG batch (genealogy root for this run's output)
-	fg_batch_id = f"FG::{doc.name}"
-	if not frappe.db.exists("IB Batch", fg_batch_id):
-		primary = doc.outputs[0]
-		fb = frappe.new_doc("IB Batch")
-		fb.batch_id = fg_batch_id
-		fb.kind = "Finished Good"
-		fb.item = primary.item_code
-		fb.item_name = primary.item_name
-		fb.qty = sum(flt(o.produced_qty) for o in doc.outputs)
-		fb.status = "Active"
-		fb.source_type = "Production"
-		fb.work_order = doc.name
-		fb.received_date = today()
-		fb.parent_batches = json.dumps([doc.source_batch] if doc.source_batch else [])
-		fb.gsm = flt(primary.gsm)
-		fb.width_mm = flt(primary.width_mm)
-		fb.insert(ignore_permissions=True)
+	# FG batch (genealogy root for this run's output) — one per distinct
+	# output item_code, not one batch blended across all outputs. A run's
+	# outputs can be genuine different SKUs (not just dimension-variants of
+	# one SKU) — lumping every output's produced_qty under the first
+	# output's item_code silently mis-attributed other SKUs' quantity to
+	# the wrong Item's batch. Single-output runs keep the old `FG::{name}`
+	# id unchanged; multi-item runs get `FG::{name}::{item_code}` per item.
+	item_codes = []
+	for o in doc.outputs:
+		if o.item_code not in item_codes:
+			item_codes.append(o.item_code)
+
+	fg_batch_by_item = {}
+	for item_code in item_codes:
+		rows = [o for o in doc.outputs if o.item_code == item_code]
+		fg_batch_id = f"FG::{doc.name}" if len(item_codes) == 1 else f"FG::{doc.name}::{item_code}"
+		fg_batch_by_item[item_code] = fg_batch_id
+		if not frappe.db.exists("IB Batch", fg_batch_id):
+			primary = rows[0]
+			fb = frappe.new_doc("IB Batch")
+			fb.batch_id = fg_batch_id
+			fb.kind = "Finished Good"
+			fb.item = item_code
+			fb.item_name = primary.item_name
+			fb.qty = sum(flt(o.produced_qty) for o in rows)
+			fb.status = "Active"
+			fb.source_type = "Production"
+			fb.work_order = doc.name
+			fb.received_date = today()
+			fb.parent_batches = json.dumps([doc.source_batch] if doc.source_batch else [])
+			fb.gsm = flt(primary.gsm)
+			fb.width_mm = flt(primary.width_mm)
+			fb.insert(ignore_permissions=True)
+
+	fg_batch_id = fg_batch_by_item[item_codes[0]]  # WO.fg_batch stays a single Link — primary/first item's batch
 
 	serials_made = 0
 	try:
 		from instabiz.overrides.item import _SERIAL_ITEM_GROUPS
 
 		for o in doc.outputs:
+			row_fg_batch = fg_batch_by_item[o.item_code]
 			grp = frappe.db.get_value("Item", o.item_code, "item_group") or ""
 			if grp not in _SERIAL_ITEM_GROUPS:
+				o.db_set("fg_batch", row_fg_batch)
 				continue
 			n_units = min(cint(o.pack_count) or 1, 2000)
 			stamp = _serial_stamp()
@@ -960,7 +979,7 @@ def _finish_run(doc, outputs_qty=None):
 				sn.item_code = o.item_code
 				sn.item_name = o.item_name
 				sn.status = "In Stock"
-				sn.fg_batch = fg_batch_id
+				sn.fg_batch = row_fg_batch
 				sn.source_batch = doc.source_batch
 				sn.work_order = doc.name
 				sn.order_sheet = doc.order_sheet
@@ -973,7 +992,7 @@ def _finish_run(doc, outputs_qty=None):
 				sn.insert(ignore_permissions=True)
 				made += 1
 			o.db_set("serial_count", made)
-			o.db_set("fg_batch", fg_batch_id)
+			o.db_set("fg_batch", row_fg_batch)
 			serials_made += made
 	except Exception:
 		frappe.log_error("IB run serial gen", frappe.get_traceback())
