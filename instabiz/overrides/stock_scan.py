@@ -163,6 +163,13 @@ def _post_stock_entry(item_code: str, qty: float, warehouse: str, direction: str
 	else:
 		se.stock_entry_type = "Material Issue"
 		row["s_warehouse"] = warehouse
+	if not flt(frappe.get_cached_value("Item", item_code, "valuation_rate")):
+		# No cost on the item master (and, for a deduct, possibly no prior
+		# incoming stock at this exact warehouse either) — let the scan post
+		# at zero value rather than hard-blocking a real warehouse scan with
+		# ERPNext's "Valuation Rate Missing" error. Same reasoning/pattern as
+		# IB Container Import's own receipt posting (_make_stock_entry).
+		row["allow_zero_valuation_rate"] = 1
 	se.remarks = remark
 	se.append("items", row)
 	se.insert(ignore_permissions=True)

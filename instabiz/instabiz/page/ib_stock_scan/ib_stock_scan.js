@@ -231,7 +231,7 @@ class IBStockScan {
 					${this._traceBtn(m.serial)}
 				</div>`);
 			this.$result.find(".ibss-wh-mount").append(this.wh.$wrapper.show());
-			if (m.suggest_warehouse && !this.wh.get_value()) this.wh.set_value(m.suggest_warehouse);
+			if (m.suggest_warehouse) this.wh.set_value(m.suggest_warehouse); // re-suggest per scanned item — a persisted warehouse from a different item is wrong here
 			this.$result.find(".ibss-ship").on("click", () => this._shipSerial(m));
 			return;
 		}
@@ -261,7 +261,7 @@ class IBStockScan {
 				</div>`);
 			if (canDeduct) {
 				this.$result.find(".ibss-wh-mount").append(this.wh.$wrapper.show());
-				if (m.suggest_warehouse && !this.wh.get_value()) this.wh.set_value(m.suggest_warehouse);
+				if (m.suggest_warehouse) this.wh.set_value(m.suggest_warehouse); // re-suggest per scanned item — a persisted warehouse from a different item is wrong here
 				this.$result.find(".ibss-batchded").on("click", () => this._adjustBatch(m));
 			} else {
 				this._done();
@@ -298,7 +298,7 @@ class IBStockScan {
 				</div>
 			</div>`);
 		this.$result.find(".ibss-wh-mount").append(this.wh.$wrapper.show());
-		if (m.suggest_warehouse && !this.wh.get_value()) this.wh.set_value(m.suggest_warehouse);
+		if (m.suggest_warehouse) this.wh.set_value(m.suggest_warehouse); // re-suggest per scanned item — a persisted warehouse from a different item is wrong here
 		this.$result.find(".ibss-add").on("click", () => this._adjust("Add"));
 		this.$result.find(".ibss-ded").on("click", () => this._adjust("Deduct"));
 	}

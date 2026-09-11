@@ -64,7 +64,6 @@
    "depends_on": "eval:doc.stock_uom!=\"SQMT\"",
    "fieldname": "qty_per_box",
    "fieldtype": "Float",
-   "in_list_view": 1,
    "label": "Qty per Box",
    "mandatory_depends_on": "eval:doc.stock_uom!=\"SQMT\"",
    "precision": "3"
