@@ -46,8 +46,15 @@ const IB_SS_CSS = `
 .ibss-cam{width:56px;flex:0 0 56px;border:1.5px solid var(--border-color);border-radius:14px;background:var(--control-bg);
   color:var(--text-color);display:flex;align-items:center;justify-content:center;cursor:pointer}
 .ibss-cam:hover{border-color:var(--primary);color:var(--primary)}
-.ibss-camwrap{margin:0 0 14px;text-align:center}
-.ibss-video{width:100%;max-height:280px;border-radius:14px;background:#000;object-fit:cover}
+.ibss-camwrap{position:relative;margin:0 0 14px;text-align:center;border-radius:14px;overflow:hidden}
+.ibss-video{width:100%;max-height:280px;border-radius:14px;background:#000;object-fit:cover;display:block}
+.ibss-laser{position:absolute;left:6%;right:6%;top:50%;height:3px;transform:translateY(-50%);
+  background-image:radial-gradient(circle,#ff3b30 1.6px,transparent 1.7px);
+  background-size:11px 3px;background-repeat:repeat-x;border-radius:2px;
+  box-shadow:0 0 8px 1.5px rgba(255,59,48,.85),0 0 2px rgba(255,59,48,1);
+  animation:ibss-laser-blink 1s ease-in-out infinite;pointer-events:none}
+@keyframes ibss-laser-blink{0%,100%{opacity:1}50%{opacity:.2}}
+@media (prefers-reduced-motion: reduce){.ibss-laser{animation:none;opacity:.85}}
 .ibss-camstop{margin-top:8px;height:38px;padding:0 16px;border:1px solid var(--border-color);border-radius:9px;
   background:var(--control-bg);color:var(--text-color);cursor:pointer}
 .ibss-trace{display:inline-flex;align-items:center;gap:6px;margin-top:12px;padding:9px 12px;border-radius:10px;
@@ -86,6 +93,7 @@ class IBStockScan {
 			</div>
 			<div class="ibss-camwrap" style="display:none">
 				<video class="ibss-video" playsinline muted></video>
+				<div class="ibss-laser"></div>
 				<button class="ibss-camstop">${__("Stop camera")}</button>
 			</div>
 			<div class="ibss-result"></div>

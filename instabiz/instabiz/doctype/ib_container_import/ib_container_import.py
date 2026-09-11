@@ -32,7 +32,7 @@ class IBContainerImport(Document):
 				# Area UOM: qty = area of one roll × number of rolls.
 				# area_per_unit mirrors the Sales Order Item SQMT rule
 				# (width_mm/1000 × length_mtr), then × the roll count.
-				row.area_per_unit = flt(row.roll_width_mm) / 1000.0 * flt(row.roll_length_m)
+				row.area_per_unit = flt(row.width_mm) / 1000.0 * flt(row.length_mtr)
 				row.total_qty = flt(row.no_of_boxes) * flt(row.area_per_unit)
 			else:
 				row.total_qty = flt(row.no_of_boxes) * flt(row.qty_per_box)
@@ -43,8 +43,8 @@ class IBContainerImport(Document):
 			if cint(row.no_of_boxes) <= 0:
 				frappe.throw(_("Row #{0}: No. of Boxes / Rolls must be greater than 0").format(row.idx))
 			if _is_sqmt(row.stock_uom):
-				if flt(row.roll_width_mm) <= 0 or flt(row.roll_length_m) <= 0:
-					frappe.throw(_("Row #{0}: Roll Width (mm) and Roll Length (m) are required for SQMT items").format(row.idx))
+				if flt(row.width_mm) <= 0 or flt(row.length_mtr) <= 0:
+					frappe.throw(_("Row #{0}: Width (MM) and Length (MTR) are required for SQMT items").format(row.idx))
 			elif flt(row.qty_per_box) <= 0:
 				frappe.throw(_("Row #{0}: Qty per Box must be greater than 0").format(row.idx))
 			if not row.barcode:
@@ -149,9 +149,9 @@ def _make_batch(doc: "IBContainerImport", row) -> str:
 	# For SQMT rows the operator entered the real imported-roll dimensions —
 	# these can differ from the Item master and are what downstream slitting
 	# feasibility keys on. Fall back to the Item master otherwise.
-	b.gsm = flt(row.roll_gsm) or flt(item.get("gsm"))
-	b.width_mm = flt(row.roll_width_mm) or flt(item.get("width_mm"))
-	b.length_mtr = flt(row.roll_length_m)
+	b.gsm = flt(row.gsm) or flt(item.get("gsm"))
+	b.width_mm = flt(row.width_mm) or flt(item.get("width_mm"))
+	b.length_mtr = flt(row.length_mtr)
 	b.insert(ignore_permissions=True)
 	return b.name
 

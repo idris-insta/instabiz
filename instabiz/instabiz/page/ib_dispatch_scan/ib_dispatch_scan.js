@@ -22,6 +22,13 @@ const IBDS_CSS = `
 .ibds-video{width:100%;display:block;max-height:52vh;object-fit:cover}
 .ibds-reticle{position:absolute;inset:14%;border:2.5px solid color-mix(in srgb,var(--primary) 80%,white);
   border-radius:16px;pointer-events:none;box-shadow:0 0 0 999px rgba(0,0,0,.28)}
+.ibds-laser{position:absolute;left:16%;right:16%;top:50%;height:3px;transform:translateY(-50%);
+  background-image:radial-gradient(circle,#ff3b30 1.6px,transparent 1.7px);
+  background-size:11px 3px;background-repeat:repeat-x;border-radius:2px;
+  box-shadow:0 0 8px 1.5px rgba(255,59,48,.85),0 0 2px rgba(255,59,48,1);
+  animation:ibds-laser-blink 1s ease-in-out infinite;pointer-events:none}
+@keyframes ibds-laser-blink{0%,100%{opacity:1}50%{opacity:.2}}
+@media (prefers-reduced-motion: reduce){.ibds-laser{animation:none;opacity:.85}}
 .ibds-camoff{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
   min-height:200px;border:1.5px dashed var(--border-color);border-radius:16px;color:var(--text-muted)}
 .ibds-camtoolbar{display:flex;justify-content:center;gap:10px;margin:-6px 0 12px}
@@ -85,6 +92,7 @@ class IBDispatchScan {
 			<div class="ibds-camwrap" style="display:none">
 				<video class="ibds-video" playsinline muted></video>
 				<div class="ibds-reticle"></div>
+				<div class="ibds-laser"></div>
 			</div>
 			<div class="ibds-camoff">
 				${ibdsIco("camera", 22)}
