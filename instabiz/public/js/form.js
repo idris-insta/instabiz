@@ -57,6 +57,32 @@ IB_DOCTYPES.forEach(function (doctype) {
                 setTimeout(() => frm.page.clear_primary_action(), 0);
             }
 
+            // Rate/Qty/dimension fields are allow_on_submit=0 core-wide — Frappe's
+            // own save-time guard correctly rejects any change to them once
+            // docstatus=1 ("Cannot Update After Submit"), but the collapsed grid's
+            // inline cell editor doesn't consistently grey them out to match — a
+            // user can type a new rate, watch Amount/Total preview-update
+            // client-side (core calculate_taxes_and_totals, unrelated to our own
+            // recalc.js which already correctly no-ops post-submit), hit Save, and
+            // hit that wall with no idea why the number "didn't update". Lock the
+            // same fields visually so the grid matches what the server allows.
+            if (frm.doc.docstatus === 1) {
+                const locked_fields = ["item_code", "qty", "rate", "uom",
+                    "width_mm", "length_mtr", "qty_pkg", "total_pkg"];
+                const grid = frm.fields_dict.items.grid;
+                locked_fields.forEach((f) => {
+                    if (grid.docfields.some((df) => df.fieldname === f)) {
+                        grid.update_docfield_property(f, "read_only", 1);
+                    }
+                });
+                // grid.refresh() alone updates the docfield metadata but not the
+                // already-rendered row controls (their read_only state is set at
+                // row-construction time) — a full field refresh actually rebuilds
+                // the grid rows, which is what makes the lock visually/functionally
+                // real instead of just changing config nothing re-reads.
+                frm.refresh_field("items");
+            }
+
             // Custom Reopen logic for Cancelled documents (Q and SO only)
             // Server enforces permissions — no client-side role check needed
             if (
