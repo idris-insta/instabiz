@@ -1,0 +1,26 @@
+{
+ "actions": [],
+ "creation": "2026-09-11 00:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["item_code", "serial_no", "batch", "qty", "uom"],
+ "fields": [
+  {"fieldname": "item_code", "fieldtype": "Link", "options": "Item", "label": "Item", "in_list_view": 1, "reqd": 1, "columns": 3},
+  {"fieldname": "serial_no", "fieldtype": "Link", "options": "IB FG Serial", "label": "FG Serial", "in_list_view": 1, "columns": 3},
+  {"fieldname": "batch", "fieldtype": "Link", "options": "IB Batch", "label": "Batch", "in_list_view": 1, "columns": 3},
+  {"fieldname": "qty", "fieldtype": "Float", "label": "Qty", "in_list_view": 1, "columns": 2},
+  {"fieldname": "uom", "fieldtype": "Link", "options": "UOM", "label": "UOM", "in_list_view": 1, "columns": 1}
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-11 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "IB DN Scan Unit",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

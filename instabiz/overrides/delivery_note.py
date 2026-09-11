@@ -77,6 +77,7 @@ class CustomDeliveryNote(IbStatusMixin, DeliveryNote):
     def on_submit(self):
         super().on_submit()
         link_dn_source_batches(self)
+        _stamp_scanned_dispatch_units(self)
 
     def on_cancel(self):
         super().on_cancel()
@@ -84,6 +85,7 @@ class CustomDeliveryNote(IbStatusMixin, DeliveryNote):
             if row.get("custom_source_batch"):
                 frappe.db.set_value("Delivery Note Item", row.name, "custom_source_batch", None,
                                     update_modified=False)
+        _reverse_scanned_dispatch_units(self)
 
 
 # ── Direct-B2B traceability: link the RM batch a non-produced line shipped from ─
@@ -118,6 +120,61 @@ def link_dn_source_batches(doc, method=None):
                 )
     except Exception:
         frappe.log_error("IB DN batch link", frappe.get_traceback())
+
+
+# ── Mobile scan-to-dispatch: stamp units scanned by ib-dispatch-scan on submit ──
+
+def _stamp_scanned_dispatch_units(doc):
+    """Every IB FG Serial / IB Batch row scanned into this DN via ib-dispatch-scan
+    is recorded on doc.custom_scan_units at draft-build time (see
+    instabiz.overrides.dispatch_scan.build_delivery_note). Real stock deduction
+    already happened above via the normal DN submit (SLE/Bin) — this only syncs
+    the annotation layer (IB FG Serial.status / IB Batch.qty) so traceability
+    and the scan page's dupe/over-scan guards stay accurate. Idempotent and
+    non-blocking — a failure here must never block a real DN submit."""
+    try:
+        for row in (doc.get("custom_scan_units") or []):
+            if row.get("serial_no"):
+                sn = frappe.db.get_value("IB FG Serial", row.serial_no, "status")
+                if sn == "Delivered":
+                    continue
+                frappe.db.set_value(
+                    "IB FG Serial", row.serial_no,
+                    {"status": "Delivered", "delivery_note": doc.name, "customer": doc.customer},
+                    update_modified=False,
+                )
+            elif row.get("batch"):
+                frappe.db.set_value(
+                    "IB Batch", row.batch, "qty",
+                    flt(frappe.db.get_value("IB Batch", row.batch, "qty")) - flt(row.qty),
+                    update_modified=False,
+                )
+    except Exception:
+        frappe.log_error("IB DN scan-unit stamp", frappe.get_traceback())
+
+
+def _reverse_scanned_dispatch_units(doc):
+    """Mirror of _stamp_scanned_dispatch_units for DN cancel — puts scanned
+    serials back In Stock and restores batch qty. Non-blocking, same reasoning
+    as above."""
+    try:
+        for row in (doc.get("custom_scan_units") or []):
+            if row.get("serial_no"):
+                if frappe.db.get_value("IB FG Serial", row.serial_no, "delivery_note") != doc.name:
+                    continue
+                frappe.db.set_value(
+                    "IB FG Serial", row.serial_no,
+                    {"status": "In Stock", "delivery_note": None, "customer": None},
+                    update_modified=False,
+                )
+            elif row.get("batch"):
+                frappe.db.set_value(
+                    "IB Batch", row.batch, "qty",
+                    flt(frappe.db.get_value("IB Batch", row.batch, "qty")) + flt(row.qty),
+                    update_modified=False,
+                )
+    except Exception:
+        frappe.log_error("IB DN scan-unit reverse", frappe.get_traceback())
 
 
 # ── Per-row weight (same carton-weight math as IB Packing List) ───────────────
