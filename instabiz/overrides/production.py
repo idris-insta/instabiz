@@ -3040,10 +3040,21 @@ def update_production_qty(work_order, pcs_to_make=None, logs_to_make=None):
 	target qty. Simple field update — IB Work Order is not submittable, so no
 	need for a full doc.save() cycle here."""
 	_require_production_role()
-	wo_row = frappe.db.get_value("IB Work Order", work_order, ["target_uom", "status"], as_dict=True)
+	wo_row = frappe.db.get_value("IB Work Order", work_order, ["status"], as_dict=True)
 	if wo_row is None:
 		frappe.throw(_("Work Order {0} not found").format(work_order))
-	target_uom = wo_row.target_uom
+	# IB Work Order.target_uom is an orphaned pre-WO-per-run legacy column,
+	# always NULL on every real modern Work Order (same bug class fixed
+	# elsewhere in this file 2026-09-13) — since neither "None != PCS" nor
+	# "None != SQMT" is ever false, the validation two blocks down always
+	# threw, unconditionally, for every real WO regardless of its actual
+	# unit. Adjust Qty has been 100% non-functional since the WO-per-run
+	# migration. Resolved from the run's real first output row instead
+	# (same first-output approximation this page's other tabs already use).
+	target_uom = frappe.db.get_value(
+		"IB WO Output", {"parent": work_order},
+		"uom", order_by="idx asc",
+	)
 
 	# Reconciling wastage/efficiency only makes sense before the item has
 	# actually shipped — once Delivered (or Cancelled), the qty is history,
