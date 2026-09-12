@@ -824,12 +824,14 @@ def get_order_sheet_stage_workflow(order_sheet):
 	row on the sheet ever uses).
 	"""
 	_require_production_role()
+	from instabiz.overrides.production_run import _latest_run_for_osi, _stage_map_for_run
+
 	location = _get_os_location(order_sheet)
 	sales_order = frappe.db.get_value("IB Order Sheet", order_sheet, "sales_order")
 	items = frappe.db.get_all(
 		"IB Order Sheet Item",
 		filters={"parent": order_sheet},
-		fields=["name", "item_code", "item_name", "qty", "uom",
+		fields=["name", "item_code", "item_name", "qty", "uom", "sales_order_item",
 		        "custom_brand", "custom_core", "custom_ctn", "custom_shrink_film",
 		        "custom_no_of_logs", "custom_packing_type", "custom_size"],
 	)
@@ -851,27 +853,34 @@ def get_order_sheet_stage_workflow(order_sheet):
 		any_qty_pkg = any_qty_pkg or bool(dims.qty_pkg)
 		any_total_pkg = any_total_pkg or bool(dims.total_pkg)
 
-		stage_route = _get_stage_route(item.item_code, location)
-		wos = frappe.db.get_all(
-			"IB Work Order",
-			filters={
-				"order_sheet": order_sheet,
-				"order_sheet_item": item.name,
-				"status": ["!=", "Cancelled"],
-			},
-			fields=["name", "stage", "status", "machine", "operator", "pcs_to_make", "logs_to_make",
-			        "target_qty", "target_uom"],
-		)
-		wo_by_stage = {wo.stage: wo for wo in wos}
-
-		# Same "one actionable stage" rule as get_order_sheet_wo_names(): first
-		# stage in real route order whose WO is not yet Completed.
-		current_stage = None
-		for stage in stage_route:
-			wo = wo_by_stage.get(stage)
-			if wo and wo.status != "Completed":
-				current_stage = stage
-				break
+		# Rewritten for the WO-per-run model — was still filtering IB Work
+		# Order by "order_sheet_item"/"stage", both orphaned pre-WO-per-run
+		# legacy DB columns (always NULL on every real modern Work Order,
+		# same bug class as get_dpr()/get_order_sheet_wo_names(), fixed
+		# 2026-09-13) — every printed Job Order Summary has shown every
+		# stage as "not yet reached", blank machine/operator, for every real
+		# order, since the WO-per-run migration. An item has at most ONE
+		# current real run (_latest_run_for_osi, same resolver
+		# get_order_sheet_detail() already uses); its route + per-stage
+		# status come from _stage_map_for_run (same helper), and per-stage
+		# machine/operator come from the run's real IB WO Stage Event log
+		# (the current, not-yet-completed stage has no event yet — falls
+		# back to the run's live machine field, no operator recorded until
+		# that stage actually completes).
+		run = _latest_run_for_osi(item.sales_order_item, item.item_code, order_sheet)
+		if run:
+			smap, route = _stage_map_for_run(run)
+			stage_route = [r.stage for r in route]
+			events_by_stage = {
+				e.stage: e for e in frappe.get_all(
+					"IB WO Stage Event", filters={"parent": run.name, "skipped": 0},
+					fields=["stage", "machine", "operator"],
+				)
+			}
+			current_stage = run.current_stage
+		else:
+			stage_route = _get_stage_route(item.item_code, location)
+			smap, events_by_stage, current_stage = {}, {}, None
 
 		stages_out = []
 		for stage in _SUMMARY_STAGES:
@@ -881,24 +890,30 @@ def get_order_sheet_stage_workflow(order_sheet):
 					"status": None, "is_current": False,
 				})
 				continue
-			wo = wo_by_stage.get(stage)
+			info = smap.get(stage) or {}
+			ev = events_by_stage.get(stage)
+			is_current = stage == current_stage
 			stages_out.append({
 				"stage": stage,
 				"in_route": True,
-				"machine": wo.machine if wo else None,
+				"machine": (ev.machine if ev else None) or (run.machine if (run and is_current) else None),
 				# get_fullname caches per-request (frappe.local.fullnames) so
 				# resolving this per-stage/per-item doesn't turn into N+1 —
 				# printed sheets should show a real name, not a raw user email.
-				"operator": get_fullname(wo.operator) if (wo and wo.operator) else None,
-				"status": wo.status if wo else None,
-				"is_current": stage == current_stage,
+				"operator": get_fullname(ev.operator) if (ev and ev.operator) else None,
+				"status": info.get("status"),
+				"is_current": is_current,
 			})
 
-		# Manager reconciliation (Adjust Qty) is set on whichever stage WO the
-		# manager opened — check the whole chain, not just one stage.
-		pcs_to_make = next((flt(wo.pcs_to_make) for wo in wos if wo.pcs_to_make), 0)
-		logs_to_make = next((flt(wo.logs_to_make) for wo in wos if wo.logs_to_make), 0)
-		target_uom = next((wo.target_uom for wo in wos if wo.target_uom), item.uom)
+		# pcs_to_make/logs_to_make (the old per-stage-WO manager-reconciliation
+		# fields) are no longer written anywhere under the WO-per-run model
+		# (confirmed: production_run.py hardcodes both to 0 at every call
+		# site) — kept as 0 here too, consistent with the rest of the app
+		# rather than reading a column that was never a real thing on this
+		# doctype to begin with.
+		pcs_to_make = 0
+		logs_to_make = 0
+		target_uom = (run.uom if run else None) or item.uom
 
 		result.append({
 			"item_code": item.item_code,
