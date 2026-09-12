@@ -1802,10 +1802,12 @@ def get_order_sheet_detail(order_sheet):
 		run = _latest_run_for_osi(it.sales_order_item, it.item_code, order_sheet)
 		wo_entries = []
 		next_sugg = ""
+		current_wo = None
 		if run:
 			smap, route = _stage_map_for_run(run)
 			for r in route:
 				info = smap[r.stage]
+				is_current = r.stage == run.current_stage
 				wo_entries.append({
 					"name": run.name,
 					"stage": r.stage,
@@ -1815,11 +1817,42 @@ def get_order_sheet_detail(order_sheet):
 					"target_uom": info["target_uom"],
 					"creation": str(run.posting_date) if run.posting_date else None,
 					"pcs_to_make": 0, "logs_to_make": 0,
+					# All 5 stage chips describe the SAME single real Work Order
+					# (one run, expanded per route stage for the pill row) — only
+					# one of them is ever actually actionable. is_current flags it
+					# so the frontend doesn't open the panel using whichever
+					# pseudo-stage entry happened to be rendered/clobbered last
+					# (was always "Packing", the last stage in route order,
+					# regardless of which pill was clicked or the run's real
+					# current stage — confirmed live).
+					"is_current": is_current,
 				})
 			if run.status == "Completed":
 				next_sugg = ""
 			elif run.current_stage in (None, "Done"):
 				next_sugg = ""
+			# Real current-state object for opening the WO panel — same shape
+			# _run_row()-derived data uses elsewhere (name/stage/status/
+			# target_qty/target_uom/machine/priority/sales_order/customer_name/
+			# order_sheet), always reflecting the run's TRUE current stage
+			# regardless of which of the 5 visual pills triggered the click.
+			cur_info = smap.get(run.current_stage) or {}
+			current_wo = {
+				"name": run.name,
+				"stage": run.current_stage,
+				"status": run.status,
+				"machine": run.machine,
+				"priority": run.priority,
+				"sales_order": os_doc.sales_order,
+				"customer_name": os_doc.customer_name,
+				"order_sheet": order_sheet,
+				"completed_qty": cur_info.get("completed_qty", 0),
+				"target_qty": cur_info.get("target_qty") or flt(run.planned_qty),
+				"target_uom": cur_info.get("target_uom") or run.uom,
+				"creation": str(run.posting_date) if run.posting_date else None,
+				"delivery_date": str(os_doc.delivery_date) if os_doc.delivery_date else None,
+				"pcs_to_make": 0, "logs_to_make": 0,
+			}
 		else:
 			rt = _get_stage_route(it.item_code, location)
 			next_sugg = rt[0] if rt else ""
@@ -1831,6 +1864,7 @@ def get_order_sheet_detail(order_sheet):
 			"uom": it.uom,
 			"next_stage_suggestion": next_sugg,
 			"work_orders": wo_entries,
+			"current_wo": current_wo,
 		})
 
 	return {

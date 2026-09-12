@@ -3267,8 +3267,27 @@ class IBProductionStages {
 			// (previously always-visible as a wall of <li> text) now lives in
 			// the hover tooltip; clicking a chip still opens the same WO side
 			// panel a click on the old list row used to.
+			// All 5 chips describe the SAME single real Work Order (one run,
+			// expanded per route stage just for this pill row) — every chip
+			// shares the same wo.name, so calling _wo_data.set(wo.name, ...)
+			// once per chip inside this loop clobbered itself 5 times over;
+			// whichever stage happened to render last (always "Packing", the
+			// final stage in route order) silently won, so clicking ANY pill —
+			// including the real current/active one — opened the panel showing
+			// Packing's Pending pseudo-state instead of the run's true current
+			// stage/status. Confirmed live. Fixed: store the backend's real
+			// current-state object (item.current_wo) once, keyed by the run's
+			// real name — every chip click resolves to the same correct entry,
+			// which is also the only one actually actionable (a run only has
+			// one current stage at a time; clicking a past/future stage pill
+			// can't act on it "as of" that stage anyway).
+			if (item.current_wo) {
+				this._wo_data.set(item.current_wo.name, {
+					...item.current_wo,
+					delivery_date: item.current_wo.delivery_date || (detail.order_sheet || {}).delivery_date,
+				});
+			}
 			const chips = wos.map((wo) => {
-				this._wo_data.set(wo.name, { ...wo, delivery_date: (detail.order_sheet || {}).delivery_date });
 				const abbr = STAGE_ABBR[wo.stage] || (wo.stage || "").substring(0, 2).toUpperCase();
 				const created = wo.creation ? frappe.datetime.str_to_user(wo.creation) : "—";
 				const title = `${wo.stage || ""}: ${wo.name || ""} — ${wo.status || ""} `
