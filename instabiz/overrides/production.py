@@ -2250,20 +2250,32 @@ def get_machine_day_stats(machine_names, from_date, to_date=None):
 	to_date = to_date or from_date
 	if not machine_names:
 		return []
+	# Sourced from IB WO Stage Event, not IB Work Order.completed_qty/
+	# wastage_pct directly — those are orphaned pre-WO-per-run legacy
+	# columns, confirmed NULL/0 on every real modern Work Order (same root
+	# cause as get_dpr()/IB Production Report, fixed 2026-09-13) — this
+	# query's WHERE clause always matched real completions, but output_qty
+	# summed to 0 every time regardless of real floor output, silently
+	# capping every machine's OEE/yield/output card at "0 output" since the
+	# WO-per-run migration. wastage_pct stays unmeasured (never written by
+	# any real completion path, same as DPR's own reasoning) — averaging a
+	# column that's always 0 correctly yields 0, not wrong, just not a real
+	# measurement; left as-is rather than expanding this fix's scope.
 	return frappe.db.sql(
 		"""
 		SELECT
-			machine,
-			DATE(COALESCE(completed_at, modified)) AS prod_date,
-			COALESCE(SUM(TIMESTAMPDIFF(SECOND, started_at, completed_at)), 0) / 3600.0 AS run_hours,
-			COALESCE(SUM(completed_qty), 0) AS output_qty,
-			COALESCE(AVG(wastage_pct), 0) AS avg_wastage_pct,
+			e.machine AS machine,
+			DATE(e.completed_at) AS prod_date,
+			COALESCE(SUM(TIMESTAMPDIFF(SECOND, e.started_at, e.completed_at)), 0) / 3600.0 AS run_hours,
+			COALESCE(SUM(e.output_qty), 0) AS output_qty,
+			COALESCE(AVG(wo.wastage_pct), 0) AS avg_wastage_pct,
 			COUNT(*) AS wo_count
-		FROM `tabIB Work Order`
-		WHERE machine IN %(machines)s
-		  AND status = 'Completed'
-		  AND DATE(COALESCE(completed_at, modified)) BETWEEN %(from_date)s AND %(to_date)s
-		GROUP BY machine, DATE(COALESCE(completed_at, modified))
+		FROM `tabIB WO Stage Event` e
+		JOIN `tabIB Work Order` wo ON wo.name = e.parent
+		WHERE e.machine IN %(machines)s
+		  AND e.skipped = 0
+		  AND DATE(e.completed_at) BETWEEN %(from_date)s AND %(to_date)s
+		GROUP BY e.machine, DATE(e.completed_at)
 		""",
 		{"machines": list(machine_names), "from_date": from_date, "to_date": to_date},
 		as_dict=True,
