@@ -129,8 +129,20 @@ def _assign_machine_load_balanced(stage, location=None):
 	if not machines:
 		return None
 
-	# Prefer same-location machines; fall back to any
+	# Prefer same-location machines; fall back to any — EXCEPT for a
+	# warehouse-only location (Maharashtra/Chennai), which physically has no
+	# machines at all (confirmed live: zero IB Machine rows for either).
+	# Falling back there silently cross-assigned a real Gujarat machine to a
+	# warehouse order (confirmed live: a Maharashtra Packing run got assigned
+	# "PK-02", a Gujarat-location machine) — nonsensical for a floor
+	# supervisor (Gujarat's Machine-wise view shows a Maharashtra order queued
+	# on a machine two states away; Maharashtra's own Machine-wise view can
+	# never show it, since it filters strictly by IB Machine.location). A
+	# warehouse packing job just doesn't run on a machine in the traditional
+	# sense — leave it unassigned rather than pick a wrong one.
 	preferred = [m for m in machines if not location or m.location == location]
+	if not preferred and location in _WAREHOUSE_ONLY_LOCATIONS:
+		return None
 	pool = preferred if preferred else machines
 
 	if len(pool) == 1:
@@ -324,7 +336,15 @@ def _assign_machine(stage, location=None, spec=None):
 	if not machines:
 		return None
 
+	# See _assign_machine_load_balanced's matching comment — a warehouse-only
+	# location (Maharashtra/Chennai) has zero real machines; falling back to a
+	# different location's machine here is the exact same bug (this is the
+	# function create_run() actually calls) and produced the same real
+	# cross-location mis-assignment confirmed live (a Maharashtra Packing run
+	# assigned Gujarat's "PK-02").
 	preferred = [m for m in machines if not location or m.get("location") == location]
+	if not preferred and location in _WAREHOUSE_ONLY_LOCATIONS:
+		return None
 	pool = preferred if preferred else machines
 
 	feasible = [m for m in pool if _machine_feasible(m, stage, spec)]
@@ -1984,12 +2004,20 @@ def assign_machine_to_wo(work_order, machine):
 
 
 @frappe.whitelist()
-def get_item_wise_view(from_date=None, to_date=None, item_code=None):
+def get_item_wise_view(from_date=None, to_date=None, item_code=None, location=None):
 	"""Compat shim -> run model. Old Item-wise render wants one entry per output
 	SKU with a `.work_orders` array (one pseudo-row per route stage: done ->
-	Completed, current -> the run's status, future -> Pending)."""
+	Completed, current -> the run's status, future -> Pending).
+
+	`location` was silently dropped here (never in this function's own
+	signature, and the frontend never sent it either) — the Stages page's
+	shared location filter looked like it applied everywhere, but Item-wise
+	always showed every location's items regardless of the picker. Every
+	sibling tab (Order-wise/Stage-wise/Machine-wise) already threads its own
+	location arg through; this brings Item-wise in line.
+	"""
 	from instabiz.overrides.production_run import get_item_wise_board
-	rows = get_item_wise_board(location=None, item_code=item_code)
+	rows = get_item_wise_board(location=location, item_code=item_code)
 	bucket = {}
 	for r in rows:
 		key = (r["item_code"], r["work_order"])

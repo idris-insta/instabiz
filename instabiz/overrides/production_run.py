@@ -1262,8 +1262,17 @@ def get_production_kpis(location=None):
 	)
 	done_by_stage = {r.stage: r.n for r in ev_today}
 
+	# Warehouse-only locations (Maharashtra/Chennai) never run Coating/Slitting/
+	# Rewinding/Cutting — physically nothing happens there but Packing. Showing
+	# all 5 always-zero pipeline cards regardless of location was confusing (a
+	# manager picking Maharashtra saw 4 dead cards next to the page's own hint
+	# text explaining those stages don't apply there). Filter to the location's
+	# real stage set; "All Locations" (no filter) keeps showing all 5, since a
+	# company-wide view legitimately spans both models.
+	pipeline_stages = _WAREHOUSE_STAGE_ROUTE if loc in _WAREHOUSE_ONLY_LOCATIONS else STAGES
+
 	pipeline = []
-	for s in STAGES:
+	for s in pipeline_stages:
 		at = [r for r in rows if r.current_stage == s]
 		pipeline.append({
 			"stage": _STAGE_KEY[s],
@@ -1379,9 +1388,19 @@ def get_machine_board(location=None):
 
 @frappe.whitelist()
 def get_item_wise_board(location=None, item_code=None):
-	"""Item-wise tab — output SKUs across runs, each with its run's route matrix."""
+	"""Item-wise tab — output SKUs across runs, each with its run's route matrix.
+
+	Cancelled runs are excluded — a Cancelled Work Order (e.g. the parent of a
+	length-split, or a plain restarted/reworked run) still carries its own
+	full route table, and summing it in with its live replacement(s) produced
+	nonsense stage-completion fractions like "11/15 stages" for what a floor
+	user sees as one single item still in progress. Confirmed live: a real
+	380kg BOPP run split via advance_with_length_split left a Cancelled
+	parent (5-stage route) sitting alongside its 2 live children (5 stages
+	each) under the same item_code, inflating the denominator to 15.
+	"""
 	_require_production_role()
-	filters = {}
+	filters = {"status": ["!=", "Cancelled"]}
 	if location:
 		filters["location"] = location.lower()
 	runs = frappe.get_all("IB Work Order", filters=filters, fields=_RUN_LIST_FIELDS,

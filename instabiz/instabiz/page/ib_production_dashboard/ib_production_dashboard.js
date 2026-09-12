@@ -2007,6 +2007,35 @@ class IBProductionDashboard {
 				letter-spacing: .07em;
 				color: var(--text-muted, #94a3b8);
 			}
+			/* Below ~760px the 5-column grid (min combined width ~850px) simply
+			   ran off the right edge with no way back — Start/Next Stage/Finish,
+			   the entire reason this list exists, were unreachable on any phone.
+			   Confirmed live at 390px: only Item + a sliver of Stage stayed
+			   visible, Progress/Actions entirely off-screen, no scroll affordance.
+			   Stack every cell full-width instead; the header row (meaningless
+			   once nothing lines up in columns any more) is hidden in favor of
+			   small inline labels on the cells that aren't self-evident alone. */
+			@media (max-width: 760px) {
+				.ib-pd-plan-columns { display: none; }
+				.ib-pd-plan-row {
+					grid-template-columns: 1fr;
+					gap: 8px;
+					padding: 14px 16px;
+				}
+				.ib-pd-plan-row-qty::before {
+					display: block;
+					font-size: 9.5px;
+					font-weight: 700;
+					text-transform: uppercase;
+					letter-spacing: .06em;
+					color: var(--text-muted, #94a3b8);
+					margin-bottom: 2px;
+					content: "Qty";
+				}
+				.ib-pd-plan-row-progress { margin: 2px 0; }
+				.ib-pd-row-actions { justify-content: flex-start; }
+				.ib-pd-row-actions .ib-pd-row-btn { flex: 1 1 auto; min-width: 120px; }
+			}
 			.ib-pd-plan-row {
 				padding: 13px 18px;
 				background: var(--card-bg, #fff);
@@ -2128,6 +2157,14 @@ class IBProductionDashboard {
 			}
 			@media (max-width: 640px) {
 				.ib-pd-plan-header { flex-direction: column; align-items: stretch; }
+				/* .ib-pd-plan-start's "flex: 1 1 260px" sets a 260px flex-BASIS —
+				   fine as a min WIDTH in the normal row layout, but once
+				   flex-direction flips to column that same 260px basis applies
+				   to HEIGHT instead, forcing a ~260px-tall box regardless of the
+				   real (much shorter) content and leaving a dead gap before the
+				   priority/date badges below it. Confirmed live at 390px on 2
+				   real order cards. Reset to auto so it sizes to its content. */
+				.ib-pd-plan-start { flex-basis: auto; }
 				.ib-pd-plan-meta { margin-left: 0; }
 				.ib-pd-filter-group--search { max-width: none; flex-basis: 100%; }
 			}
@@ -2477,6 +2514,7 @@ class IBProductionStages {
 		$c.html('<div class="ib-ps-loading">Loading item view…</div>');
 		frappe.call({
 			method: "instabiz.overrides.production.get_item_wise_view",
+			args: { location: this.location_filter || null },
 			callback: (r) => {
 				if (r.exc) {
 					$c.html('<div class="ib-ps-empty">Failed to load item view.</div>');
