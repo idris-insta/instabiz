@@ -1238,13 +1238,37 @@ def get_dpr(date=None):
 	if not date:
 		date = today()
 
+	# `IB Work Order.stage`/`.completed_qty`/`.target_uom` are orphaned
+	# pre-WO-per-run legacy DB columns — confirmed via DESCRIBE and via real
+	# data that they're NULL/0 on every Work Order created by the current
+	# model's create_run() (production_run.py). Querying them here made this
+	# whole report silently show "0 Unknown" for every real completion since
+	# the WO-per-run migration — the underlying WOs/dates were correctly
+	# selected, only the output figure and unit were structurally always
+	# empty. Confirmed live: a real day with 2 genuine completions showed
+	# "2 WOs completed, 0 UNKNOWN output".
+	#
+	# The real per-stage source is IB WO Stage Event (one row per stage
+	# actually completed that day, with real input_qty/output_qty/
+	# started_at/completed_at) — also the only place per-STAGE granularity
+	# still exists at all under the WO-per-run model, since a completed run's
+	# own current_stage is just "Done" once finished, with no memory of which
+	# stage did what. UOM isn't tracked on the stage event itself (a stage
+	# event describes the whole run's progress through one stage, not one
+	# output item) — resolved via the run's first real output row, same
+	# first-output approximation already used elsewhere on this page for a
+	# multi-output run.
 	rows = frappe.db.sql(
 		"""
-		SELECT wo.stage, wo.machine, wo.completed_qty, wo.target_uom,
-			TIMESTAMPDIFF(MINUTE, wo.started_at, wo.completed_at) AS duration_min
-		FROM `tabIB Work Order` wo
-		WHERE wo.status = 'Completed' AND DATE(COALESCE(wo.completed_at, wo.modified)) = %s
-		ORDER BY wo.stage, wo.machine
+		SELECT e.stage AS stage, e.machine AS machine, e.output_qty AS completed_qty,
+			COALESCE(fo.uom, 'Unknown') AS target_uom,
+			TIMESTAMPDIFF(MINUTE, e.started_at, e.completed_at) AS duration_min
+		FROM `tabIB WO Stage Event` e
+		LEFT JOIN `tabIB WO Output` fo
+			ON fo.parent = e.parent
+			AND fo.idx = (SELECT MIN(idx) FROM `tabIB WO Output` WHERE parent = e.parent)
+		WHERE e.skipped = 0 AND DATE(e.completed_at) = %s
+		ORDER BY e.stage, e.machine
 		""",
 		(date,),
 		as_dict=True,
@@ -1333,10 +1357,11 @@ def get_dpr(date=None):
 def get_weekly_dpr(week_start=None, date=None):
 	"""Return 7-day production summary. `date` is an alias for `week_start` (JS sends `date`).
 
-	Sourced from IB Work Order completions — see get_dpr()'s docstring for
-	why IB Production Entry (this function's original source) is permanently
-	empty, and why wastage isn't reported (never written by any real
-	completion path, would misleadingly always show 0%).
+	Sourced from IB WO Stage Event, not IB Work Order.completed_qty/
+	target_uom — see get_dpr()'s docstring: those columns are orphaned
+	pre-WO-per-run legacy fields, always NULL/0 on every real modern WO, so
+	this silently showed "0 Unknown" output for every real completion since
+	the WO-per-run migration despite correctly finding the right WOs/dates.
 	"""
 	_require_production_role()
 	if not week_start:
@@ -1348,21 +1373,26 @@ def get_weekly_dpr(week_start=None, date=None):
 
 	week_end = add_days(week_start, 6)
 
-	# Grouped by day AND target_uom — same reasoning as get_dpr(): a bare
-	# SUM(completed_qty) across rows of different UOMs (PCS/SQMT/ROLL/...)
+	# Grouped by day AND uom — same reasoning as get_dpr(): a bare
+	# SUM(output_qty) across rows of different UOMs (PCS/SQMT/ROLL/...)
 	# isn't a real quantity of anything, so output is always kept as
-	# {uom, qty} pairs, never blended into one number.
+	# {uom, qty} pairs, never blended into one number. UOM resolved via the
+	# run's first real output row — a stage event describes the whole run's
+	# progress through one stage, not one output item, so it carries no uom
+	# of its own (same first-output approximation get_dpr() uses).
 	wo_rows = frappe.db.sql(
 		"""
-		SELECT DATE(COALESCE(completed_at, modified)) AS day,
-			COALESCE(target_uom, 'Unknown') AS uom,
+		SELECT DATE(e.completed_at) AS day,
+			COALESCE(fo.uom, 'Unknown') AS uom,
 			COUNT(*) AS wo_completed,
-			SUM(completed_qty) AS output_qty,
-			SUM(TIMESTAMPDIFF(MINUTE, started_at, completed_at)) AS total_minutes
-		FROM `tabIB Work Order`
-		WHERE status = 'Completed'
-			AND DATE(COALESCE(completed_at, modified)) BETWEEN %s AND %s
-		GROUP BY DATE(COALESCE(completed_at, modified)), COALESCE(target_uom, 'Unknown')
+			SUM(e.output_qty) AS output_qty,
+			SUM(TIMESTAMPDIFF(MINUTE, e.started_at, e.completed_at)) AS total_minutes
+		FROM `tabIB WO Stage Event` e
+		LEFT JOIN `tabIB WO Output` fo
+			ON fo.parent = e.parent
+			AND fo.idx = (SELECT MIN(idx) FROM `tabIB WO Output` WHERE parent = e.parent)
+		WHERE e.skipped = 0 AND DATE(e.completed_at) BETWEEN %s AND %s
+		GROUP BY DATE(e.completed_at), COALESCE(fo.uom, 'Unknown')
 		""",
 		(week_start, week_end),
 		as_dict=True,
