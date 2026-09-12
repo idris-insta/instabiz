@@ -759,44 +759,37 @@ def get_order_sheet_wo_names(order_sheet):
 	"""Names of the ONE currently-actionable Work Order per item under an
 	Order Sheet — for the Order-wise list's bulk "Print Job Order" action.
 
-	Was previously every non-Cancelled WO for every item, across every stage
-	in that item's route — a 6-stage item printed 6 pages (3 Completed, 1
-	In Progress, 2 not-yet-started) instead of the single page a floor
-	worker actually needs. Now: walk each item's real stage route (same
-	route _get_stage_route()/get_production_plan() already use) in order,
-	and take the first stage whose WO is NOT Completed (Pending/In Progress/
-	On Hold) — that's the one thing this item still needs done. An item
-	whose every stage is already Completed contributes nothing (nothing
-	left to hand a floor worker).
+	Rewritten for the WO-per-run model (was still written against the old
+	per-stage-WO JIT model: filtered IB Work Order by "order_sheet_item" and
+	"stage" fields that no longer exist on this doctype — both confirmed
+	orphaned pre-WO-per-run legacy DB columns, always NULL on every real
+	modern Work Order, same bug class as get_dpr()/IB Production Report/
+	get_machine_day_stats (all fixed 2026-09-13). Every real order's Print
+	Job Order button has been silently printing nothing (this always
+	returned an empty list) since the WO-per-run migration.
+
+	Under this model an item has at most ONE current real run at a time
+	(_latest_run_for_osi, same resolver get_order_sheet_detail() uses) — an
+	item with no run yet (not started) or whose run already Completed has
+	nothing to print; otherwise that one run's Work Order is the answer,
+	no route-walking needed.
 	"""
 	_require_production_role()
-	location = _get_os_location(order_sheet)
+	from instabiz.overrides.production_run import _latest_run_for_osi
+
 	items = frappe.db.get_all(
 		"IB Order Sheet Item",
 		filters={"parent": order_sheet},
-		fields=["name", "item_code"],
+		fields=["name", "item_code", "sales_order_item"],
 	)
 	if not items:
 		return []
 
 	names = []
 	for item in items:
-		stage_route = _get_stage_route(item.item_code, location)
-		wos = frappe.db.get_all(
-			"IB Work Order",
-			filters={
-				"order_sheet": order_sheet,
-				"order_sheet_item": item.name,
-				"status": ["!=", "Cancelled"],
-			},
-			fields=["name", "stage", "status"],
-		)
-		wo_by_stage = {wo.stage: wo for wo in wos}
-		for stage in stage_route:
-			wo = wo_by_stage.get(stage)
-			if wo and wo.status != "Completed":
-				names.append(wo.name)
-				break
+		run = _latest_run_for_osi(item.sales_order_item, item.item_code, order_sheet)
+		if run and run.status != "Completed":
+			names.append(run.name)
 
 	return names
 
