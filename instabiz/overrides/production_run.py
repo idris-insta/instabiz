@@ -1309,11 +1309,20 @@ def get_production_kpis(location=None):
 
 @frappe.whitelist()
 def get_stage_board(location=None):
-	"""Stage-wise tab — live runs grouped by their current stage (one per run)."""
+	"""Stage-wise tab — live runs grouped by their current stage (one per run).
+
+	Stage set is location-aware, same fix as get_production_kpis's Pipeline
+	cards: a warehouse-only location (Maharashtra/Chennai) only ever has
+	Packing — showing 4 permanently-zero pills (Coating/Slitting/Rewinding/
+	Cutting), defaulting to "Coating" (which can never have anything under
+	it there), was the same dead-UI confusion already fixed on the Dashboard
+	tab but missed here.
+	"""
 	_require_production_role()
+	loc = location.lower() if location else None
 	filters = {"status": ["in", _LIVE_STATUSES]}
-	if location:
-		filters["location"] = location.lower()
+	if loc:
+		filters["location"] = loc
 	rows = frappe.get_all("IB Work Order", filters=filters, fields=_RUN_LIST_FIELDS,
 	                      order_by="field(priority,'Urgent','High','Normal','Low'), posting_date asc")
 	so_map = {}
@@ -1322,11 +1331,12 @@ def get_stage_board(location=None):
 		for s in frappe.get_all("Sales Order", filters={"name": ["in", so_names]},
 		                        fields=["name", "customer", "customer_name", "delivery_date"]):
 			so_map[s.name] = s
-	board = {s: [] for s in STAGES}
+	stage_set = _WAREHOUSE_STAGE_ROUTE if loc in _WAREHOUSE_ONLY_LOCATIONS else STAGES
+	board = {s: [] for s in stage_set}
 	for r in rows:
 		key = r.current_stage if r.current_stage in board else (r.current_stage or "—")
 		board.setdefault(key, []).append(_run_row(r, so_map=so_map))
-	return {"stages": STAGES, "board": board,
+	return {"stages": stage_set, "board": board,
 	        "counts": {k: len(v) for k, v in board.items()}}
 
 

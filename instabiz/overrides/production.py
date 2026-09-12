@@ -730,10 +730,21 @@ def create_order_sheet(sales_order, priority="Normal", notes=None):
 @frappe.whitelist()
 def get_stage_pipeline(location=None):
 	"""Compat shim -> run model. Old Stage-wise tab expects
-	{ <lower_stage>: [ run_row, ... ] }."""
+	{ <lower_stage>: [ run_row, ... ] }.
+
+	`_stage_order` is an added reserved key (never a real stage name) giving
+	the frontend the location-aware ordered stage-key list get_stage_board()
+	now computes — without it, Stage-wise's pill row was hardcoded to always
+	render all 5 canonical stages client-side even when the backend was
+	already only returning warehouse-only locations' real single stage,
+	leaving 4 permanently-dead pills defaulting to "Coating" (impossible at
+	a warehouse) as the initially-active one.
+	"""
 	from instabiz.overrides.production_run import get_stage_board
 	b = get_stage_board(location)
-	return {(k or "").lower().replace(" ", "_"): v for k, v in (b.get("board") or {}).items()}
+	out = {(k or "").lower().replace(" ", "_"): v for k, v in (b.get("board") or {}).items()}
+	out["_stage_order"] = [(s or "").lower().replace(" ", "_") for s in (b.get("stages") or [])]
+	return out
 
 
 @frappe.whitelist()

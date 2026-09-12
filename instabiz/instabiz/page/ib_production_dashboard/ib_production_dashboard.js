@@ -2804,8 +2804,19 @@ class IBProductionStages {
 	_render_stage_wise() {
 		const $c = this._content();
 		const pipeline = this.stage_wise_cache || {};
+		// Server-computed, location-aware stage-key order (get_stage_pipeline's
+		// "_stage_order") — a warehouse-only location only ever gets ["packing"],
+		// so the pill row doesn't show 4 permanently-dead Coating/Slitting/
+		// Rewinding/Cutting pills there. Falls back to all 5 if the server
+		// didn't send it (defensive only — it always does).
+		const stageOrder = pipeline._stage_order && pipeline._stage_order.length
+			? pipeline._stage_order : IB_STAGES.map((s) => s.key);
+		const visibleStages = IB_STAGES.filter((s) => stageOrder.includes(s.key));
+		if (!visibleStages.some((s) => s.key === this.stage_wise_pill)) {
+			this.stage_wise_pill = visibleStages[0]?.key || "packing";
+		}
 
-		const pills = IB_STAGES.map((s) => {
+		const pills = visibleStages.map((s) => {
 			const count = (pipeline[s.key] || []).length;
 			const active = s.key === this.stage_wise_pill;
 			return `<button type="button" class="ib-ps-tab ib-sw-pill${active ? " active" : ""}" data-stage="${s.key}"
@@ -2814,8 +2825,18 @@ class IBProductionStages {
 				</button>`;
 		}).join("");
 
-		const rows = pipeline[this.stage_wise_pill] || [];
-		const filtered = window.ib_multi_token_filter(rows, ["item_code", "item_name", "sales_order", "customer_name", "machine"], this.stage_wise_search);
+		// ib_multi_token_filter/ib_multi_token_match only read flat row[field]
+		// properties — "item_code"/"item_name"/"customer_name" never existed on
+		// this row shape (item data is nested under row.outputs[], customer is
+		// "customer" not "customer_name"), so typing an item code or customer
+		// name into the search box silently matched nothing, ever. Attach a
+		// flat searchable blob first, same pattern Item-wise already uses
+		// (_customer_blob) for the same reason.
+		const rows = (pipeline[this.stage_wise_pill] || []).map((row) => ({
+			...row,
+			_item_blob: (row.outputs || []).map((o) => `${o.item_code || ""} ${o.item_name || ""}`).join(" "),
+		}));
+		const filtered = window.ib_multi_token_filter(rows, ["_item_blob", "sales_order", "customer", "machine"], this.stage_wise_search);
 
 		const toolbar = `
 			<div class="ib-ps-os-toolbar" style="margin:14px 0 12px">
@@ -2823,14 +2844,45 @@ class IBProductionStages {
 				<span class="ib-ps-stat-pill">${filtered.length} of ${rows.length}</span>
 			</div>`;
 
+		// Stage-wise's rows are IB Work Order run rows (production_run._run_row),
+		// NOT the old item/target_qty-per-stage shape this template was written
+		// against — item_code/customer_name/target_qty/completed_qty/target_uom
+		// never existed on that shape, so Item Code/Customer were always blank
+		// and Progress always showed a dead "0/0" for every row, on every
+		// location, since this table was built. Fixed to read the real fields:
+		// item_code(s) come from the run's outputs table (one run can have
+		// multiple outputs — show the first + a "+N more" badge, same pattern
+		// Machine-wise already uses), customer is `row.customer`, and
+		// progress is planned vs. total_output_qty summed across outputs.
 		const table_rows = filtered.length
 			? filtered.map((row) => {
-				this._wo_data.set(row.name, row);
-				const pct = row.target_qty > 0 ? Math.min(100, Math.round((row.completed_qty / row.target_qty) * 100)) : 0;
-				return `<tr class="ib-ps-wo-sub-item--clickable" data-woid="${frappe.utils.escape_html(row.name)}">
-					<td>${frappe.utils.escape_html(row.item_code || "")}</td>
+				// _run_row() names this field "work_order", not "name" — row.name
+				// was always undefined, so every row's data-woid attribute was
+				// blank and _wo_data was keyed entirely on the literal value
+				// `undefined` (last row wins) — clicking any row to open its WO
+				// panel silently did nothing, on every load, since this table
+				// existed. Same field-name-mismatch bug class as item_code/
+				// customer_name/target_qty above, just not visible until you
+				// actually tried to click a row. Also: _render_wo_panel's shared
+				// contract (used by every other tab) expects a differently-named
+				// pseudo-WO shape (wo.name/target_qty/target_uom/item_code/
+				// customer_name, not _run_row's work_order/outputs[]/customer) —
+				// store the adapted shape so the panel's own buttons (Start/
+				// Hold/Complete/Adjust Qty — all keyed off wo.name) actually work.
+				this._wo_data.set(row.work_order, this._stage_row_to_wo(row));
+				const outs = row.outputs || [];
+				const itemLabel = outs.length
+					? frappe.utils.escape_html(outs[0].item_code || "") +
+					  (outs.length > 1 ? ` <span class="text-muted">+${outs.length - 1} more</span>` : "")
+					: "—";
+				const targetQty = outs.reduce((s, o) => s + (flt(o.planned_qty) || 0), 0);
+				const completedQty = flt(row.total_output_qty) || 0;
+				const uom = outs[0]?.uom || "";
+				const pct = targetQty > 0 ? Math.min(100, Math.round((completedQty / targetQty) * 100)) : 0;
+				return `<tr class="ib-ps-wo-sub-item--clickable" data-woid="${frappe.utils.escape_html(row.work_order)}">
+					<td>${itemLabel}</td>
 					<td>${row.sales_order ? `<a class="ib-ps-os-link" data-so-nav="${frappe.utils.escape_html(row.sales_order)}">${frappe.utils.escape_html(row.sales_order)}</a>` : "—"}</td>
-					<td>${frappe.utils.escape_html(row.customer_name || "")}</td>
+					<td>${frappe.utils.escape_html(row.customer || "")}</td>
 					<td>${row.machine ? frappe.utils.escape_html(row.machine) : `<span style="color:var(--text-muted)">Unassigned</span>`}</td>
 					<td>${_ib_status_pill(row.priority || "Normal", "sm")}</td>
 					<td>${_ib_status_pill(row.status, "sm")}</td>
@@ -2838,7 +2890,7 @@ class IBProductionStages {
 						<div class="ib-ps-progress-wrap" style="min-width:70px">
 							<div class="ib-ps-progress-bar" style="width:${pct}%;background:var(--ib-primary)"></div>
 						</div>
-						<small>${row.completed_qty || 0}/${row.target_qty || 0} ${frappe.utils.escape_html(row.target_uom || "")}</small>
+						<small>${completedQty}/${targetQty} ${frappe.utils.escape_html(uom)}</small>
 					</td>
 					<td>${row.delivery_date ? frappe.datetime.str_to_user(row.delivery_date) : "—"}</td>
 				</tr>`;
@@ -3709,6 +3761,25 @@ class IBProductionStages {
 	_open_wo_panel(wo, stage_key) {
 		this.active_wo = wo;
 		this._render_wo_panel(wo, stage_key);
+	}
+
+	// Stage-wise reads raw production_run._run_row() objects — this maps one
+	// onto the pseudo-WO shape _render_wo_panel/its button handlers actually
+	// expect (see the note where this is called). produced_serials/pcs_to_make
+	// aren't in _run_row's field list at all — left undefined, which the
+	// panel already treats as "0"/falsy (Print Serial Labels just doesn't
+	// show; matches what those tabs do for a WO with none anyway).
+	_stage_row_to_wo(row) {
+		const outs = row.outputs || [];
+		return {
+			...row,
+			name: row.work_order,
+			stage: row.current_stage,
+			customer_name: row.customer,
+			item_code: outs[0]?.item_code || "",
+			target_qty: outs.reduce((s, o) => s + (flt(o.planned_qty) || 0), 0),
+			target_uom: outs[0]?.uom || "",
+		};
 	}
 
 	_close_side_panel() {
