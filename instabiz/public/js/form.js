@@ -21,6 +21,41 @@ frappe.router.on("change", function () {
     ib_hide_sidebar();
 });
 
+/**
+ * Nested-modal z-index fix (app-wide, not just Q/SO/DN/SI).
+ *
+ * Reported: "not able to add items in Q and SO — mouse restricted, everything
+ * disabled." Root cause is core Frappe, not our code: a grid's "Add Multiple"
+ * button opens frappe.ui.form.LinkSelector ("Select Item"); picking a row with
+ * a qty field calls its set_in_grid(), which opens a SECOND stacked dialog
+ * (frappe.prompt "Set Quantity") while the first is still open. Bootstrap
+ * gives every .modal/.modal-backdrop the same base z-index (1050/1040) —
+ * it doesn't natively support nested modals — so the newer "Set Quantity"
+ * dialog silently renders BEHIND the still-open "Select Item" one instead of
+ * on top. It's real and fully functional, just invisible and unclickable
+ * underneath; the older dialog's backdrop then blocks every other click on
+ * the page, which is exactly what reads as "mouse restricted / everything
+ * disabled." Reproduced live via a real Quotation's "Add Multiple" flow.
+ *
+ * Fix: whenever a modal is shown while another is already open, push every
+ * currently-open modal (and its immediately-preceding backdrop) to a fresh,
+ * strictly increasing z-index in DOM/open order, so the most recently opened
+ * dialog always ends up on top. Applies everywhere (not scoped to
+ * IB_DOCTYPES) since "Add Multiple" is used on every item/child-table grid
+ * across the app (PO/PR/PI/Stock Entry/Material Request included).
+ */
+$(document).on("shown.bs.modal", ".modal", function () {
+    const $modals = $(".modal.show");
+    if ($modals.length < 2) return;
+    const BASE = 1050;
+    $modals.each(function (i) {
+        const z = BASE + i * 20;
+        $(this).css("z-index", z);
+        const $backdrop = $(this).prev(".modal-backdrop");
+        if ($backdrop.length) $backdrop.css("z-index", z - 10);
+    });
+});
+
 const IB_DOCTYPES        = ["Quotation", "Sales Order", "Delivery Note", "Sales Invoice"];
 const IB_REOPEN_DOCTYPES = ["Quotation", "Sales Order"];
 const IB_DEBOUNCE        = 500; // Increased to 500ms for stable decimal input
