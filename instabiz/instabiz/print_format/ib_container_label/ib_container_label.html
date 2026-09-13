@@ -1,0 +1,68 @@
+<style>
+  @page { size: A4 portrait; margin: 6mm 4mm; }
+  .print-format { margin: 0mm; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; margin: 0; }
+  .ib-page { font-size: 0; page-break-after: always; }
+  .ib-page:last-child { page-break-after: auto; }
+
+  {# ── IB Print Theme, label-sized (see ib_packing_list.html reference) ──
+     Small physical stickers, not a full-page document — theme applied as
+     a thin rust-orange (#d97757) top accent per sticker + a tinted header
+     row, keeping the compact card layout and barcode/QR sizes untouched
+     so scannability is not affected. #}
+  .ib-stk {
+    display: inline-block; vertical-align: top; box-sizing: border-box;
+    width: 49mm; height: 69mm; margin: 0 .8mm 1mm 0;
+    border: 1px solid #ccc; border-top: 1.2mm solid #d97757; overflow: hidden; page-break-inside: avoid;
+  }
+  .ib-stk table { width: 100%; height: 100%; border-collapse: collapse; }
+  .ib-bc-td { width: 12mm; border-right: 1px solid #ccc; text-align: center; vertical-align: middle; padding: 0; }
+  .ib-bc-td img { width: 10mm; height: 55mm; display: block; margin: 0 auto; }
+  .ib-bc-hri { font-size: 4.5px; font-family: 'Courier New', monospace; letter-spacing: .1px;
+    text-align: center; word-break: break-all; line-height: 1.15; margin-top: 1mm; padding: 0 .3mm; }
+  .ib-body-td { vertical-align: top; padding: 1.6mm; }
+  .ib-stk-hd { font-size: 5.5px; font-weight: bold; text-align: center; letter-spacing: .2px; color: #b9502f;
+    background: #fdf3ee; border-bottom: 1px solid #d97757; padding: .8mm 0; margin: -1.6mm -1.6mm .8mm; }
+  .ib-stk-mark { font-size: 9px; font-weight: bold; text-align: center; line-height: 1.1;
+    word-break: break-all; margin-bottom: .8mm; }
+  .ib-stk-r { font-size: 6px; line-height: 1.35; }
+  .ib-stk-r b { font-weight: bold; }
+  .ib-qr-box { text-align: center; margin-top: 1.5mm; }
+  .ib-qr-box img { height: 22mm; width: 22mm; }
+  .ib-qr-cap { font-size: 5px; text-align: center; color: #b9502f; margin-top: .5mm; }
+</style>
+
+{% set base_url = frappe.utils.get_url() %}
+{% set ns = namespace(i=0) %}
+<div class="ib-page">
+{% for row in doc.items %}
+  {% set item = frappe.get_cached_doc("Item", row.item_code) %}
+  {% set base_code = row.item_code.rsplit("-", 1)[0] if "-" in row.item_code else row.item_code %}
+  {% set trace_id = doc.name ~ "::" ~ row.item_code ~ "::" ~ row.idx %}
+  {% set trace_url = base_url ~ "/app/ib-trace?id=" ~ (trace_id | urlencode) %}
+  {% set sqmt = (row.stock_uom or "") | upper == "SQMT" %}
+  {% set width = row.width_mm if (sqmt and row.width_mm) else item.width_mm %}
+  {% set length = row.length_mtr if (sqmt and row.length_mtr) else item.length_mtr %}
+  {% set size_parts = [] %}
+  {% if width %}{% set _ = size_parts.append((width | int | string) + "MM") %}{% endif %}
+  {% if length %}{% set _ = size_parts.append((length | int | string) + "M") %}{% endif %}
+  {% set per_ctn = row.area_per_unit if (sqmt and row.area_per_unit) else row.qty_per_box %}
+  {% for box_no in range(1, (row.no_of_boxes | int) + 1) %}
+    {% if ns.i > 0 and ns.i % 16 == 0 %}</div><div class="ib-page">{% endif %}
+    {% set ns.i = ns.i + 1 %}
+    <div class="ib-stk"><table><tr>
+      <td class="ib-bc-td"><img src="{{ get_barcode_data_uri(row.barcode, 1) }}"><div class="ib-bc-hri">{{ row.barcode }}</div></td>
+      <td class="ib-body-td">
+        <div class="ib-stk-hd">INSTABIZ SOLUTIONS INDIA PVT LTD &middot; i-STIX</div>
+        <div class="ib-stk-mark">{{ row.item_code }}</div>
+        {% if size_parts %}<div class="ib-stk-r"><b>SIZE</b> {{ size_parts | join(" X ") }}{% if item.color %} &middot; {{ item.color }}{% endif %}</div>{% endif %}
+        <div class="ib-stk-r"><b>ROLL</b> {{ box_no }} / {{ row.no_of_boxes }}</div>
+        <div class="ib-stk-r"><b>QTY/CTN</b> {{ "%.2f"|format(per_ctn|float) }} {{ row.stock_uom }}</div>
+        <div class="ib-stk-r"><b>BATCH</b> {{ trace_id }}</div>
+        <div class="ib-qr-box"><img src="{{ get_qr_data_uri(trace_url) }}"></div>
+        <div class="ib-qr-cap">SCAN QR &middot; TRACEABILITY</div>
+      </td>
+    </tr></table></div>
+  {% endfor %}
+{% endfor %}
+</div>
