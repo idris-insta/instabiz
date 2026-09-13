@@ -57,7 +57,14 @@
      and made short header words like "Ordered"/"SQMT" fragment mid-word
      ("Ordere-d") in the narrow qty columns — .wrap-anywhere targets only
      the cells that actually carry long unbreakable tokens. #}
-  .items-tbl { table-layout: fixed; }
+  {# 12 columns (HSN/3 qty columns/rate/discount/amount) is genuinely tight
+     at 11px body font — same overflow found and fixed on IB Purchase Order:
+     HSN codes and rate/amount currency values were wrapping mid-token even
+     with table-layout:fixed. Dropping to 10px plus rebalancing the declared
+     column % widths below (more room to HSN/Rate/Amount, taken from the
+     generous 22%-wide Description column) verified live via
+     browser-harness — every cell now renders on one line. #}
+  .items-tbl { table-layout: fixed; font-size: 10px; }
   .items-tbl td, .items-tbl th { text-align: center; padding: 3px 4px; word-break: normal; }
   .items-tbl .wrap-anywhere { overflow-wrap: anywhere; }
 
@@ -227,17 +234,17 @@
     <thead>
       <tr>
         <th class="b" style="width:3%">Sl<br>No.</th>
-        <th class="b" style="width:22%">Description of Goods</th>
-        <th class="b" style="width:7%">HSN/<br>SAC</th>
+        <th class="b" style="width:17%">Description of Goods</th>
+        <th class="b" style="width:9%">HSN/<br>SAC</th>
         <th class="b" style="width:7%">Ordered<br>Qty</th>
         <th class="b" style="width:7%">Accepted<br>Qty</th>
         <th class="b" style="width:7%">Rejected<br>Qty</th>
         <th class="b" style="width:5%">UOM</th>
-        <th class="b" style="width:8%">Rate/<br>SQMT</th>
-        <th class="b" style="width:8%">Rate</th>
+        <th class="b" style="width:6%">Rate/<br>SQMT</th>
+        <th class="b" style="width:11%">Rate</th>
         <th class="b" style="width:4%">per</th>
         <th class="b" style="width:6%">Disc<br>%</th>
-        <th class="b" style="width:9%">Amount</th>
+        <th class="b" style="width:11%">Amount</th>
       </tr>
     </thead>
     <tbody>

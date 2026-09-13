@@ -50,7 +50,16 @@
      and made short header words like "Required"/"SQMT" fragment mid-word
      — .wrap-anywhere targets only the cells that actually carry long
      unbreakable tokens (item code, HSN). #}
-  .items-tbl { table-layout: fixed; }
+  {# 11 columns (HSN/Qty/UOM/rate/discount/amount/date) is genuinely tight at
+     11px body font — real submitted data (8-digit HSN codes, "₹ 25,000.00"
+     rate amounts, "18-Jun-26" required-by dates) was wrapping mid-token even
+     with table-layout:fixed, e.g. "39191099" breaking to "39191"/"099" and
+     "₹ 25,000.00" breaking after the ₹ symbol at its natural space. Dropping
+     to 10px plus rebalancing the declared column % widths below (more room
+     to HSN/Rate/Amount/Required By, taken from the generous 27%-wide
+     Description column) verified live via browser-harness — every cell now
+     renders on one line, zero character/word-level wraps. #}
+  .items-tbl { table-layout: fixed; font-size: 10px; }
   .items-tbl td, .items-tbl th { text-align: center; padding: 3px 4px; word-break: normal; }
   .items-tbl .wrap-anywhere { overflow-wrap: anywhere; }
 
@@ -231,16 +240,16 @@
     <thead>
       <tr>
         <th class="b" style="width:3%">Sl<br>No.</th>
-        <th class="b" style="width:27%">Description of Goods</th>
-        <th class="b" style="width:7%">HSN/<br>SAC</th>
-        <th class="b" style="width:7%">Qty</th>
+        <th class="b" style="width:21%">Description of Goods</th>
+        <th class="b" style="width:9%">HSN/<br>SAC</th>
+        <th class="b" style="width:6%">Qty</th>
         <th class="b" style="width:5%">UOM</th>
-        <th class="b" style="width:8%">Rate/<br>SQMT</th>
-        <th class="b" style="width:8%">Rate</th>
+        <th class="b" style="width:6%">Rate/<br>SQMT</th>
+        <th class="b" style="width:11%">Rate</th>
         <th class="b" style="width:4%">per</th>
-        <th class="b" style="width:6%">Disc<br>%</th>
-        <th class="b" style="width:10%">Amount</th>
-        <th class="b" style="width:8%">Required<br>By</th>
+        <th class="b" style="width:5%">Disc<br>%</th>
+        <th class="b" style="width:11%">Amount</th>
+        <th class="b" style="width:9%">Required<br>By</th>
       </tr>
     </thead>
     <tbody>
