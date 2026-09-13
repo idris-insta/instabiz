@@ -19,7 +19,11 @@
   .sh     { font-weight: bold; padding: 4px 6px; background: #f2f2f2;
             border-top: 1px solid #000; border-bottom: 1px solid #000; }
 
-  .gross-pay-box {
+  .totals-box {
+    border: 1.5px solid #000; padding: 6px 10px; font-size: 11px;
+  }
+  .totals-box .row { display: flex; justify-content: space-between; padding: 2px 0; }
+  .net-pay-box {
     background: #eef7f2; border: 1.5px solid #1a7a4c; padding: 8px;
     text-align: center; font-size: 15px; font-weight: bold; color: #1a7a4c;
   }
@@ -81,9 +85,18 @@
     </tr>
   </table>
 
-  {# ── Gross Pay ─────────────────────────────────────────────────────────────── #}
-  <div class="gross-pay-box">
-    GROSS PAY : {{ fm(doc.gross_pay) }}
+  {# ── Totals ────────────────────────────────────────────────────────────────
+     Deductions are itemized above - showing Gross Pay alone as the headline
+     figure (this format's original behavior) implied it was the take-home
+     amount, silently ignoring every deduction just listed. Gross/Deduction
+     are shown as plain reference lines; Net Pay is the one emphasized figure,
+     matching Salary Slip Standard's own convention. #}
+  <div class="totals-box">
+    <div class="row"><span class="lbl">Gross Pay</span><span>{{ fm(doc.gross_pay) }}</span></div>
+    <div class="row"><span class="lbl">Total Deduction</span><span>{{ fm(doc.total_deduction) }}</span></div>
+  </div>
+  <div class="net-pay-box">
+    NET PAY : {{ fm(doc.net_pay) }}
   </div>
 
   {# ── Stamp / signature ────────────────────────────────────────────────────── #}
