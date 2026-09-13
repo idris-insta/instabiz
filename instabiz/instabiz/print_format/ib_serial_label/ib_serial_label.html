@@ -29,7 +29,7 @@
   .ib-sl-foot { text-align: center; font-size: 9px; color: #b9502f; text-decoration: underline; padding: 3px; }
 </style>
 
-{%- set serials = frappe.get_all("IB FG Serial", filters={"work_order": doc.name}, fields=["name", "serial_no", "item_code", "item_name", "fg_batch", "box_no", "width_mm", "length_mtr", "gsm", "sales_order", "produced_on"], order_by="box_no asc") -%}
+{%- set serials = frappe.get_all("IB FG Serial", filters={"work_order": doc.name}, fields=["name", "serial_no", "item_code", "item_name", "fg_batch", "box_no", "width_mm", "length_mtr", "gsm", "sales_order", "produced_on", "customer"], order_by="box_no asc") -%}
 {%- set total = serials | length -%}
 {%- set base_url = frappe.utils.get_url() -%}
 
@@ -52,7 +52,13 @@
       <tr><td class="ib-sl-k">WORK ORDER</td><td class="ib-sl-v">{{ doc.name }}</td></tr>
       {% if sn.sales_order %}<tr><td class="ib-sl-k">SALES ORDER</td><td class="ib-sl-v">{{ sn.sales_order }}</td></tr>{% endif %}
       {% if sn.produced_on %}<tr><td class="ib-sl-k">PRODUCED</td><td class="ib-sl-v">{{ frappe.utils.format_datetime(sn.produced_on, "dd-MMM-yy HH:mm") }}</td></tr>{% endif %}
-      <tr><td class="ib-sl-k">CUSTOMER</td><td class="ib-sl-v"></td></tr>
+      {# customer is only ever stamped on at dispatch (item 161's own design
+         intent - "for later dispatch stamping") - blank pre-dispatch is
+         correct, but the row previously had no binding at all (a hardcoded
+         empty cell), so it would still show nothing forever even after
+         dispatch. Bound now, and made conditional like SALES ORDER above
+         so a pre-dispatch label doesn't show an empty row. #}
+      {% if sn.customer %}<tr><td class="ib-sl-k">CUSTOMER</td><td class="ib-sl-v">{{ sn.customer }}</td></tr>{% endif %}
       <tr><td colspan="2" class="ib-sl-codes">
         <img class="bc" src="{{ get_barcode_data_uri(sn.serial_no) }}"><br>
         <img class="qr" src="{{ get_qr_data_uri(trace_url) }}">
