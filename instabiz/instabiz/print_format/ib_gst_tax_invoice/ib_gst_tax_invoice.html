@@ -134,8 +134,18 @@
 {% endmacro %}
 
 <style>
+  {# Inter (same webfont the desk UI uses, instabiz.bundle.css) - wkhtmltopdf
+     fetches it over HTTP same as any other asset, same /assets/ path the
+     desk already loads it from. Arial stays as the fallback stack for any
+     environment where the font fetch fails. #}
+  @font-face {
+    font-family: "Inter";
+    src: url("/assets/instabiz/fonts/InterVariable.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; font-size: 10px; color: #000; line-height: 1.45; }
+  body { font-family: "Inter", Arial, sans-serif; font-size: 10px; color: #000; line-height: 1.45; }
   table { width: 100%; border-collapse: collapse; }
   td, th { vertical-align: top; padding: 3px 5px; }
   strong, b { font-weight: bold; }
@@ -184,7 +194,7 @@
   .watermark span { display: block; font-size: 110px; font-weight: 900;
                     color: rgba(211,47,47,.15); letter-spacing: 10px;
                     text-transform: uppercase; white-space: nowrap;
-                    transform: rotate(-40deg); font-family: Arial, sans-serif;
+                    transform: rotate(-40deg); font-family: "Inter", Arial, sans-serif;
                     border: 12px solid rgba(211,47,47,.12);
                     padding: 10px 30px; border-radius: 8px; }
 
