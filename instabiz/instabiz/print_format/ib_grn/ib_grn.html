@@ -35,9 +35,11 @@
 
 <style>
   body, table, th, td { font-family: Arial, sans-serif; }
-  body   { font-size: 11px; color: #000; margin: 0; }
-  table  { width: 100%; border-collapse: collapse; }
-  td, th { padding: 4px 6px; vertical-align: top; }
+  body    { font-size: 11px; color: #1a1a1a; margin: 0; }
+  table   { width: 100%; border-collapse: collapse; }
+  td, th  { padding: 4px 6px; vertical-align: top; }
+  strong  { font-weight: bold; }
+
   {# table-layout:fixed forces columns to obey their declared width % —
      without it, a long unbreakable string (item code, HSN) makes the
      browser/PDF engine widen that column past its % and the whole table
@@ -48,17 +50,38 @@
   .items-tbl { table-layout: fixed; }
   .items-tbl td, .items-tbl th { text-align: center; padding: 3px 4px; word-break: normal; }
   .items-tbl .wrap-anywhere { overflow-wrap: anywhere; }
-  strong { font-weight: bold; }
-  .box   { border: 1.5px solid #000; margin-bottom: 2px; }
-  .b     { border: 1px solid #000; }
-  .bb    { border-bottom: 1px solid #000; }
-  .bt    { border-top: 1px solid #000; }
-  .br    { border-right: 1px solid #000; }
-  .ta-r  { text-align: right; }
-  .ta-c  { text-align: center; }
-  .lbl   { color: #555; font-size: 10px; }
-  .italic{ font-style: italic; }
-  .rej   { color: #c0392b; font-weight: bold; }
+
+  {# ── IB Print Theme (see ib_packing_list.html reference) ── #}
+  .box    { border: 1.5px solid #333; margin-bottom: 2px; }
+  .b      { border: 1px solid #ccc; }
+  .bb     { border-bottom: 1px solid #333; }
+  .bt     { border-top: 1px solid #333; }
+  .br     { border-right: 1px solid #333; }
+  .ta-r   { text-align: right; }
+  .ta-c   { text-align: center; }
+  .lbl    { color: #666; font-size: 10px; }
+  .italic { font-style: italic; }
+  .rej    { color: #c0392b; font-weight: bold; }
+
+  .ib-title-bar {
+    background: #fdf3ee; border-bottom: 2px solid #d97757;
+    text-align: center; padding: 6px;
+  }
+  .ib-title-bar .t { font-size: 18px; font-weight: bold; letter-spacing: 1px; color: #b9502f; }
+  .ib-title-bar .s { font-size: 10px; color: #666; }
+
+  .ib-sh {
+    font-weight: bold; padding: 4px 6px; background: #fdf3ee; color: #b9502f;
+    border-top: 1px solid #d97757; border-bottom: 1px solid #d97757;
+  }
+  .items-tbl thead th {
+    background: #fdf3ee; color: #b9502f; border: 1px solid #f0d4c8;
+  }
+  .items-tbl tbody td { border: 1px solid #ddd; }
+  .items-tbl .total-row td {
+    border-top: 2px solid #d97757; background: #fdf3ee; font-weight: bold; color: #b9502f;
+  }
+
   .watermark { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
                display: flex; align-items: center; justify-content: center;
                pointer-events: none; z-index: 99999; overflow: hidden; }
@@ -76,14 +99,17 @@
 
 <div class="box">
 
-  {# ── Title ── #}
-  {# ── Letter Head (wide banner, ~9:1 aspect — full width, not floated) ── #}
+  {# ── Letterhead (wide banner, ~9:1 aspect — full width, not floated) ── #}
   <div class="bb" style="padding:0">
     <img src="/files/Instabiz_LH_v2.png" style="display:block; width:100%; height:auto; object-fit:contain; margin:0">
   </div>
 
-  <div style="text-align:center; padding:5px 6px; border-bottom:1px solid #000; font-size:13px; letter-spacing:1px">
-    <strong>Goods Receipt Note</strong>
+  {# ── Title bar ── #}
+  <div class="ib-title-bar">
+    <div class="t">GOODS RECEIPT NOTE</div>
+    <div class="s">
+      GRN No: <strong>{{ doc.name }}</strong> &nbsp;|&nbsp; Date: <strong>{{ fd(doc.posting_date) }}</strong>
+    </div>
   </div>
 
   {# ── Company header (left) + GRN meta grid (right) ── #}
@@ -253,9 +279,9 @@
 
       {# Grand Total — fm() already prefixes the currency symbol; a manual
          &#8377; here duplicated it, same bug already fixed on the PO format. #}
-      <tr>
-        <td class="b" colspan="11"><strong>Grand Total</strong></td>
-        <td class="b"><strong>{{ fm(doc.grand_total) }}</strong></td>
+      <tr class="total-row">
+        <td class="b" colspan="11">Grand Total</td>
+        <td class="b">{{ fm(doc.grand_total) }}</td>
       </tr>
     </tbody>
   </table>
