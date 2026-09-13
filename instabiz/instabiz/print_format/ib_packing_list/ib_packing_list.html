@@ -10,33 +10,53 @@
 {% macro fd(d) %}{% if d %}{{ frappe.utils.formatdate(d, "dd-MMM-yy") }}{% endif %}{% endmacro %}
 {% macro fq(v) %}{{ frappe.utils.fmt_money(v|float, precision=2) }}{% endmacro %}
 
-{# Same visual system as IB Purchase Order — circular logo, centered title,
-   black-bordered tables, single font — brought over here to match. #}
+{# ── IB Print Theme ───────────────────────────────────────────────────────
+   Shared visual language across every instabiz print format (except
+   Quotation/Sales Order, which keep their own existing formats): full-width
+   letterhead banner, rust-orange (#d97757, matches instabiz.css
+   --ib-primary) as the one accent color for title bar / section headers /
+   totals, plain black-bordered tables for dense data (keeps print legible
+   and cheap on toner), stamp+signature footer. #}
 <style>
   body, table, th, td { font-family: Arial, sans-serif; }
-  body   { font-size: 11px; color: #000; margin: 0; }
-  table  { width: 100%; border-collapse: collapse; }
-  td, th { padding: 4px 6px; vertical-align: top; }
-  {# table-layout:fixed forces columns to obey their declared width % —
-     without it, a long unbreakable string (item code) makes the
-     browser/PDF engine widen that column past its % and the whole table
-     overflows the page. Blanket break-word on every cell was tried first
-     and made short header words fragment mid-word — .wrap-anywhere
-     targets only the cell that actually carries a long unbreakable token
-     (item code). #}
+  body    { font-size: 11px; color: #1a1a1a; margin: 0; }
+  table   { width: 100%; border-collapse: collapse; }
+  td, th  { padding: 4px 6px; vertical-align: top; }
+  strong  { font-weight: bold; }
+
   .items-tbl { table-layout: fixed; }
   .items-tbl td, .items-tbl th { text-align: center; padding: 3px 4px; word-break: normal; }
   .items-tbl .wrap-anywhere { overflow-wrap: anywhere; }
-  strong { font-weight: bold; }
-  .box   { border: 1.5px solid #000; margin-bottom: 2px; }
-  .b     { border: 1px solid #000; }
-  .bb    { border-bottom: 1px solid #000; }
-  .bt    { border-top: 1px solid #000; }
-  .br    { border-right: 1px solid #000; }
-  .ta-r  { text-align: right; }
-  .ta-c  { text-align: center; }
-  .lbl   { color: #555; font-size: 10px; }
-  .italic{ font-style: italic; }
+
+  .box    { border: 1.5px solid #333; margin-bottom: 2px; }
+  .b      { border: 1px solid #ccc; }
+  .bb     { border-bottom: 1px solid #333; }
+  .bt     { border-top: 1px solid #333; }
+  .br     { border-right: 1px solid #333; }
+  .ta-r   { text-align: right; }
+  .ta-c   { text-align: center; }
+  .lbl    { color: #666; font-size: 10px; }
+  .italic { font-style: italic; }
+
+  .ib-title-bar {
+    background: #fdf3ee; border-bottom: 2px solid #d97757;
+    text-align: center; padding: 6px;
+  }
+  .ib-title-bar .t { font-size: 18px; font-weight: bold; letter-spacing: 1px; color: #b9502f; }
+  .ib-title-bar .s { font-size: 10px; color: #666; }
+
+  .ib-sh {
+    font-weight: bold; padding: 4px 6px; background: #fdf3ee; color: #b9502f;
+    border-top: 1px solid #d97757; border-bottom: 1px solid #d97757;
+  }
+  .items-tbl thead th {
+    background: #fdf3ee; color: #b9502f; border: 1px solid #f0d4c8;
+  }
+  .items-tbl tbody td { border: 1px solid #ddd; }
+  .items-tbl .total-row td {
+    border-top: 2px solid #d97757; background: #fdf3ee; font-weight: bold; color: #b9502f;
+  }
+
   .watermark { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
                display: flex; align-items: center; justify-content: center;
                pointer-events: none; z-index: 99999; overflow: hidden; }
@@ -54,24 +74,17 @@
 
 <div class="box">
 
-  {# ── Header: circular logo (left) + centered title + Location/Date (right) — mirrors IB Purchase Order #}
-  <div style="position:relative">
-    <table class="bb">
-      <tr>
-        <td style="width:18%; padding:6px">
-          <img src="/files/logo.jpeg" style="display:block; width:100%; height:auto; object-fit:contain">
-        </td>
-        <td style="width:52%">&nbsp;</td>
-        <td style="width:30%; text-align:right; vertical-align:middle; font-size:11px">
-          {% if doc.custom_location %}Location: <strong>{{ doc.custom_location }}</strong><br>{% endif %}
-          Date: <strong>{{ fd(doc.posting_date) }}</strong>
-        </td>
-      </tr>
-    </table>
-    <div style="position:absolute; top:0; left:0; width:100%; height:100%; display:table">
-      <div style="display:table-cell; vertical-align:middle; text-align:center">
-        <div style="font-size:20px; font-weight:bold; letter-spacing:1px">DELIVERY NOTE</div>
-      </div>
+  {# ── Letterhead ── #}
+  <div class="bb" style="padding:0">
+    <img src="/files/Instabiz_LH_v2.png" style="display:block; width:100%; height:auto; object-fit:contain; margin:0">
+  </div>
+
+  {# ── Title bar ── #}
+  <div class="ib-title-bar">
+    <div class="t">DELIVERY NOTE</div>
+    <div class="s">
+      {% if doc.custom_location %}Location: <strong>{{ doc.custom_location }}</strong> &nbsp;|&nbsp; {% endif %}
+      Date: <strong>{{ fd(doc.posting_date) }}</strong>
     </div>
   </div>
 
@@ -131,12 +144,12 @@
   <table class="bb">
     <tr>
       <td class="br" style="width:55%">
-        <div class="lbl">Ship To</div>
+        <div class="lbl">SHIP TO</div>
         {{ doc.shipping_address or doc.address_display or "" }}
       </td>
       <td style="width:45%">
         {% if doc.dispatch_address %}
-        <div class="lbl">Dispatch From</div>
+        <div class="lbl">DISPATCH FROM</div>
         {{ doc.dispatch_address }}
         {% endif %}
       </td>
@@ -147,17 +160,17 @@
   <table class="items-tbl">
     <thead>
       <tr>
-        <th class="b" style="width:3%">Sl<br>No.</th>
-        <th class="b" style="width:14%">Item Code</th>
-        <th class="b" style="width:24%">Description</th>
-        <th class="b" style="width:9%">Branding</th>
-        <th class="b" style="width:8%">Qty</th>
-        <th class="b" style="width:6%">UOM</th>
-        <th class="b" style="width:8%">Rolls/<br>Box</th>
-        <th class="b" style="width:9%">No. of<br>Boxes</th>
-        <th class="b" style="width:9%">Carton<br>Wt (kg)</th>
-        <th class="b" style="width:9%">Total<br>Wt (kg)</th>
-        <th class="b" style="width:11%">Marking</th>
+        <th style="width:3%">Sl<br>No.</th>
+        <th style="width:14%">Item Code</th>
+        <th style="width:24%">Description</th>
+        <th style="width:9%">Branding</th>
+        <th style="width:8%">Qty</th>
+        <th style="width:6%">UOM</th>
+        <th style="width:8%">Rolls/<br>Box</th>
+        <th style="width:9%">No. of<br>Boxes</th>
+        <th style="width:9%">Carton<br>Wt (kg)</th>
+        <th style="width:9%">Total<br>Wt (kg)</th>
+        <th style="width:11%">Marking</th>
       </tr>
     </thead>
     <tbody>
@@ -172,30 +185,30 @@
         {% set total_boxes.v = total_boxes.v + boxes %}
         {% set total_wt.v = total_wt.v + line_wt %}
         <tr>
-          <td class="b">{{ loop.index }}</td>
-          <td class="b wrap-anywhere">{{ row.item_code }}</td>
-          <td class="b wrap-anywhere">
+          <td>{{ loop.index }}</td>
+          <td class="wrap-anywhere">{{ row.item_code }}</td>
+          <td class="wrap-anywhere">
             <strong>{{ row.item_name or row.item_code }}</strong>
             {% if row.description and row.description != row.item_name %}
             <br><span class="italic lbl">{{ row.description | striptags | trim }}</span>
             {% endif %}
           </td>
-          <td class="b">{{ row.custom_branding or "" }}</td>
-          <td class="b">{{ fq(row.qty) }}</td>
-          <td class="b">{{ row.uom }}</td>
-          <td class="b">{{ rolls_per_box }}</td>
-          <td class="b">{{ boxes }}</td>
-          <td class="b">{{ carton_wt }}</td>
-          <td class="b">{{ line_wt }}</td>
-          <td class="b">{{ row.custom_marking or item.custom_carton_marking or "" }}</td>
+          <td>{{ row.custom_branding or "" }}</td>
+          <td>{{ fq(row.qty) }}</td>
+          <td>{{ row.uom }}</td>
+          <td>{{ rolls_per_box }}</td>
+          <td>{{ boxes }}</td>
+          <td>{{ carton_wt }}</td>
+          <td>{{ line_wt }}</td>
+          <td>{{ row.custom_marking or item.custom_carton_marking or "" }}</td>
         </tr>
       {% endfor %}
-      <tr>
-        <td class="b" colspan="7"><strong>TOTAL</strong></td>
-        <td class="b"><strong>{{ total_boxes.v | round(2) }}</strong></td>
-        <td class="b"></td>
-        <td class="b"><strong>{{ total_wt.v | round(2) }}</strong></td>
-        <td class="b"></td>
+      <tr class="total-row">
+        <td colspan="7">TOTAL</td>
+        <td>{{ total_boxes.v | round(2) }}</td>
+        <td></td>
+        <td>{{ total_wt.v | round(2) }}</td>
+        <td></td>
       </tr>
     </tbody>
   </table>
@@ -206,10 +219,10 @@
       <td style="width:33%; text-align:center; padding:30px 6px 4px">
         <strong>Packed By</strong>
       </td>
-      <td style="width:33%; text-align:center; padding:30px 6px 4px; border-left:1px solid #000">
+      <td style="width:33%; text-align:center; padding:30px 6px 4px; border-left:1px solid #333">
         <strong>Checked By</strong>
       </td>
-      <td style="text-align:right; padding:6px; border-left:1px solid #000">
+      <td style="text-align:right; padding:6px; border-left:1px solid #333">
         <div><strong>for {{ doc.company | upper }}</strong></div>
         <div style="text-align:right; margin-top:4px">
           <img src="/files/IB_Stamp.jpeg" style="height:55px; width:auto; display:inline-block">
@@ -219,8 +232,8 @@
     </tr>
   </table>
 
-  <div style="text-align:center; padding:3px; border-top:1px solid #000">
-    This is a Computer Generated Delivery Note
+  <div class="lbl" style="text-align:center; padding:3px; border-top:1px solid #333">
+    This is a computer-generated Delivery Note and does not require a signature.
   </div>
 
 </div>
