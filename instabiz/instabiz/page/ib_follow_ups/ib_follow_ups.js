@@ -25,7 +25,7 @@ const IB_FU_STATUS_LABEL = { Never: "Pending", Overdue: "Overdue", "Followed Up"
 const IB_FU_STATUS_CLS = { Never: "pending", Overdue: "risk", "Followed Up": "done" };
 const IB_FU_STATE_KEY = "ib_follow_ups_state";
 const IB_FU_AMOUNT_FIELDS = ["grand_total"];
-const IB_FU_HIDDEN_FIELDS = ["name", "follow_up_status", "last_follow_up", "next_follow_up_date", "days_overdue", "contact_mobile"];
+const IB_FU_HIDDEN_FIELDS = ["name", "modified", "follow_up_status", "last_follow_up", "next_follow_up_date", "days_overdue", "contact_mobile"];
 const IB_FU_PAGE_SIZE = 10;
 
 class IBFollowUpsPage {
