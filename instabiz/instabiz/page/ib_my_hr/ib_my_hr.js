@@ -29,7 +29,7 @@ class IBMyHR {
 		const s = document.createElement("style");
 		s.id = "ib-myhr-styles";
 		s.textContent = `
-:root { --myhr-primary:#2563eb; --myhr-green:#059669; --myhr-red:#dc2626;
+:root { --myhr-primary:var(--ib-primary, #d97757); --myhr-green:#059669; --myhr-red:#dc2626;
         --myhr-orange:#ea580c; --myhr-yellow:#d97706; --myhr-indigo:#4338ca; }
 
 .ib-myhr-wrap { padding: 16px; max-width: 1100px; }
