@@ -1,0 +1,58 @@
+<style>
+  @page { size: 4in 6in; margin: 3mm; }
+  .print-format { margin: 0mm; }
+  body, table, th, td { font-family: Arial, sans-serif; }
+  body { font-size: 11px; color: #1a1a1a; margin: 0; }
+
+  {# ── IB Print Theme, label-sized (see ib_packing_list.html reference) ──
+     A physical shipping label, not a full-page document — theme applied
+     as a thin rust-orange (#d97757) top accent + tinted header/key
+     cells, keeping the compact table layout and barcode/QR sizes
+     untouched so scannability is not affected. #}
+  .ib-sl { width: 100%; box-sizing: border-box; border-top: 3px solid #d97757; page-break-after: always; }
+  .ib-sl:last-child { page-break-after: auto; }
+  .ib-sl-tbl { width: 100%; border-collapse: collapse; }
+  .ib-sl-tbl td { border: 1px solid #ccc; padding: 4px 6px; vertical-align: middle; }
+  .ib-sl-head { text-align: center; font-weight: bold; font-size: 13px; background: #fdf3ee; color: #b9502f; border-color: #f0d4c8 !important; }
+  .ib-sl-k { width: 34%; font-weight: bold; background: #fdf3ee; color: #b9502f; border-color: #f0d4c8 !important; }
+  .ib-sl-v { text-align: center; }
+  .ib-sl-serial { text-align: center; font-weight: bold; font-size: 12px; letter-spacing: 0.5px; }
+  .ib-sl-codes { text-align: center; padding: 6px; }
+  .ib-sl-codes img.bc { height: 0.5in; max-width: 92%; }
+  .ib-sl-codes img.qr { height: 0.9in; width: 0.9in; margin-top: 4px; }
+  .ib-sl-foot { text-align: center; font-size: 9px; color: #b9502f; text-decoration: underline; padding: 3px; }
+</style>
+
+{%- set serials = frappe.get_all("IB FG Serial", filters={"work_order": doc.name}, fields=["name", "serial_no", "item_code", "item_name", "fg_batch", "box_no", "width_mm", "length_mtr", "gsm", "sales_order", "produced_on"], order_by="box_no asc") -%}
+{%- set total = serials | length -%}
+{%- set base_url = frappe.utils.get_url() -%}
+
+{% for sn in serials %}
+  {%- set base_code = sn.item_code.rsplit("-", 1)[0] if "-" in sn.item_code else sn.item_code -%}
+  {%- set trace_url = base_url ~ "/app/ib-trace?id=" ~ (sn.serial_no | urlencode) -%}
+  <div class="ib-sl">
+    <table class="ib-sl-tbl">
+      <tr><td colspan="2" class="ib-sl-head">INSTABIZ SOLUTIONS INDIA PVT LTD (i-STIX)</td></tr>
+      <tr><td colspan="2" class="ib-sl-serial">{{ sn.serial_no }}</td></tr>
+      <tr><td class="ib-sl-k">ITEM CODE</td><td class="ib-sl-v">{{ base_code }}</td></tr>
+      <tr><td class="ib-sl-k">ITEM MARK</td><td class="ib-sl-v">{{ sn.item_code }}</td></tr>
+      <tr><td class="ib-sl-k">ITEM NAME</td><td class="ib-sl-v">{{ sn.item_name or "" }}</td></tr>
+      {% if sn.width_mm or sn.length_mtr %}
+      <tr><td class="ib-sl-k">SIZE</td><td class="ib-sl-v">{% if sn.width_mm %}{{ sn.width_mm | int }}MM{% endif %}{% if sn.length_mtr %} X {{ sn.length_mtr | int }}M{% endif %}</td></tr>
+      {% endif %}
+      {% if sn.gsm %}<tr><td class="ib-sl-k">GSM</td><td class="ib-sl-v">{{ sn.gsm | int }}</td></tr>{% endif %}
+      <tr><td class="ib-sl-k">BOX / ROLL NO</td><td class="ib-sl-v">{{ sn.box_no }} / {{ total }}</td></tr>
+      <tr><td class="ib-sl-k">FG BATCH</td><td class="ib-sl-v">{{ sn.fg_batch or "" }}</td></tr>
+      <tr><td class="ib-sl-k">WORK ORDER</td><td class="ib-sl-v">{{ doc.name }}</td></tr>
+      {% if sn.sales_order %}<tr><td class="ib-sl-k">SALES ORDER</td><td class="ib-sl-v">{{ sn.sales_order }}</td></tr>{% endif %}
+      {% if sn.produced_on %}<tr><td class="ib-sl-k">PRODUCED</td><td class="ib-sl-v">{{ frappe.utils.format_datetime(sn.produced_on, "dd-MMM-yy HH:mm") }}</td></tr>{% endif %}
+      <tr><td class="ib-sl-k">CUSTOMER</td><td class="ib-sl-v"></td></tr>
+      <tr><td colspan="2" class="ib-sl-codes">
+        <img class="bc" src="{{ get_barcode_data_uri(sn.serial_no) }}"><br>
+        <img class="qr" src="{{ get_qr_data_uri(trace_url) }}">
+      </td></tr>
+      <tr><td colspan="2" class="ib-sl-foot">SCAN QR FOR FULL TRACEABILITY &middot; WWW.INSTABIZSOLUTIONS.COM</td></tr>
+    </table>
+  </div>
+{% endfor %}
+{% if not serials %}<div style="padding:20px;text-align:center;">No serials generated for this Work Order yet.</div>{% endif %}
