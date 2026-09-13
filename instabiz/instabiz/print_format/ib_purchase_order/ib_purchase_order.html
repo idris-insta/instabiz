@@ -28,9 +28,11 @@
 
 <style>
   body, table, th, td { font-family: Arial, sans-serif; }
-  body   { font-size: 11px; color: #000; margin: 0; }
-  table  { width: 100%; border-collapse: collapse; }
-  td, th { padding: 4px 6px; vertical-align: top; }
+  body    { font-size: 11px; color: #1a1a1a; margin: 0; }
+  table   { width: 100%; border-collapse: collapse; }
+  td, th  { padding: 4px 6px; vertical-align: top; }
+  strong  { font-weight: bold; }
+
   {# table-layout:fixed forces columns to obey their declared width % —
      without it, a long unbreakable string (item code, HSN) makes the
      browser/PDF engine widen that column past its % and the whole table
@@ -41,16 +43,37 @@
   .items-tbl { table-layout: fixed; }
   .items-tbl td, .items-tbl th { text-align: center; padding: 3px 4px; word-break: normal; }
   .items-tbl .wrap-anywhere { overflow-wrap: anywhere; }
-  strong { font-weight: bold; }
-  .box   { border: 1.5px solid #000; margin-bottom: 2px; }
-  .b     { border: 1px solid #000; }
-  .bb    { border-bottom: 1px solid #000; }
-  .bt    { border-top: 1px solid #000; }
-  .br    { border-right: 1px solid #000; }
-  .ta-r  { text-align: right; }
-  .ta-c  { text-align: center; }
-  .lbl   { color: #555; font-size: 10px; }
-  .italic{ font-style: italic; }
+
+  {# ── IB Print Theme (see ib_packing_list.html reference) ── #}
+  .box    { border: 1.5px solid #333; margin-bottom: 2px; }
+  .b      { border: 1px solid #ccc; }
+  .bb     { border-bottom: 1px solid #333; }
+  .bt     { border-top: 1px solid #333; }
+  .br     { border-right: 1px solid #333; }
+  .ta-r   { text-align: right; }
+  .ta-c   { text-align: center; }
+  .lbl    { color: #666; font-size: 10px; }
+  .italic { font-style: italic; }
+
+  .ib-title-bar {
+    background: #fdf3ee; border-bottom: 2px solid #d97757;
+    text-align: center; padding: 6px;
+  }
+  .ib-title-bar .t { font-size: 18px; font-weight: bold; letter-spacing: 1px; color: #b9502f; }
+  .ib-title-bar .s { font-size: 10px; color: #666; }
+
+  .ib-sh {
+    font-weight: bold; padding: 4px 6px; background: #fdf3ee; color: #b9502f;
+    border-top: 1px solid #d97757; border-bottom: 1px solid #d97757;
+  }
+  .items-tbl thead th {
+    background: #fdf3ee; color: #b9502f; border: 1px solid #f0d4c8;
+  }
+  .items-tbl tbody td { border: 1px solid #ddd; }
+  .items-tbl .total-row td {
+    border-top: 2px solid #d97757; background: #fdf3ee; font-weight: bold; color: #b9502f;
+  }
+
   .watermark { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
                display: flex; align-items: center; justify-content: center;
                pointer-events: none; z-index: 99999; overflow: hidden; }
@@ -68,38 +91,22 @@
 
 <div class="box">
 
-  {# ── Header: circular logo (left) + centered title + GST/Branch (right) ──
-     Reference layout (user-supplied PO sample, 2026-08-13): logo top-left
-     instead of a full-width banner, title large and centered in the same
-     row, company GST/location info top-right. Swapped from the wide
-     Instabiz_LH_v2.png banner (still used elsewhere — GRN, other PO-family
-     formats — untouched) to the circular /files/logo.jpeg per user's
-     explicit request, same file already used as the app's real logo. #}
-  {# Title centered via an absolute overlay spanning the full row width,
-     independent of the flanking cells — the left logo (18%) and right
-     GST block (30%) are different widths, so centering the title inside
-     its own 52% middle cell put its center off the row's true center. #}
-  <div style="position:relative">
-    <table class="bb">
-      <tr>
-        <td style="width:18%; padding:6px">
-          <img src="/files/logo.jpeg" style="display:block; width:100%; height:auto; object-fit:contain">
-        </td>
-        <td style="width:52%">&nbsp;</td>
-        <td style="width:30%; text-align:right; vertical-align:middle; font-size:11px">
-          {% if doc.custom_location %}Location: <strong>{{ doc.custom_location }}</strong><br>{% endif %}
-          GSTIN: <strong>{{ doc.company_gstin or "—" }}</strong>
-        </td>
-      </tr>
-    </table>
-    {# display:table/table-cell, not flex — the print PDF is rendered by
-       wkhtmltopdf's old WebKit engine, which silently drops `display:flex`
-       (confirmed via its own CSS-parse warnings on render). Table-cell
-       centering is CSS2.1 and renders correctly there. #}
-    <div style="position:absolute; top:0; left:0; width:100%; height:100%; display:table">
-      <div style="display:table-cell; vertical-align:middle; text-align:center">
-        <div style="font-size:20px; font-weight:bold; letter-spacing:1px">PURCHASE ORDER</div>
-      </div>
+  {# ── Letterhead ──
+     Switched from the standalone circular /files/logo.jpeg mark (2026-08-13
+     one-off request) to the shared full-width Instabiz_LH_v2.png banner —
+     this format is being brought onto the app-wide IB Print Theme (see
+     ib_packing_list.html), which uses this same banner everywhere. #}
+  <div class="bb" style="padding:0">
+    <img src="/files/Instabiz_LH_v2.png" style="display:block; width:100%; height:auto; object-fit:contain; margin:0">
+  </div>
+
+  {# ── Title bar ── #}
+  <div class="ib-title-bar">
+    <div class="t">PURCHASE ORDER</div>
+    <div class="s">
+      {% if doc.custom_location %}Location: <strong>{{ doc.custom_location }}</strong> &nbsp;|&nbsp; {% endif %}
+      PO No: <strong>{{ doc.name }}</strong> &nbsp;|&nbsp; Date: <strong>{{ fd(doc.transaction_date) }}</strong>
+      &nbsp;|&nbsp; GSTIN: <strong>{{ doc.company_gstin or "—" }}</strong>
     </div>
   </div>
 
@@ -277,9 +284,9 @@
       {# Grand Total — fm() already prefixes the currency symbol via
          fmt_money(currency=...); a manual &#8377; here duplicated it
          (rendered as "₹ ₹ 1,25,000.00"), fixed by dropping the manual entity. #}
-      <tr>
-        <td class="b" colspan="9"><strong>Grand Total</strong></td>
-        <td class="b"><strong>{{ fm(doc.grand_total) }}</strong></td>
+      <tr class="total-row">
+        <td class="b" colspan="9">Grand Total</td>
+        <td class="b">{{ fm(doc.grand_total) }}</td>
         <td class="b"></td>
       </tr>
     </tbody>
