@@ -2,7 +2,13 @@
 {% macro fm(v) %}{{ frappe.utils.fmt_money(v|float, precision=2, currency=doc.currency) }}{% endmacro %}
 
 <style>
-  body, table, th, td { font-family: Arial, sans-serif; }
+  @font-face {
+    font-family: "Inter";
+    src: url("/assets/instabiz/fonts/InterVariable.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+  }
+  body, table, th, td { font-family: "Inter", Arial, sans-serif; }
   body    { font-size: 11px; color: #1a1a1a; margin: 0; }
   table   { width: 100%; border-collapse: collapse; }
   td, th  { padding: 4px 6px; vertical-align: top; }
