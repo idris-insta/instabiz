@@ -22,144 +22,161 @@
    is empty, so callers don't need their own {% if %} guard. #}
 {% macro kv(label, value) %}{% if value %}<div><span class="lbl">{{ label }}:</span> <strong>{{ value }}</strong></div>{% endif %}{% endmacro %}
 
+{# ── IB Print Theme ───────────────────────────────────────────────────────
+   Shared visual language across every instabiz print format (except
+   Quotation/Sales Order): full-width letterhead banner, rust-orange
+   (#d97757, matches instabiz.css --ib-primary) as the one accent color for
+   title bar / section headers / totals, plain black-bordered dense tables
+   for legibility, stamp+signature footer. Copied verbatim from the shared
+   reference implementation, instabiz/instabiz/print_format/ib_packing_list/
+   ib_packing_list.html (commit 3e69cc2). #}
 <style>
-  /* Same Inter Variable font the rest of the app UI uses (instabiz.bundle.css) —
-     wkhtmltopdf's woff2 support is inconsistent, so Arial stays as the fallback
-     in the stack rather than a hard dependency. */
-  @font-face {
-    font-family: "Inter";
-    src: url("/assets/instabiz/fonts/InterVariable.woff2") format("woff2");
-    font-weight: 100 900;
-    font-style: normal;
-    font-display: swap;
+  body, table, th, td { font-family: Arial, sans-serif; }
+  body    { font-size: 11px; color: #1a1a1a; margin: 0; }
+  table   { width: 100%; border-collapse: collapse; }
+  td, th  { padding: 4px 6px; vertical-align: top; }
+  strong  { font-weight: bold; }
+
+  .items-tbl { table-layout: fixed; }
+  .items-tbl td, .items-tbl th { text-align: center; padding: 3px 4px; word-break: normal; }
+  .items-tbl .wrap-anywhere { overflow-wrap: anywhere; }
+
+  .box    { border: 1.5px solid #333; margin-bottom: 2px; }
+  .b      { border: 1px solid #ccc; }
+  .bb     { border-bottom: 1px solid #333; }
+  .bt     { border-top: 1px solid #333; }
+  .br     { border-right: 1px solid #333; }
+  .ta-r   { text-align: right; }
+  .ta-c   { text-align: center; }
+  .lbl    { color: #666; font-size: 10px; }
+  .italic { font-style: italic; }
+
+  .ib-title-bar {
+    background: #fdf3ee; border-bottom: 2px solid #d97757;
+    text-align: center; padding: 6px;
   }
-  @font-face {
-    font-family: "Inter";
-    src: url("/assets/instabiz/fonts/InterVariable-Italic.woff2") format("woff2");
-    font-weight: 100 900;
-    font-style: italic;
-    font-display: swap;
+  .ib-title-bar .t { font-size: 18px; font-weight: bold; letter-spacing: 1px; color: #b9502f; }
+  .ib-title-bar .s { font-size: 10px; color: #666; }
+
+  .ib-sh {
+    font-weight: bold; padding: 4px 6px; background: #fdf3ee; color: #b9502f;
+    border-top: 1px solid #d97757; border-bottom: 1px solid #d97757;
   }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: "Inter", Arial, sans-serif; font-size: 11px; color: #1a1a1a; line-height: 1.5; }
-  table { width: 100%; border-collapse: collapse; }
-  td, th { vertical-align: top; padding: 4px 6px; }
-  strong, b { font-weight: bold; }
-  .right { text-align: right; }
-  .center { text-align: center; }
-  .lbl { color: #444; }
-  .small { font-size: 9.5px; }
-
-  /* Instabiz brand — same rust/orange used across the app's own UI (--ib-primary) */
-  .ib-accent { color: #d97757; }
-  .ib-rule { border-top: 2.5px solid #d97757; margin-bottom:10px; }
-
-  .st-tbl { border: 1px solid #d97757; border-collapse: collapse; margin-top: 10px; }
-  .st-tbl th { border: 1px solid #d97757; background: #fdf1ec; color: #b8532f; font-weight: bold;
-               text-align: center; padding: 5px 6px; font-size: 10.5px; }
-  .st-tbl td { border: 1px solid #f0d4c8; padding: 4px 6px; }
-  .st-tbl .total-row td { border-top: 1.5px solid #d97757; border-bottom: none;
-                           font-weight: bold; font-size: 12px; background: #fdf1ec; }
-  img { display: block; }
+  .items-tbl thead th {
+    background: #fdf3ee; color: #b9502f; border: 1px solid #f0d4c8;
+  }
+  .items-tbl tbody td { border: 1px solid #ddd; }
+  .items-tbl .total-row td {
+    border-top: 2px solid #d97757; background: #fdf3ee; font-weight: bold; color: #b9502f;
+  }
 </style>
 
-<img src="/files/letterhead.jpeg" style="width:100%; height:auto; max-height:110px; object-fit:contain; display:block; margin-bottom:8px">
-<div class="ib-rule"></div>
+<div class="box">
 
-<table style="margin-bottom:6px">
-  <tr>
-    <td style="width:62%; vertical-align:top">
-      <div style="font-size:14px; font-weight:bold; line-height:1.3" class="ib-accent">{{ (_company_name or "") | upper }}</div>
-      {{ kv("GSTIN/UIN", _company_gstin) }}
-      {{ kv("Contact", co.phone_no if co else None) }}
-      {{ kv("E-Mail", co.email if co else None) }}
-    </td>
-    <td style="width:38%; text-align:right; vertical-align:top">
-      <div class="lbl">As on <strong>{{ fd(_today) }}</strong></div>
-    </td>
-  </tr>
-</table>
+  {# ── Letterhead ── #}
+  <div class="bb" style="padding:0">
+    <img src="/files/Instabiz_LH_v2.png" style="display:block; width:100%; height:auto; object-fit:contain; margin:0">
+  </div>
 
-<table style="border:1px solid #d97757; border-collapse:collapse; margin-bottom:2px">
-  <tr>
-    <td style="padding:6px 8px; background:#fdf1ec">
-      <div class="lbl small">Statement For</div>
-      <div style="font-size:12.5px; font-weight:bold">{{ doc.customer_name }}</div>
-      {% if doc.custom_billing %}<div>{{ doc.custom_billing }}</div>{% endif %}
-      {% if doc.custom_bt_city or doc.custom_bt_state %}
-      <div>{{ doc.custom_bt_city or "" }}{% if doc.custom_bt_state %}, {{ doc.custom_bt_state }}{% endif %}{% if doc.custom_bt_pincode %}, {{ doc.custom_bt_pincode }}{% endif %}</div>
-      {% endif %}
-      {{ kv("GSTIN/UIN", doc.gstin) }}
-      {{ kv("Mobile", doc.mobile_no) }}
-    </td>
-  </tr>
-</table>
+  {# ── Title bar ── #}
+  <div class="ib-title-bar">
+    <div class="t">OUTSTANDING STATEMENT</div>
+    <div class="s">As on: <strong>{{ fd(_today) }}</strong></div>
+  </div>
 
-<table class="st-tbl">
-  <thead>
+  {# ── Company header (left) + Statement For (right) ── #}
+  <table class="bb">
     <tr>
-      <th style="width:6%">Sl<br>No.</th>
-      <th style="width:20%">{{ _doc_label }} No.</th>
-      <th style="width:16%">{{ _doc_label }} Date</th>
-      <th style="width:16%">Age (days)</th>
-      <th style="width:21%">{{ _doc_label }} Amount</th>
-      <th style="width:21%">Balance Due</th>
+      <td class="br" style="width:55%">
+        <strong>{{ (_company_name or "") | upper }}</strong><br>
+        {{ kv("GSTIN/UIN", _company_gstin) }}
+        {{ kv("Contact", co.phone_no if co else None) }}
+        {{ kv("E-Mail", co.email if co else None) }}
+      </td>
+      <td style="width:45%; vertical-align:top">
+        <div class="lbl">STATEMENT FOR</div>
+        <strong>{{ doc.customer_name }}</strong><br>
+        {% if doc.custom_billing %}{{ doc.custom_billing }}<br>{% endif %}
+        {% if doc.custom_bt_city or doc.custom_bt_state %}
+        {{ doc.custom_bt_city or "" }}{% if doc.custom_bt_state %}, {{ doc.custom_bt_state }}{% endif %}{% if doc.custom_bt_pincode %}, {{ doc.custom_bt_pincode }}{% endif %}<br>
+        {% endif %}
+        {{ kv("GSTIN/UIN", doc.gstin) }}
+        {{ kv("Mobile", doc.mobile_no) }}
+      </td>
     </tr>
-  </thead>
-  <tbody>
-    {% if _rows %}
-      {% for r in _rows %}
-      {% set _age = frappe.utils.date_diff(_today, r.doc_date) if r.doc_date else 0 %}
-      {# Same 15/30-day escalation this app already alerts on (overdue_alert.py)
-         — reused here as a visual cue instead of a new threshold. #}
-      {% set _age_style = "color:#dc2626; font-weight:bold" if _age > 30 else ("color:#b8532f; font-weight:bold" if _age > 15 else "") %}
+  </table>
+
+  {# ── Outstanding table ── #}
+  <table class="items-tbl">
+    <thead>
       <tr>
-        <td class="center">{{ loop.index }}</td>
-        <td>{{ r.name }}</td>
-        <td class="center">{{ fd(r.doc_date) }}</td>
-        <td class="center" style="{{ _age_style }}">{{ _age }}{% if _age > 30 %} ⚠{% endif %}</td>
-        <td class="right">{{ fm(r.grand_total) }}</td>
-        <td class="right" style="{{ _age_style }}"><strong>{{ fm(r.balance) }}</strong></td>
+        <th style="width:6%">Sl<br>No.</th>
+        <th style="width:20%">{{ _doc_label }} No.</th>
+        <th style="width:16%">{{ _doc_label }} Date</th>
+        <th style="width:16%">Age (days)</th>
+        <th style="width:21%">{{ _doc_label }} Amount</th>
+        <th style="width:21%">Balance Due</th>
       </tr>
-      {% endfor %}
-    {% else %}
-      <tr><td colspan="6" class="center lbl" style="padding:14px">No outstanding dues.</td></tr>
-    {% endif %}
-    {% if _rows %}
-    <tr class="total-row">
-      <td colspan="5" class="right">Total Outstanding</td>
-      <td class="right ib-accent">₹ {{ fm(_total) }}</td>
+    </thead>
+    <tbody>
+      {% if _rows %}
+        {% for r in _rows %}
+        {% set _age = frappe.utils.date_diff(_today, r.doc_date) if r.doc_date else 0 %}
+        {# Same 15/30-day escalation this app already alerts on (overdue_alert.py)
+           — reused here as a visual cue instead of a new threshold. #}
+        {% set _age_style = "color:#dc2626; font-weight:bold" if _age > 30 else ("color:#b9502f; font-weight:bold" if _age > 15 else "") %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td class="wrap-anywhere">{{ r.name }}</td>
+          <td>{{ fd(r.doc_date) }}</td>
+          <td style="{{ _age_style }}">{{ _age }}{% if _age > 30 %} ⚠{% endif %}</td>
+          <td>{{ fm(r.grand_total) }}</td>
+          <td style="{{ _age_style }}"><strong>{{ fm(r.balance) }}</strong></td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="6" class="lbl" style="padding:14px">No outstanding dues.</td></tr>
+      {% endif %}
+      {% if _rows %}
+      <tr class="total-row">
+        <td colspan="5">TOTAL OUTSTANDING</td>
+        <td>₹ {{ fm(_total) }}</td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  {% if _bank %}
+  {# ── Remit To ── #}
+  <div class="ib-sh">REMIT TO</div>
+  <table class="bb">
+    <tr>
+      <td>
+        {{ kv("Bank", _bank.bank) }}
+        {{ kv("Account No", _bank.account_no) }}
+        {{ kv("IFSC", _bank.ifsc) }}
+      </td>
     </tr>
-    {% endif %}
-  </tbody>
-</table>
+  </table>
+  {% endif %}
 
-{% if _bank %}
-<table style="margin-top:14px; border:1px solid #d97757">
-  <tr>
-    <td style="padding:6px 8px; background:#fdf1ec">
-      <div class="lbl small" style="margin-bottom:3px">Remit To</div>
-      {{ kv("Bank", _bank.bank) }}
-      {{ kv("Account No", _bank.account_no) }}
-      {{ kv("IFSC", _bank.ifsc) }}
-    </td>
-  </tr>
-</table>
-{% endif %}
+  {# ── Signature ── #}
+  <table class="bt">
+    <tr>
+      <td style="width:60%; vertical-align:top; padding-top:8px">
+        <span class="lbl">
+          This is a system-generated statement and does not require a signature.
+          For any queries regarding this statement, please contact us{% if co and co.phone_no %} at {{ co.phone_no }}{% endif %}{% if co and co.email %}{% if co.phone_no %} /{% endif %} {{ co.email }}{% endif %}.
+        </span>
+      </td>
+      <td style="width:40%; text-align:right; vertical-align:top; padding:8px 6px 4px; border-left:1px solid #333">
+        <div><strong>for {{ (_company_name or "") | upper }}</strong></div>
+        <div style="text-align:right; margin-top:4px">
+          <img src="/files/IB_Stamp.jpeg" style="height:55px; width:auto; display:inline-block">
+        </div>
+        <div style="margin-top:6px"><strong>Authorised Signatory</strong></div>
+      </td>
+    </tr>
+  </table>
 
-<table style="margin-top:14px; border-top:1.5px solid #d97757">
-  <tr>
-    <td style="width:60%; vertical-align:top; padding-top:6px; font-size:9.5px" class="lbl">
-      This is a system-generated statement and does not require a signature.
-      For any queries regarding this statement, please contact us{% if co and co.phone_no %} at {{ co.phone_no }}{% endif %}{% if co and co.email %}{% if co.phone_no %} /{% endif %} {{ co.email }}{% endif %}.
-    </td>
-    <td style="width:40%; text-align:right; vertical-align:top; padding-top:6px">
-      <strong class="ib-accent">for {{ (_company_name or "") | upper }}</strong>
-      <div style="text-align:right; margin-top:8px">
-        <img src="/files/IB_Stamp.jpeg" style="height:55px; width:auto; display:inline-block">
-      </div>
-      <div style="margin-top:6px"><strong>Authorised Signatory</strong></div>
-    </td>
-  </tr>
-</table>
+</div>
