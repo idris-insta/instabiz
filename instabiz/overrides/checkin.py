@@ -119,7 +119,12 @@ def get_daily_attendance(date=None, department=None, search=None, limit=20, offs
 	# exclusion of Sales User explicitly — previously this RPC had no gate at
 	# all, letting a Sales User pull company-wide attendance data that the
 	# doctype's own permission hooks are specifically designed to hide from them.
-	if _is_sales_user():
+	# `and not _is_privileged()` matters because frappe.get_roles() returns every
+	# role for Administrator (including "Sales User") — a bare _is_sales_user()
+	# check here permanently broke this RPC for Administrator (and would for any
+	# real HR Manager/HR User who also happens to hold the Sales User role),
+	# unlike undo_attendance() below which already gates on _is_privileged().
+	if _is_sales_user() and not _is_privileged():
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
 	limit  = int(limit)
