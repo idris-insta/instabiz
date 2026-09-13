@@ -248,3 +248,43 @@ def payment_entry_has_permission(doc, ptype, user):
     if doc.party_type != "Customer" or not doc.party:
         return False
     return frappe.db.get_value("Customer", doc.party, "custom_sales_person_user") == user
+
+
+# ── Salary Slip: Employee role scoped to their own payslip only ──────────────
+# Core HRMS's own Salary Slip DocPerm grants role "Employee" (and "Employee
+# Self Service") read=1 with if_owner=0 - unrestricted, company-wide read
+# access for anyone holding the plain Employee role, which is effectively
+# every real user in this app. Confirmed live: a plain Sales User
+# (zaid.khan@, roles Employee/Sales User/Team Leader, no HR role) could read
+# another employee's disposable test Salary Slip directly by name via
+# frappe.has_permission - a real payroll-privacy gap, not something
+# instabiz's own permission hardening had reached yet. HR Manager/HR User
+# already have their own unrestricted read=1 rows and are left untouched -
+# a has_permission controller hook can only DENY, never grant beyond the
+# base DocPerm (see frappe/permissions.py's has_controller_permissions
+# docstring), so there is no risk of this hook accidentally widening access
+# for any role.
+_SS_PRIVILEGED_ROLES = {"HR Manager", "HR User"}
+
+def _salary_slip_own_employee(user):
+    return frappe.db.get_value("Employee", {"user_id": user}, "name")
+
+def salary_slip_query_conditions(user=None):
+    if not user:
+        user = frappe.session.user
+    if _SS_PRIVILEGED_ROLES & set(frappe.get_roles(user)):
+        return ""
+    employee = _salary_slip_own_employee(user)
+    if not employee:
+        return "1=0"
+    return f"`tabSalary Slip`.employee = {frappe.db.escape(employee)}"
+
+def salary_slip_has_permission(doc, ptype, user):
+    if not user:
+        user = frappe.session.user
+    if _SS_PRIVILEGED_ROLES & set(frappe.get_roles(user)):
+        return None
+    employee = _salary_slip_own_employee(user)
+    if not employee:
+        return False
+    return doc.employee == employee

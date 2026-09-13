@@ -381,6 +381,7 @@ permission_query_conditions = {
     "IB Asset Loan":     "instabiz.instabiz.doctype.ib_asset_loan.ib_asset_loan.get_permission_query_conditions",
     "Payment Entry":     "instabiz.overrides.permissions.payment_entry_query_conditions",
     "Territory":         "instabiz.overrides.territory.territory_query_conditions",
+    "Salary Slip":       "instabiz.overrides.permissions.salary_slip_query_conditions",
 }
 
 has_permission = {
@@ -392,6 +393,7 @@ has_permission = {
     "Sales Invoice":     "instabiz.overrides.permissions.sales_invoice_has_permission",
     "Employee Checkin":  "instabiz.overrides.checkin.employee_checkin_has_permission",
     "Payment Entry":     "instabiz.overrides.permissions.payment_entry_has_permission",
+    "Salary Slip":       "instabiz.overrides.permissions.salary_slip_has_permission",
 }
 
 # ── Whitelisted method overrides ──────────────────────────────────────────────
