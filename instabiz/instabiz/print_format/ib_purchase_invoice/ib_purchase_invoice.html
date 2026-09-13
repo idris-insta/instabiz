@@ -46,6 +46,7 @@
 {# ── Helpers ───────────────────────────────────────────────────────────────────── #}
 {% macro fd(d) %}{% if d %}{{ frappe.utils.formatdate(d, "dd-MMM-yy") }}{% endif %}{% endmacro %}
 {% macro fm(v) %}{{ frappe.utils.fmt_money(v|float, precision=2, currency=doc.currency) }}{% endmacro %}
+{% macro fq(v) %}{{ frappe.utils.fmt_money(v|float, precision=2) }}{% endmacro %}
 
 <style>
   {# Inter (same webfont the desk UI uses, instabiz.bundle.css) - wkhtmltopdf
@@ -260,7 +261,7 @@
         </td>
         <td class="b ta-c">{{ row.gst_hsn_code or "" }}</td>
         <td class="b ta-c">{% if gst_rate_val %}{{ "%g" | format(gst_rate_val) }}%{% endif %}</td>
-        <td class="b ta-r">{{ fm(row.qty) }}</td>
+        <td class="b ta-r">{{ fq(row.qty) }}</td>
         <td class="b ta-c">{{ row.uom }}</td>
         <td class="b ta-r">{{ fm(row.rate) }}</td>
         <td class="b ta-r">{{ fm(taxable) }}</td>
@@ -306,10 +307,13 @@
       <tr style="height:16px"><td class="b" colspan="{% if is_igst %}10{% else %}11{% endif %}"></td></tr>
       {% endfor %}
 
-      {# Grand Total #}
+      {# Grand Total — fm() already prefixes the currency symbol via
+         fmt_money(currency=...); a manual &#8377; here duplicated it
+         (rendered as "₹ ₹ 8,74,993.60"), same bug already fixed on the
+         PO/GRN formats — fixed here by dropping the manual entity. #}
       <tr class="total-row">
         <td class="b ta-r" colspan="{% if is_igst %}9{% else %}10{% endif %}">Grand Total</td>
-        <td class="b ta-r">&#8377;&nbsp;{{ fm(doc.grand_total) }}</td>
+        <td class="b ta-r">{{ fm(doc.grand_total) }}</td>
       </tr>
     </tbody>
   </table>
