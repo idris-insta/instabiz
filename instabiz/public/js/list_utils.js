@@ -731,6 +731,8 @@ function ib_watch_ewaybill_dialog(frm) {
 
             // Wrap success callback — rare but some paths return exc inline
             const _origCb = opts.callback;
+            const _ib_is_initial_generate = opts.method.endsWith("generate_e_waybill");
+            const _ib_part_b_missing = !(opts.args.vehicle_no || "").trim();
             opts.callback = async function (r) {
                 if (!_ib_ewb_retrying && r && r.exc && _ib_is_distance_error(r.exc)) {
                     _ib_ewb_retrying = true;
@@ -739,8 +741,66 @@ function ib_watch_ewaybill_dialog(frm) {
                 }
                 _ib_ewb_retrying = false;
                 if (_origCb) _origCb(r);
+
+                // NIC only computes Valid Until (transport validity) once Part B
+                // (vehicle/transport doc) is filled - an e-way bill generated with
+                // Part A only has no computed validity and isn't legally usable for
+                // the actual goods movement yet. Nudge rather than block, since
+                // Part-A-only generation is a real, valid NIC workflow (e.g. goods
+                // not yet loaded) - just make sure it isn't forgotten.
+                if (_ib_is_initial_generate && _ib_part_b_missing && r && !r.exc) {
+                    frappe.show_alert({
+                        message: __(
+                            "e-Way Bill generated with Part A only - no vehicle/transporter " +
+                            "details yet, so NIC hasn't set a Valid Until date. Fill Part B " +
+                            "(Update Vehicle Info) before the goods actually move."
+                        ),
+                        indicator: "orange",
+                    }, 12);
+                }
             };
         }
+
+        // e-Invoice "Generate" (india_compliance e_invoice_actions.js) fires straight
+        // to the real government IRP on click with zero review screen - unlike the
+        // e-Waybill dialog above, which shows a full editable form first. An IRN is
+        // only cancellable within 24h of generation, so a mis-click here is a real
+        // problem. Gate it with a one-time confirm showing what's about to be filed -
+        // no data injection needed (e-Invoice's own args are already complete),
+        // just a review step matching the e-Waybill flow's own rigor.
+        if (
+            opts && typeof opts.method === "string" &&
+            opts.method.includes("e_invoice.generate_e_invoice") &&
+            _ib_ewb_frm && _ib_ewb_frm.doctype === "Sales Invoice" &&
+            !opts._ib_confirmed
+        ) {
+            const frm = _ib_ewb_frm;
+            const d = frm.doc;
+            const gt = format_currency ? format_currency(d.grand_total, d.currency) : d.grand_total;
+            return new Promise((resolve, reject) => {
+                frappe.confirm(
+                    __(
+                        "Generate e-Invoice (IRN) for <b>{0}</b>?<br><br>" +
+                        "Customer: <b>{1}</b><br>" +
+                        "Grand Total: <b>{2}</b><br>" +
+                        "Items: <b>{3}</b><br><br>" +
+                        "This files the invoice with the government IRP immediately - " +
+                        "it cannot be edited afterward, and can only be cancelled within 24 hours.",
+                        [d.name, frappe.utils.escape_html(d.customer_name || d.customer), gt, (d.items || []).length]
+                    ),
+                    () => {
+                        const retryOpts = Object.assign({}, opts, { _ib_confirmed: true });
+                        resolve(_origCall(retryOpts, ...rest));
+                    },
+                    () => {
+                        // User cancelled - restore any button/dialog freeze the caller may set
+                        if (opts.always) opts.always();
+                        resolve();
+                    }
+                );
+            });
+        }
+
         return _origCall(opts, ...rest);
     };
 
