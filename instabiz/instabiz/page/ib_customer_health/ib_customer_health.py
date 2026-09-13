@@ -61,7 +61,7 @@ def get_customer_health(search=None, territory=None, limit=50, offset=0):
 			c.customer_name,
 			c.territory,
 			c.customer_group,
-			c.custom_sales_person_user as sales_person,
+			COALESCE(c.custom_sales_person, c.custom_sales_person_user) as sales_person,
 			COALESCE(ar.outstanding, 0) as outstanding,
 			COALESCE(mtd.revenue, 0) as mtd_revenue,
 			COALESCE(ytd.revenue, 0) as ytd_revenue,
