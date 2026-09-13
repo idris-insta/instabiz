@@ -48,7 +48,17 @@
 {% macro fm(v) %}{{ frappe.utils.fmt_money(v|float, precision=2, currency=doc.currency) }}{% endmacro %}
 
 <style>
-  body    { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; margin: 0; }
+  {# Inter (same webfont the desk UI uses, instabiz.bundle.css) - wkhtmltopdf
+     fetches it over HTTP same as any other asset, same /assets/ path the
+     desk already loads it from. Arial stays as the fallback stack for any
+     environment where the font fetch fails. #}
+  @font-face {
+    font-family: "Inter";
+    src: url("/assets/instabiz/fonts/InterVariable.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+  }
+  body    { font-family: "Inter", Arial, sans-serif; font-size: 11px; color: #1a1a1a; margin: 0; }
   table   { width: 100%; border-collapse: collapse; }
   td, th  { padding: 4px 6px; vertical-align: top; }
   strong  { font-weight: bold; }

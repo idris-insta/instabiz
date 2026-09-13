@@ -1,7 +1,13 @@
 <style>
   @page { size: A4 portrait; margin: 6mm 4mm; }
   .print-format { margin: 0mm; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; margin: 0; }
+  @font-face {
+    font-family: "Inter";
+    src: url("/assets/instabiz/fonts/InterVariable.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+  }
+  body { font-family: "Inter", Arial, Helvetica, sans-serif; color: #1a1a1a; margin: 0; }
   .ib-page { font-size: 0; page-break-after: always; }
   .ib-page:last-child { page-break-after: auto; }
 

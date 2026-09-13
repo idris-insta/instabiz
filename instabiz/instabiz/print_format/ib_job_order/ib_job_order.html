@@ -21,7 +21,13 @@
   {% endif %}
 {% endfor %}
 <style>
-  body { font-family: Arial, sans-serif; font-size: 12px; color: #111; padding: 10px; }
+  @font-face {
+    font-family: "Inter";
+    src: url("/assets/instabiz/fonts/InterVariable.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+  }
+  body { font-family: "Inter", Arial, sans-serif; font-size: 12px; color: #111; padding: 10px; }
   .print-format { margin-top: 0mm; margin-right: 0mm; margin-bottom: 0mm; margin-left: 0mm; }
   /* Negative side-margins matching body's own padding so the letterhead image
      bleeds truly edge-to-edge (100% of the page) instead of 100% of the

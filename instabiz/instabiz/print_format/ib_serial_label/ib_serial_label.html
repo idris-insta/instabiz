@@ -1,7 +1,13 @@
 <style>
   @page { size: 4in 6in; margin: 3mm; }
   .print-format { margin: 0mm; }
-  body, table, th, td { font-family: Arial, sans-serif; }
+  @font-face {
+    font-family: "Inter";
+    src: url("/assets/instabiz/fonts/InterVariable.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+  }
+  body, table, th, td { font-family: "Inter", Arial, sans-serif; }
   body { font-size: 11px; color: #1a1a1a; margin: 0; }
 
   {# ── IB Print Theme, label-sized (see ib_packing_list.html reference) ──
