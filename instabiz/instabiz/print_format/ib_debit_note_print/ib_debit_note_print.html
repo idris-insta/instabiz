@@ -21,35 +21,62 @@
     ["name","posting_date","bill_no","bill_date"], as_dict=True)
     if doc.against_purchase_invoice else None %}
 
+{# ── IB Print Theme ───────────────────────────────────────────────────────
+   Shared visual language across every instabiz print format (except
+   Quotation/Sales Order): full-width letterhead banner, rust-orange
+   (#d97757, matches instabiz.css --ib-primary) as the one accent color for
+   title bar / section headers / totals, plain black-bordered dense tables
+   for legibility, stamp+signature footer. Copied verbatim from the shared
+   reference implementation, instabiz/instabiz/print_format/ib_packing_list/
+   ib_packing_list.html (commit 3e69cc2). #}
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; font-size: 10px; color: #000; line-height: 1.5; }
-  table { width: 100%; border-collapse: collapse; }
-  td, th { vertical-align: top; padding: 3px 6px; }
-  strong { font-weight: bold; }
-  .right { text-align: right; }
-  .center { text-align: center; }
-  .lbl { color: #555; }
+  body, table, th, td { font-family: Arial, sans-serif; }
+  body    { font-size: 11px; color: #1a1a1a; margin: 0; }
+  table   { width: 100%; border-collapse: collapse; }
+  td, th  { padding: 4px 6px; vertical-align: top; }
+  strong  { font-weight: bold; }
 
-  .outer { border: 1.5px solid #000; }
-  .outer td, .outer th { border: 1px solid #999; }
-  .hdg { background: #e65100; color: #fff; text-align: center;
-         font-size: 15px; font-weight: bold; letter-spacing: 2px;
-         padding: 7px 0; }
-  .sub-hdg { background: #fff3e0; font-size: 10px; font-weight: bold;
-             color: #bf360c; padding: 2px 6px; }
-  .it-tbl th { background: #f2f2f2; font-weight: bold; text-align: center; font-size: 10px; }
-  .it-tbl td { font-size: 10px; }
-  .total-row td { border-top: 1.5px solid #000; font-weight: bold; font-size: 11px; }
-  .kv td:first-child { color: #555; white-space: nowrap; padding-right: 5px; }
+  .items-tbl { table-layout: fixed; }
+  .items-tbl td, .items-tbl th { text-align: center; padding: 3px 4px; word-break: normal; }
+  .items-tbl .wrap-anywhere { overflow-wrap: anywhere; }
+
+  .box    { border: 1.5px solid #333; margin-bottom: 2px; }
+  .b      { border: 1px solid #ccc; }
+  .bb     { border-bottom: 1px solid #333; }
+  .bt     { border-top: 1px solid #333; }
+  .br     { border-right: 1px solid #333; }
+  .ta-r   { text-align: right; }
+  .ta-c   { text-align: center; }
+  .lbl    { color: #666; font-size: 10px; }
+  .italic { font-style: italic; }
+
+  .ib-title-bar {
+    background: #fdf3ee; border-bottom: 2px solid #d97757;
+    text-align: center; padding: 6px;
+  }
+  .ib-title-bar .t { font-size: 18px; font-weight: bold; letter-spacing: 1px; color: #b9502f; }
+  .ib-title-bar .s { font-size: 10px; color: #666; }
+
+  .ib-sh {
+    font-weight: bold; padding: 4px 6px; background: #fdf3ee; color: #b9502f;
+    border-top: 1px solid #d97757; border-bottom: 1px solid #d97757;
+  }
+  .items-tbl thead th {
+    background: #fdf3ee; color: #b9502f; border: 1px solid #f0d4c8;
+  }
+  .items-tbl tbody td { border: 1px solid #ddd; }
+  .items-tbl .total-row td {
+    border-top: 2px solid #d97757; background: #fdf3ee; font-weight: bold; color: #b9502f;
+  }
+
   .watermark { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
                display: flex; align-items: center; justify-content: center;
                pointer-events: none; z-index: 99999; overflow: hidden; }
   .watermark span { display: block; font-size: 110px; font-weight: 900;
-                    color: rgba(230,81,0,.15); letter-spacing: 10px;
+                    color: rgba(211,47,47,.15); letter-spacing: 10px;
                     text-transform: uppercase; white-space: nowrap;
                     transform: rotate(-40deg); font-family: Arial, sans-serif;
-                    border: 12px solid rgba(230,81,0,.12);
+                    border: 12px solid rgba(211,47,47,.12);
                     padding: 10px 30px; border-radius: 8px; }
 </style>
 
@@ -57,163 +84,143 @@
 <div class="watermark"><span>CANCELLED</span></div>
 {% endif %}
 
-{# ══ HEADER BAND ══════════════════════════════════════════════════════════════ #}
-<table style="margin-bottom:6px">
-  <tr>
-    <td style="width:20%; vertical-align:middle; padding:0 10px 0 0">
-      <img src="/files/letterhead.jpeg" style="height:50px; width:auto; max-width:100px; object-fit:contain">
-    </td>
-    <td style="vertical-align:middle">
-      <div style="font-size:13px; font-weight:bold; line-height:1.3">{{ doc.company | upper }}</div>
-      {% if co_addr %}
-      <div class="lbl">{{ co_addr.address_line1 or "" }}{% if co_addr.address_line2 %}, {{ co_addr.address_line2 }}{% endif %}</div>
-      <div class="lbl">{% if co_addr.city %}{{ co_addr.city }}, {% endif %}{{ co_addr.state or "" }} {{ co_addr.pincode or "" }}</div>
-      <div>GSTIN : <strong>{{ co_addr.gstin or "—" }}</strong></div>
-      {% endif %}
-    </td>
-    <td style="width:30%; text-align:right; vertical-align:middle">
-      <div class="hdg" style="border-radius:6px; padding:8px 16px; display:inline-block; min-width:160px">
-        DEBIT NOTE
-      </div>
-    </td>
-  </tr>
-</table>
+<div class="box">
 
-{# ══ META TABLE ═══════════════════════════════════════════════════════════════ #}
-<table class="outer" style="margin-bottom:6px">
-  <tr>
-    <td style="width:50%; border-right:1px solid #aaa; padding:5px 8px; vertical-align:top">
-      <div class="sub-hdg" style="margin-bottom:4px">Supplier Details</div>
-      <div><strong>{{ sup.supplier_name }}</strong></div>
-      {% if sup.supplier_group %}<div class="lbl">{{ sup.supplier_group }}</div>{% endif %}
-    </td>
-    <td style="width:50%; padding:0; vertical-align:top">
-      <table style="border:none; border-collapse:collapse; width:100%">
-        <tr>
-          <td style="border-bottom:1px solid #ddd; border-right:1px solid #ddd; padding:4px 7px; width:50%">
-            <div class="lbl" style="font-size:9px">Debit Note No.</div>
-            <div><strong>{{ doc.name }}</strong></div>
-          </td>
-          <td style="border-bottom:1px solid #ddd; padding:4px 7px; width:50%">
-            <div class="lbl" style="font-size:9px">Date</div>
-            <div><strong>{{ fd(doc.posting_date) }}</strong></div>
-          </td>
-        </tr>
-        <tr>
-          <td style="border-bottom:1px solid #ddd; border-right:1px solid #ddd; padding:4px 7px">
-            <div class="lbl" style="font-size:9px">Reason</div>
-            <div><strong>{{ doc.reason_code or "—" }}</strong></div>
-          </td>
-          <td style="border-bottom:1px solid #ddd; padding:4px 7px">
-            <div class="lbl" style="font-size:9px">Status</div>
-            <div><strong>{{ doc.status }}</strong></div>
-          </td>
-        </tr>
-        <tr>
-          <td colspan="2" style="padding:4px 7px">
-            <div class="lbl" style="font-size:9px">Against Purchase Invoice</div>
-            <div>
+  {# ── Letterhead ── #}
+  <div class="bb" style="padding:0">
+    <img src="/files/Instabiz_LH_v2.png" style="display:block; width:100%; height:auto; object-fit:contain; margin:0">
+  </div>
+
+  {# ── Title bar ── #}
+  <div class="ib-title-bar">
+    <div class="t">DEBIT NOTE</div>
+    <div class="s">Date: <strong>{{ fd(doc.posting_date) }}</strong></div>
+  </div>
+
+  {# ── Company header (left) + DBN meta grid (right) ── #}
+  <table class="bb">
+    <tr>
+      <td class="br" style="width:55%">
+        <strong>{{ doc.company | upper }}</strong><br>
+        {% if co_addr %}
+        {{ co_addr.address_line1 or "" }}{% if co_addr.address_line2 %}, {{ co_addr.address_line2 }}{% endif %}<br>
+        {% if co_addr.city %}{{ co_addr.city }}, {% endif %}{{ co_addr.state or "" }} {{ co_addr.pincode or "" }}<br>
+        GSTIN : <strong>{{ co_addr.gstin or "—" }}</strong>
+        {% endif %}
+      </td>
+      <td style="width:45%; padding:0; vertical-align:top">
+        <table>
+          <tr>
+            <td class="bb br lbl" style="width:50%">Debit Note No.</td>
+            <td class="bb lbl">Against Purchase Invoice</td>
+          </tr>
+          <tr>
+            <td class="bb br"><strong>{{ doc.name }}</strong></td>
+            <td class="bb">
               <strong>{{ doc.against_purchase_invoice or "—" }}</strong>
-              {% if pi %}
-              &nbsp;<span class="lbl">({{ fd(pi.posting_date) }}
-              {% if pi.bill_no %}| Vendor Bill: {{ pi.bill_no }}{% if pi.bill_date %} dt. {{ fd(pi.bill_date) }}{% endif %}{% endif %})</span>
-              {% endif %}
-            </div>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>
+              {% if pi %}<br><span class="lbl">{{ fd(pi.posting_date) }}{% if pi.bill_no %} | Vendor Bill: {{ pi.bill_no }}{% if pi.bill_date %} dt. {{ fd(pi.bill_date) }}{% endif %}{% endif %}</span>{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td class="bb br lbl">Reason</td>
+            <td class="bb lbl">Status</td>
+          </tr>
+          <tr>
+            <td class="bb br"><strong>{{ doc.reason_code or "—" }}</strong></td>
+            <td class="bb"><strong>{{ doc.status }}</strong></td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 
-{# ══ ITEMS TABLE ══════════════════════════════════════════════════════════════ #}
-<table class="outer it-tbl" style="margin-bottom:0">
-  <thead>
+  {# ── Supplier Details ── #}
+  <div class="ib-sh">SUPPLIER DETAILS</div>
+  <table class="bb">
     <tr>
-      <th style="width:5%">Sl.</th>
-      <th>Item Code</th>
-      <th>Description</th>
-      <th style="width:9%">Qty</th>
-      <th style="width:10%">Rate (₹)</th>
-      <th style="width:12%">Amount (₹)</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for row in doc.items %}
-    <tr>
-      <td class="center">{{ loop.index }}</td>
-      <td><strong>{{ row.item_code }}</strong></td>
-      <td>{{ row.item_name or "" }}</td>
-      <td class="right">{{ fm(row.qty) }}</td>
-      <td class="right">{{ fm(row.rate) }}</td>
-      <td class="right"><strong>{{ fm(row.amount) }}</strong></td>
-    </tr>
-    {% endfor %}
-
-    {# Filler rows #}
-    {% for _ in range([5 - doc.items|length, 0]|max) %}
-    <tr style="height:16px"><td colspan="6"></td></tr>
-    {% endfor %}
-
-    <tr>
-      <td colspan="5" class="right" style="border-top:1px solid #aaa; border-left:none; border-right:none; border-bottom:none">
-        Sub Total
-      </td>
-      <td class="right" style="border-top:1px solid #aaa">
-        <strong>{{ fm(doc.total) }}</strong>
+      <td>
+        <strong>{{ sup.supplier_name }}</strong>
+        {% if sup.supplier_group %}<br><span class="lbl">{{ sup.supplier_group }}</span>{% endif %}
       </td>
     </tr>
+  </table>
 
-    {% if doc.taxes_and_charges and doc.total_taxes_and_charges %}
-    {% set template = frappe.get_cached_doc("Purchase Taxes and Charges Template", doc.taxes_and_charges) %}
-    {% for t in template.taxes %}
-    {% set tax_amt = (doc.total * t.rate / 100) if t.charge_type == "On Net Total" else (t.tax_amount or 0) %}
-    {% if tax_amt %}
-    <tr>
-      <td colspan="5" class="right lbl" style="border:none; font-style:italic">
-        {{ t.description }} ({{ "%g" | format(t.rate) }} %)
-      </td>
-      <td class="right" style="border:1px solid #ccc">
-        {{ fm(tax_amt) }}
-      </td>
-    </tr>
-    {% endif %}
-    {% endfor %}
-    {% endif %}
+  {# ── Items table ── #}
+  <table class="items-tbl">
+    <thead>
+      <tr>
+        <th style="width:6%">Sl.</th>
+        <th style="width:22%">Item Code</th>
+        <th style="width:31%">Description</th>
+        <th style="width:11%">Qty</th>
+        <th style="width:14%">Rate (₹)</th>
+        <th style="width:16%">Amount (₹)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in doc.items %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td class="wrap-anywhere">{{ row.item_code }}</td>
+        <td class="wrap-anywhere">{{ row.item_name or "" }}</td>
+        <td>{{ fm(row.qty) }}</td>
+        <td>{{ fm(row.rate) }}</td>
+        <td><strong>{{ fm(row.amount) }}</strong></td>
+      </tr>
+      {% endfor %}
 
-    <tr class="total-row">
-      <td colspan="5" class="right" style="border-left:none; border-right:none; border-bottom:none">
-        GRAND TOTAL
-      </td>
-      <td class="right" style="font-size:12px">
-        ₹ {{ fm(doc.grand_total) }}
-      </td>
-    </tr>
-  </tbody>
-</table>
+      <tr>
+        <td colspan="5" class="ta-r bt" style="border-left:none; border-right:none">Sub Total</td>
+        <td class="ta-r bt"><strong>{{ fm(doc.total) }}</strong></td>
+      </tr>
 
-{# ══ FOOTER ═══════════════════════════════════════════════════════════════════ #}
-<table style="margin-top:6px; border:1px solid #ccc; border-collapse:collapse">
-  <tr>
-    <td style="width:60%; padding:6px 8px; border-right:1px solid #ccc; vertical-align:top">
-      {% if doc.remarks %}
-      <div class="lbl" style="font-size:9px; margin-bottom:2px">Remarks</div>
-      <div>{{ doc.remarks }}</div>
+      {% if doc.taxes_and_charges and doc.total_taxes_and_charges %}
+      {% set template = frappe.get_cached_doc("Purchase Taxes and Charges Template", doc.taxes_and_charges) %}
+      {% for t in template.taxes %}
+      {% set tax_amt = (doc.total * t.rate / 100) if t.charge_type == "On Net Total" else (t.tax_amount or 0) %}
+      {% if tax_amt %}
+      <tr>
+        <td colspan="5" class="ta-r italic lbl" style="border:none">
+          {{ t.description }} ({{ "%g" | format(t.rate) }} %)
+        </td>
+        <td class="ta-r">{{ fm(tax_amt) }}</td>
+      </tr>
       {% endif %}
-      <div style="margin-top:8px; font-size:9px; color:#555">
-        This Debit Note is issued as a financial adjustment against the referenced Purchase Invoice.
-        No physical goods movement implied unless Reason Code is "Purchase Return".
-      </div>
-    </td>
-    <td style="width:40%; padding:6px 8px; vertical-align:top; text-align:right">
-      <div><strong>for {{ doc.company | upper }}</strong></div>
-      <div style="height:45px"></div>
-      <div><strong>Authorised Signatory</strong></div>
-    </td>
-  </tr>
-</table>
+      {% endfor %}
+      {% endif %}
 
-<div style="border-top:1px solid #ddd; text-align:center; padding:3px;
-            color:#777; font-size:9px; margin-top:4px">
-  This is a Computer Generated Debit Note
+      <tr class="total-row">
+        <td colspan="5" class="ta-r" style="border-left:none; border-right:none; border-bottom:none">GRAND TOTAL</td>
+        <td class="ta-r" style="font-size:13px">₹ {{ fm(doc.grand_total) }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  {# ── Remarks + Signature ── #}
+  <table class="bt">
+    <tr>
+      <td style="width:60%; vertical-align:top">
+        {% if doc.remarks %}
+        <div class="lbl">Remarks</div>
+        <div>{{ doc.remarks }}</div>
+        {% endif %}
+        <div class="lbl italic" style="margin-top:6px">
+          This Debit Note is issued as a financial adjustment against the referenced Purchase Invoice.
+          No physical goods movement implied unless Reason Code is "Purchase Return".
+        </div>
+      </td>
+      <td style="width:40%; text-align:right; vertical-align:top; padding:30px 6px 4px; border-left:1px solid #333">
+        <div><strong>for {{ doc.company | upper }}</strong></div>
+        <div style="text-align:right; margin-top:4px">
+          <img src="/files/IB_Stamp.jpeg" style="height:55px; width:auto; display:inline-block">
+        </div>
+        <div style="margin-top:6px"><strong>Authorised Signatory</strong></div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="lbl" style="text-align:center; padding:3px; border-top:1px solid #333">
+    This is a computer-generated Debit Note and does not require a signature.
+  </div>
+
 </div>
