@@ -65,16 +65,28 @@ def get_finance_data():
 		WHERE docstatus=1 {sales_cond} AND {sales_date} BETWEEN %s AND %s
 	""", (fy_start, today))[0][0])
 
-	# ── Expenses (Purchase Invoices / Purchase Orders) ───────────────────────
+	# ── Expenses (Purchase Invoices / Purchase Orders + IB Expense) ──────────
+	# IB Expense (company/operational spend — rent, utilities, etc., see
+	# instabiz/instabiz/doctype/ib_expense/) posts its own real GL entries but
+	# is a separate doctype from Purchase Order/Invoice, so it was silently
+	# excluded here — "Expenses MTD"/"Gross Profit" understated real spend
+	# the moment anyone used it. Always included regardless of billing mode
+	# (IB Expense has no dev/prod distinction — it's real either way).
+	def _ib_expense_sum(start, end):
+		return flt(frappe.db.sql("""
+			SELECT COALESCE(SUM(amount),0) FROM `tabIB Expense`
+			WHERE docstatus=1 AND posting_date BETWEEN %s AND %s
+		""", (start, end))[0][0])
+
 	exp_mtd = flt(frappe.db.sql(f"""
 		SELECT COALESCE(SUM(grand_total),0) FROM `tab{purch_dt}` t
 		WHERE docstatus=1 {purch_cond} AND {purch_date} BETWEEN %s AND %s
-	""", (month_start, today))[0][0])
+	""", (month_start, today))[0][0]) + _ib_expense_sum(month_start, today)
 
 	exp_last = flt(frappe.db.sql(f"""
 		SELECT COALESCE(SUM(grand_total),0) FROM `tab{purch_dt}` t
 		WHERE docstatus=1 {purch_cond} AND {purch_date} BETWEEN %s AND %s
-	""", (last_start, last_end))[0][0])
+	""", (last_start, last_end))[0][0]) + _ib_expense_sum(last_start, last_end)
 
 	# ── Outstanding AR / AP ───────────────────────────────────────────────────
 	ar = flt(frappe.db.sql(f"""
@@ -150,7 +162,18 @@ def get_finance_data():
 		GROUP BY ym ORDER BY ym
 	""", (today,), as_dict=True)
 
+	ib_expense_trend = frappe.db.sql("""
+		SELECT DATE_FORMAT(posting_date,'%%Y-%%m') as ym,
+			   COALESCE(SUM(amount),0) as expenses
+		FROM `tabIB Expense`
+		WHERE docstatus=1
+		AND posting_date >= DATE_SUB(%s, INTERVAL 6 MONTH)
+		GROUP BY ym ORDER BY ym
+	""", (today,), as_dict=True)
+
 	exp_map = {r.ym: flt(r.expenses) for r in exp_trend}
+	for r in ib_expense_trend:
+		exp_map[r.ym] = exp_map.get(r.ym, 0) + flt(r.expenses)
 	for r in pl_trend:
 		r.expenses = exp_map.get(r.ym, 0)
 		r.profit = flt(r.revenue) - r.expenses
