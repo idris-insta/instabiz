@@ -3684,56 +3684,36 @@ iconify-icon { display: inline-flex; align-items: center; }
 }
 .ib-si-kpi::before { display: none !important; }
 
-/* ── Customer list view cosmetics (2026-09-03) ────────────────────────────
+/* ── Customer list view cosmetics (2026-09-03, refined 2026-09-14) ────────
    Columns hidden by ib-cust-hide-col (applied in customer_list.js, matched
    by column text — Status/ID position is stable but matching by label is
    more robust to future column reordering). Row-recency indicator applied
    via ib-cust-recency-{active,30,60,90} on the row container, days-since-
-   last-SO thresholds (<30/30/60/90+, same basis dormant.py already uses) —
-   a thin left-border stripe + a barely-there background wash, not a solid
-   fill (first version was full-strength background per tier and read as
-   "too dark" live — this is deliberately subtle: glance-able, not loud). */
+   last-SO thresholds (<30/30/60/90+, same basis dormant.py already uses).
+
+   Redesigned 2026-09-14 (user feedback: "sloppy, not sleek") — the original
+   per-tier background wash + shimmer sweep looked fine in isolation but on
+   a real page most customers cluster in the same tier back-to-back (e.g.
+   20 "active" rows in a row after a bulk-touch), so the wash tiled into a
+   solid, slightly-off-color block running down the whole visible list — a
+   "wall of color," not a glanceable accent. Dropped the background wash and
+   the shimmer-on-arrival animation entirely; the indicator is now a single
+   clean edge marker only — slimmer, in a calmer/more consistent-saturation
+   palette (matches the tone the rest of the app's status pills already use)
+   — legible at a glance without visually dominating the row. */
 .ib-cust-hide-col { display: none !important; }
 
-/* Applied via JS shortly after each row already exists (a separate frappe.call
-   resolves the recency data), so the indicator visibly *arrives* rather than
-   being there on first paint — a short ease-out sweep on the border/tint
-   plays that moment up instead of a flat pop, and stays as a smooth
-   transition afterward for filter/refresh cycles. Border widens a touch on
-   hover as a small interactive cue. All of it collapses to an instant,
-   static state under prefers-reduced-motion. */
 .list-row-container.ib-cust-recency-active .list-row,
 .list-row-container.ib-cust-recency-30 .list-row,
 .list-row-container.ib-cust-recency-60 .list-row,
 .list-row-container.ib-cust-recency-90 .list-row {
-    border-left: 3px solid transparent;
-    transition: border-left-color .35s ease-out, border-left-width .15s ease-out, background-color .35s ease-out;
+    border-left: 2.5px solid transparent;
+    transition: border-left-color .35s ease-out;
 }
-.list-row-container.ib-cust-recency-active .list-row { background: rgba(34, 197, 94, 0.06); border-left-color: #22c55e; }
-.list-row-container.ib-cust-recency-30 .list-row     { background: rgba(234, 179, 8, 0.07);  border-left-color: #eab308; }
-.list-row-container.ib-cust-recency-60 .list-row     { background: rgba(249, 115, 22, 0.07); border-left-color: #f97316; }
-.list-row-container.ib-cust-recency-90 .list-row     { background: rgba(239, 68, 68, 0.07);  border-left-color: #ef4444; }
-
-.list-row-container.ib-cust-recency-active .list-row:hover,
-.list-row-container.ib-cust-recency-30 .list-row:hover,
-.list-row-container.ib-cust-recency-60 .list-row:hover,
-.list-row-container.ib-cust-recency-90 .list-row:hover {
-    border-left-width: 5px;
-}
-
-@keyframes ib-cust-recency-sweep {
-    from { background-position: -120% 0; }
-    to   { background-position: 220% 0; }
-}
-.list-row-container.ib-cust-recency-active .list-row,
-.list-row-container.ib-cust-recency-30 .list-row,
-.list-row-container.ib-cust-recency-60 .list-row,
-.list-row-container.ib-cust-recency-90 .list-row {
-    background-image: linear-gradient(100deg, transparent 40%, rgba(255, 255, 255, 0.35) 50%, transparent 60%);
-    background-repeat: no-repeat;
-    background-size: 60% 100%;
-    animation: ib-cust-recency-sweep .9s ease-out;
-}
+.list-row-container.ib-cust-recency-active .list-row { border-left-color: #16a34a; }
+.list-row-container.ib-cust-recency-30 .list-row     { border-left-color: #ca8a04; }
+.list-row-container.ib-cust-recency-60 .list-row     { border-left-color: #ea580c; }
+.list-row-container.ib-cust-recency-90 .list-row     { border-left-color: #dc2626; }
 
 @media (prefers-reduced-motion: reduce) {
     .list-row-container.ib-cust-recency-active .list-row,
@@ -3741,6 +3721,5 @@ iconify-icon { display: inline-flex; align-items: center; }
     .list-row-container.ib-cust-recency-60 .list-row,
     .list-row-container.ib-cust-recency-90 .list-row {
         transition: none;
-        animation: none;
     }
 }
