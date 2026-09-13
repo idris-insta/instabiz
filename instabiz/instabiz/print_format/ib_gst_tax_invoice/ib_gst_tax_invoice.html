@@ -3,35 +3,7 @@
 {% set _is_ewb_cancelled  = doc.get('e_waybill_status') in ('Cancelled', 'Manually Cancelled') %}
 {% set _show_cancelled    = _is_einv_cancelled or _is_ewb_cancelled %}
 {% if _show_cancelled %}
-<style>
-.ib-cancelled-watermark {
-    position: fixed;
-    top: 0; left: 0;
-    width: 100vw; height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-    z-index: 99999;
-    overflow: hidden;
-}
-.ib-cancelled-watermark span {
-    display: block;
-    font-size: 110px;
-    font-weight: 900;
-    color: rgba(220, 38, 38, 0.18);
-    letter-spacing: 10px;
-    text-transform: uppercase;
-    white-space: nowrap;
-    transform: rotate(-40deg);
-    font-family: Arial, sans-serif;
-    border: 14px solid rgba(220, 38, 38, 0.15);
-    padding: 10px 30px;
-    border-radius: 8px;
-    line-height: 1;
-}
-</style>
-<div class="ib-cancelled-watermark"><span>CANCELLED</span></div>
+<div class="watermark"><span>CANCELLED</span></div>
 {% endif %}
 
 {# ── Company ──────────────────────────────────────────────────────────────────── #}
@@ -176,13 +148,45 @@
   .inv-frame { border: 1px solid #000; border-collapse: collapse; }
   .inv-frame td, .inv-frame th { border: 1px solid #777; }
 
+  {# ── IB Print Theme (item-table header + totals tinting) ──────────────────
+     Rust-orange (#d97757, matches instabiz.css --ib-primary) tint on the
+     dense NIC-format tax-invoice tables instead of plain black/gray —
+     same color values as the shared reference implementation,
+     instabiz/instabiz/print_format/ib_packing_list/ib_packing_list.html
+     (commit 3e69cc2). Borders stay plain/black for legibility — only the
+     header/total backgrounds and accent text pick up the theme color. #}
   .it-tbl { border: 1px solid #000; border-collapse: collapse; }
-  .it-tbl th { border: 1px solid #777; background: #f0f0f0; font-weight: bold;
-               text-align: center; padding: 4px 4px; font-size: 10px; }
+  .it-tbl th { border: 1px solid #d97757; background: #fdf3ee; color: #b9502f;
+               font-weight: bold; text-align: center; padding: 4px 4px; font-size: 10px; }
   .it-tbl td { border: 1px solid #ccc; padding: 3px 5px; }
   .it-tbl .no-border td { border: none; }
   .it-tbl .top-line td { border-top: 1px solid #999; border-left: none;
                           border-right: none; border-bottom: none; }
+  .it-tbl .total-row td {
+    background: #fdf3ee; color: #b9502f;
+  }
+
+  .ib-title-bar {
+    background: #fdf3ee; border: 1px solid #d97757; border-radius: 6px;
+    text-align: center; padding: 6px; margin-bottom: 4px;
+  }
+  .ib-title-bar .t { font-size: 16px; font-weight: bold; letter-spacing: 1px; color: #b9502f; }
+  .ib-title-bar .s { font-size: 10px; color: #666; margin-top: 2px; }
+
+  .ib-sh {
+    font-weight: bold; padding: 3px 6px; background: #fdf3ee; color: #b9502f;
+    border-top: 1px solid #d97757; border-bottom: 1px solid #d97757;
+  }
+
+  .watermark { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+               display: flex; align-items: center; justify-content: center;
+               pointer-events: none; z-index: 99999; overflow: hidden; }
+  .watermark span { display: block; font-size: 110px; font-weight: 900;
+                    color: rgba(211,47,47,.15); letter-spacing: 10px;
+                    text-transform: uppercase; white-space: nowrap;
+                    transform: rotate(-40deg); font-family: Arial, sans-serif;
+                    border: 12px solid rgba(211,47,47,.12);
+                    padding: 10px 30px; border-radius: 8px; }
 
   .bot-frame { border-top: 1px solid #000; }
   .kv td { padding: 1px 4px 1px 0; }
@@ -190,18 +194,18 @@
   img { display: block; }
 </style>
 
+<div style="padding:0; margin-bottom:4px; border-bottom:1px solid #000">
+  <img src="/files/Instabiz_LH_v2.png" style="display:block; width:100%; height:auto; object-fit:contain; margin:0">
+</div>
+
 {# ════════════════════════════════════════════════════════════════════════════════ #}
 {# PAGE 1 — TAX INVOICE                                                             #}
 {# ════════════════════════════════════════════════════════════════════════════════ #}
 
-<table style="margin-bottom:2px">
-  <tr>
-    <td class="center" style="font-size:13px; font-weight:bold; padding:2px 0">Tax Invoice</td>
-    <td class="right" style="padding:2px 0">
-      {% if _irn %}<span style="font-size:11px; font-weight:bold">e-Invoice</span>{% endif %}
-    </td>
-  </tr>
-</table>
+<div class="ib-title-bar">
+  <div class="t">TAX INVOICE{% if _irn %} <span style="font-size:11px">&nbsp;·&nbsp;e-Invoice</span>{% endif %}</div>
+  <div class="s">Date: <strong>{{ fd(doc.posting_date) }}</strong></div>
+</div>
 
 <table style="margin-bottom:4px">
   <tr>
@@ -525,13 +529,13 @@
 
     <tr>
       <td colspan="7" class="right"
-          style="border-top:1.5px solid #000; border-left:none; border-right:none; border-bottom:none;
-                 font-weight:bold; padding:4px 5px">
+          style="border-top:2px solid #d97757; border-left:none; border-right:none; border-bottom:none;
+                 background:#fdf3ee; color:#b9502f; font-weight:bold; padding:4px 5px">
         Total
       </td>
       <td class="right"
-          style="border:1px solid #000; border-top:1.5px solid #000;
-                 font-weight:bold; font-size:11px; padding:4px 5px">
+          style="border:1px solid #d97757; border-top:2px solid #d97757;
+                 background:#fdf3ee; color:#b9502f; font-weight:bold; font-size:11px; padding:4px 5px">
         ₹ {{ fm(doc.rounded_total or doc.grand_total) }}
       </td>
     </tr>
@@ -635,8 +639,7 @@
 
   <hr style="border:0; border-top:1.5px solid #222; margin:6px 0">
 
-  <div style="font-weight:bold; padding:3px 6px; margin:6px 0 4px;
-              border-top:1px solid #555; border-bottom:1px solid #555; background:#f5f5f5">
+  <div class="ib-sh" style="margin:6px 0 4px">
     1. e-Way Bill Details
   </div>
   <table>
@@ -660,8 +663,7 @@
     </tr>
   </table>
 
-  <div style="font-weight:bold; padding:3px 6px; margin:6px 0 4px;
-              border-top:1px solid #555; border-bottom:1px solid #555; background:#f5f5f5">
+  <div class="ib-sh" style="margin:6px 0 4px">
     2. Address Details
   </div>
   <table>
@@ -695,8 +697,7 @@
     </tr>
   </table>
 
-  <div style="font-weight:bold; padding:3px 6px; margin:6px 0 4px;
-              border-top:1px solid #555; border-bottom:1px solid #555; background:#f5f5f5">
+  <div class="ib-sh" style="margin:6px 0 4px">
     3. Goods Details
   </div>
   <table class="it-tbl">
@@ -735,8 +736,7 @@
     </tr>
   </table>
 
-  <div style="font-weight:bold; padding:3px 6px; margin:6px 0 4px;
-              border-top:1px solid #555; border-bottom:1px solid #555; background:#f5f5f5">
+  <div class="ib-sh" style="margin:6px 0 4px">
     4. Transportation Details
   </div>
   <table>
@@ -748,8 +748,7 @@
     </tr>
   </table>
 
-  <div style="font-weight:bold; padding:3px 6px; margin:6px 0 4px;
-              border-top:1px solid #555; border-bottom:1px solid #555; background:#f5f5f5">
+  <div class="ib-sh" style="margin:6px 0 4px">
     5. Vehicle Details
   </div>
   <table>
