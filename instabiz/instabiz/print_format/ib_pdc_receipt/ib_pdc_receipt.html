@@ -1,0 +1,225 @@
+{# ── Helpers ─────────────────────────────────────────────────────────────────── #}
+{% macro fd(d) %}{% if d %}{{ frappe.utils.formatdate(d, "dd-MMM-yyyy") }}{% endif %}{% endmacro %}
+{% macro fm(v) %}{{ frappe.utils.fmt_money(v|float, precision=2) }}{% endmacro %}
+
+{# ── Company (IB PDC has no company field of its own — resolve via the
+   linked Sales Invoice when set, else the site's default company, same
+   fallback every other company-less doctype in this app would need) ── #}
+{# frappe.defaults.get_global_default isn't in the Jinja sandbox's safe-
+   callable whitelist (confirmed live: crashes every PDC print with no
+   linked Sales Invoice, "unsafe_callable" in Jinja2's sandbox.py) -
+   frappe.db.get_single_value is the same lookup via a plain DB read,
+   which the sandbox does allow (used the same way elsewhere in this
+   app's own print formats). #}
+{% set company_name = frappe.db.get_value("Sales Invoice", doc.sales_invoice, "company")
+    if doc.sales_invoice else frappe.db.get_single_value("Global Defaults", "default_company") %}
+{% set co = frappe.get_cached_doc("Company", company_name) if company_name else None %}
+{% set _co_addr_rows = frappe.db.sql("""
+    SELECT a.address_line1, a.address_line2, a.city, a.state, a.pincode, a.gstin
+    FROM `tabAddress` a
+    INNER JOIN `tabDynamic Link` dl ON dl.parent = a.name
+    WHERE dl.link_doctype = 'Company' AND dl.link_name = %s AND a.gstin != ''
+    ORDER BY a.creation ASC LIMIT 1
+""", company_name, as_dict=True) if company_name else [] %}
+{% set co_addr = _co_addr_rows[0] if _co_addr_rows else None %}
+
+{# ── Customer ─────────────────────────────────────────────────────────────────── #}
+{% set cust = frappe.get_cached_doc("Customer", doc.customer) if doc.customer else None %}
+
+{# ── Linked Sales Invoice (optional) ─────────────────────────────────────────── #}
+{% set si = frappe.db.get_value("Sales Invoice", doc.sales_invoice,
+    ["name", "posting_date", "grand_total", "outstanding_amount"], as_dict=True)
+    if doc.sales_invoice else None %}
+
+{# ── Sales person (optional) ─────────────────────────────────────────────────── #}
+{% set sales_person_name = frappe.db.get_value("User", doc.sales_person_user, "full_name")
+    if doc.sales_person_user else None %}
+
+{# ── IB Print Theme ───────────────────────────────────────────────────────
+   Shared visual language across every instabiz print format (except
+   Quotation/Sales Order): full-width letterhead banner, rust-orange
+   (#d97757, matches instabiz.css --ib-primary) as the one accent color for
+   title bar / section headers / totals, plain black-bordered dense tables
+   for legibility, stamp+signature footer. Copied verbatim from the shared
+   reference implementation, instabiz/instabiz/print_format/ib_packing_list/
+   ib_packing_list.html (commit 3e69cc2), same shape as
+   ib_credit_note_print.html. #}
+<style>
+  {# Inter (same webfont the desk UI uses, instabiz.bundle.css) - wkhtmltopdf
+     fetches it over HTTP same as any other asset, same /assets/ path the
+     desk already loads it from. Arial stays as the fallback stack for any
+     environment where the font fetch fails. #}
+  @font-face {
+    font-family: "Inter";
+    src: url("/assets/instabiz/fonts/InterVariable.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+  }
+  body, table, th, td { font-family: "Inter", Arial, sans-serif; }
+  body    { font-size: 11px; color: #1a1a1a; margin: 0; }
+  table   { width: 100%; border-collapse: collapse; }
+  td, th  { padding: 4px 6px; vertical-align: top; }
+  strong  { font-weight: bold; }
+
+  .box    { border: 1.5px solid #333; margin-bottom: 2px; }
+  .bb     { border-bottom: 1px solid #333; }
+  .bt     { border-top: 1px solid #333; }
+  .br     { border-right: 1px solid #333; }
+  .ta-r   { text-align: right; }
+  .ta-c   { text-align: center; }
+  .lbl    { color: #666; font-size: 10px; }
+  .italic { font-style: italic; }
+
+  .ib-title-bar {
+    background: #fdf3ee; border-bottom: 2px solid #d97757;
+    text-align: center; padding: 6px;
+  }
+  .ib-title-bar .t { font-size: 18px; font-weight: bold; letter-spacing: 1px; color: #b9502f; }
+  .ib-title-bar .s { font-size: 10px; color: #666; }
+
+  .ib-sh {
+    font-weight: bold; padding: 4px 6px; background: #fdf3ee; color: #b9502f;
+    border-top: 1px solid #d97757; border-bottom: 1px solid #d97757;
+  }
+
+  {# Amount — the one prominent, rust-orange themed figure on the receipt.
+     Deliberately NOT the green "money received" convention (see
+     ib_salary_slip*'s Net Pay box comment) — a PDC hasn't actually been
+     collected yet (it's a future-dated cheque, status defaults Pending),
+     so this uses the same orange-total language as every other document
+     total in this app (Credit Note grand total, etc.), not the green
+     cash-in-hand signal. #}
+  .amount-box {
+    background: #fdf3ee; border: 1.5px solid #d97757; padding: 10px;
+    text-align: center;
+  }
+  .amount-box .lbl2 { font-size: 10px; color: #b9502f; letter-spacing: 1px; text-transform: uppercase; }
+  .amount-box .val { font-size: 22px; font-weight: bold; color: #b9502f; margin-top: 2px; }
+
+  .status-pill {
+    display: inline-block; padding: 2px 10px; border-radius: 10px;
+    font-size: 10px; font-weight: bold; letter-spacing: .5px;
+  }
+  .status-pending, .status-presented { background: #fdf3ee; color: #b9502f; }
+  .status-cleared                    { background: #eef7f2; color: #1a7a4c; }
+  .status-bounced, .status-cancelled { background: #fdecec; color: #c0392b; }
+</style>
+
+<div class="box">
+
+  {# ── Letterhead ── #}
+  <div class="bb" style="padding:0">
+    <img src="/files/Instabiz_LH_v2.png" style="display:block; width:100%; height:auto; object-fit:contain; margin:0">
+  </div>
+
+  {# ── Title bar ── #}
+  <div class="ib-title-bar">
+    <div class="t">POST-DATED CHEQUE RECEIPT</div>
+    <div class="s">PDC No: <strong>{{ doc.name }}</strong> &nbsp;|&nbsp; Received: <strong>{{ fd(doc.received_date) }}</strong></div>
+  </div>
+
+  {# ── Company header (left) + PDC meta grid (right) ── #}
+  <table class="bb">
+    <tr>
+      <td class="br" style="width:55%">
+        {% if co %}
+        <strong>{{ co.company_name | upper }}</strong><br>
+        {% if co_addr %}
+        {{ co_addr.address_line1 or "" }}{% if co_addr.address_line2 %}, {{ co_addr.address_line2 }}{% endif %}<br>
+        {% if co_addr.city %}{{ co_addr.city }}, {% endif %}{{ co_addr.state or "" }} {{ co_addr.pincode or "" }}<br>
+        GSTIN : <strong>{{ co_addr.gstin or "—" }}</strong>
+        {% endif %}
+        {% else %}
+        <strong>{{ (company_name or "") | upper }}</strong>
+        {% endif %}
+      </td>
+      <td style="width:45%; padding:0; vertical-align:top">
+        <table>
+          <tr>
+            <td class="bb br lbl" style="width:50%">Received Date</td>
+            <td class="bb lbl">Status</td>
+          </tr>
+          <tr>
+            <td class="bb br"><strong>{{ fd(doc.received_date) }}</strong></td>
+            <td class="bb">
+              <span class="status-pill status-{{ (doc.status or "pending") | lower }}">{{ doc.status or "Pending" }}</span>
+            </td>
+          </tr>
+          <tr>
+            <td class="bb br lbl">Against Sales Invoice</td>
+            <td class="bb lbl">Sales Person</td>
+          </tr>
+          <tr>
+            <td class="bb br">
+              <strong>{{ doc.sales_invoice or "—" }}</strong>
+              {% if si %}<br><span class="lbl">{{ fd(si.posting_date) }}</span>{% endif %}
+            </td>
+            <td class="bb"><strong>{{ sales_person_name or "—" }}</strong></td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  {# ── Customer Details ── #}
+  <div class="ib-sh">CUSTOMER DETAILS</div>
+  <table class="bb">
+    <tr>
+      <td>
+        <strong>{{ (cust.customer_name if cust else doc.customer_name) or "—" }}</strong>
+        {% if cust and cust.customer_group %}<br><span class="lbl">{{ cust.customer_group }}</span>{% endif %}
+      </td>
+    </tr>
+  </table>
+
+  {# ── Cheque Details ── #}
+  <div class="ib-sh">CHEQUE DETAILS</div>
+  <table class="bb">
+    <tr>
+      <td class="br lbl" style="width:25%">Cheque Number</td>
+      <td class="br" style="width:25%"><strong>{{ doc.cheque_no or "—" }}</strong></td>
+      <td class="br lbl" style="width:25%">Cheque Date</td>
+      <td style="width:25%"><strong>{{ fd(doc.cheque_date) }}</strong></td>
+    </tr>
+    <tr class="bt">
+      <td class="br lbl">Bank Name</td>
+      <td class="br" colspan="3"><strong>{{ doc.bank_name or "—" }}</strong></td>
+    </tr>
+  </table>
+
+  {# ── Amount ── #}
+  <div class="amount-box">
+    <div class="lbl2">Cheque Amount</div>
+    <div class="val">₹ {{ fm(doc.amount) }}</div>
+  </div>
+
+  {% if doc.notes %}
+  <div class="bb" style="padding:5px 6px">
+    <span class="lbl">Notes</span><br>{{ doc.notes }}
+  </div>
+  {% endif %}
+
+  {# ── Remarks + Signature ── #}
+  <table class="bt" style="margin-top:2px">
+    <tr>
+      <td style="width:60%; vertical-align:top">
+        <div class="lbl italic">
+          This receipt acknowledges a post-dated cheque held on account. Funds are realized only
+          upon the cheque being presented and cleared on or after the cheque date shown above.
+        </div>
+      </td>
+      <td style="width:40%; text-align:right; vertical-align:top; padding:30px 6px 4px; border-left:1px solid #333">
+        <div><strong>for {{ (company_name or "") | upper }}</strong></div>
+        <div style="text-align:right; margin-top:4px">
+          <img src="/files/IB_Stamp.jpeg" style="height:55px; width:auto; display:inline-block">
+        </div>
+        <div style="margin-top:6px"><strong>Authorised Signatory</strong></div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="lbl" style="text-align:center; padding:3px; border-top:1px solid #333">
+    This is a computer-generated receipt and does not require a signature.
+  </div>
+
+</div>
