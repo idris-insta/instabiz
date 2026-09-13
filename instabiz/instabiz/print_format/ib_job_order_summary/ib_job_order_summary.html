@@ -1,8 +1,23 @@
 {% set data = get_order_sheet_stage_workflow(doc.name) %}
 {% set items = data.rows %}
 <style>
-  body { font-family: Arial, sans-serif; font-size: 12px; color: #111; padding: 10px; }
-  .print-format { margin-top: 0mm; margin-right: 0mm; margin-bottom: 0mm; margin-left: 0mm; orientation: Landscape; }
+  @font-face {
+    font-family: "Inter";
+    src: url("/assets/instabiz/fonts/InterVariable.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+  }
+  body { font-family: "Inter", Arial, sans-serif; font-size: 12px; color: #111; padding: 10px; }
+  {# `orientation: Landscape` here is a Frappe-specific CSS-property hack
+     read by wkhtmltopdf (frappe/utils/pdf.py's read_options_from_html) -
+     it correctly makes the real exported PDF landscape, but it is not a
+     real CSS property, so the plain on-screen /printview preview (which
+     never runs through wkhtmltopdf) ignores it entirely and was rendering
+     this 20-column table squeezed into the default ~210mm portrait width -
+     the actual "claustrophobic" bug. `width` below is real CSS the browser
+     does respect, fixing the on-screen preview to match what the PDF
+     already correctly does. #}
+  .print-format { margin-top: 0mm; margin-right: 0mm; margin-bottom: 0mm; margin-left: 0mm; orientation: Landscape; width: 297mm; max-width: 297mm; }
 
   /* Header/table density tuned to fit more rows per page — a 33-item Order
      Sheet still spills to page 2 on wkhtmltopdf (which doesn't reliably repeat
