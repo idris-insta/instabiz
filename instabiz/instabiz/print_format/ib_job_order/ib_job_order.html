@@ -42,9 +42,12 @@
 </div>
 
 <table class="jo-meta">
-  {% if so_name %}
-  <tr><td class="label">Sales Order</td><td class="value">{{ so_name }}</td></tr>
-  {% endif %}
+  {# Sales Order / customer are intentionally never shown on this format —
+     it is a floor-worker document (CLAUDE.md item 119). so_name is still
+     resolved above (unchanged) purely to look up this item's dimensions
+     from the matching Sales Order Item row — it must never be rendered
+     here. A previous version of this row did render it; removed as a
+     separate bug fix from the print-theme restyle. #}
   <tr><td class="label">Item Code</td><td class="value">{{ doc.item_code }}</td></tr>
   <tr><td class="label">Item Name</td><td class="value">{{ doc.item_name or "" }}</td></tr>
   <tr><td class="label">Stage</td><td class="value">{{ doc.stage }}</td></tr>
