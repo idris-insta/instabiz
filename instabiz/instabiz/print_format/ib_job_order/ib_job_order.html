@@ -1,8 +1,25 @@
-{% set os_doc = frappe.get_doc("IB Order Sheet", doc.order_sheet) if doc.order_sheet else None %}
-{% set so_name = os_doc.sales_order if os_doc else None %}
-{% set dims = frappe.db.get_value("Sales Order Item", {"parent": so_name, "item_code": doc.item_code}, ["color", "width_mm", "length_mtr", "qty_pkg", "total_pkg"], as_dict=True) if so_name else None %}
-{% set jr = frappe.get_doc("IB Jumbo Roll", doc.jumbo_roll) if doc.jumbo_roll else None %}
+{# ── Field remap, WO-per-run schema (2026-09) ─────────────────────────────
+   This format still read the pre-rewrite IB Work Order shape
+   (item_code/stage/target_qty/target_uom/pcs_to_make/logs_to_make/
+   jumbo_roll) - all replaced back on this branch by the "Work Order = one
+   run" model (source_item/source_qty/source_batch/current_stage + a real
+   outputs child table, since one run can now produce more than one item).
+   Real live WOs were printing "Item Code: None" / "Stage: None" until this
+   fix - flagged separately from the print-theme restyle, fixed here. #}
 {% set machine_name = frappe.db.get_value("IB Machine", doc.machine, "machine_name") if doc.machine else None %}
+{% set src_batch = frappe.get_doc("IB Batch", doc.source_batch) if doc.source_batch else None %}
+{# Per-output dims (color/qty_pkg/total_pkg only - width/length/gsm already
+   live on the output row itself) resolved via the row-exact
+   `sales_order_item` link each output carries (items 119/123's own fix for
+   item-code-ambiguity on a multi-line Sales Order) - never the SO name or
+   customer, which must never appear on this floor-worker document
+   (CLAUDE.md item 119). #}
+{% set ns = namespace(so_dims={}) %}
+{% for o in doc.outputs %}
+  {% if o.sales_order_item and o.sales_order_item not in ns.so_dims %}
+    {% set _ = ns.so_dims.update({o.sales_order_item: frappe.db.get_value("Sales Order Item", o.sales_order_item, ["color", "qty_pkg", "total_pkg"], as_dict=True)}) %}
+  {% endif %}
+{% endfor %}
 <style>
   body { font-family: Arial, sans-serif; font-size: 12px; color: #111; padding: 10px; }
   .print-format { margin-top: 0mm; margin-right: 0mm; margin-bottom: 0mm; margin-left: 0mm; }
@@ -30,11 +47,12 @@
   table.jo-meta col.jo-value-col { width: auto; }
   .jo-section-title { font-weight: bold; font-size: 12px; text-transform: uppercase; color: #b9502f;
                        border-bottom: 1px solid #d97757; margin: 16px 0 6px; padding-bottom: 2px; }
-  .jo-qty-block { text-align: center; margin: 16px 0; }
+  .jo-output { border: 1px solid #eee; border-radius: 4px; margin: 0 0 12px; padding: 10px 12px; }
+  .jo-output + .jo-output { margin-top: 10px; }
+  .jo-output-title { font-weight: bold; font-size: 13px; margin-bottom: 4px; }
+  .jo-qty-block { text-align: center; margin: 10px 0; }
   .jo-qty-block .jo-qty-val { font-size: 26px; font-weight: bold; }
   .jo-qty-block .jo-qty-uom { font-size: 14px; color: #555; }
-  .jo-make-line { text-align: center; font-size: 15px; font-weight: bold; margin: 8px 0 4px;
-                  background: #fdf3ee; padding: 6px; border: 1px dashed #d97757; color: #b9502f; }
   .jo-footer { margin-top: 30px; width: 100%; }
   .jo-footer td { padding: 4px; }
   .sig-line { border-top: 1px solid #444; padding-top: 4px; text-align: center; font-size: 10px; color: #555; }
@@ -51,14 +69,8 @@
 
 <table class="jo-meta">
   {# Sales Order / customer are intentionally never shown on this format —
-     it is a floor-worker document (CLAUDE.md item 119). so_name is still
-     resolved above (unchanged) purely to look up this item's dimensions
-     from the matching Sales Order Item row — it must never be rendered
-     here. A previous version of this row did render it; removed as a
-     separate bug fix from the print-theme restyle. #}
-  <tr><td class="label">Item Code</td><td class="value">{{ doc.item_code }}</td></tr>
-  <tr><td class="label">Item Name</td><td class="value">{{ doc.item_name or "" }}</td></tr>
-  <tr><td class="label">Stage</td><td class="value">{{ doc.stage }}</td></tr>
+     it is a floor-worker document (CLAUDE.md item 119). #}
+  <tr><td class="label">Stage</td><td class="value">{{ doc.current_stage or "" }}</td></tr>
   {% if doc.machine %}
   <tr><td class="label">Machine</td><td class="value">{{ doc.machine }}{% if machine_name %} — {{ machine_name }}{% endif %}</td></tr>
   {% endif %}
@@ -67,49 +79,85 @@
   {% endif %}
 </table>
 
-{% if dims and (dims.color or dims.width_mm or dims.length_mtr or dims.qty_pkg or dims.total_pkg) %}
-<div class="jo-section-title">Dimensions</div>
+{# ── Source (input) batch — replaces the old, no-longer-existent Jumbo
+   Roll link. IB Batch is the current RM/FG genealogy record (item 161). #}
+{% if src_batch %}
+<div class="jo-section-title">Source Batch</div>
 <table class="jo-meta">
-  {% if dims.color %}
-  <tr><td class="label">Color</td><td class="value">{{ dims.color }}</td></tr>
+  <tr><td class="label">Batch</td><td class="value">{{ src_batch.name }}</td></tr>
+  <tr><td class="label">Item</td><td class="value">{{ doc.source_item }}</td></tr>
+  {% if doc.source_qty %}
+  <tr><td class="label">Qty Issued</td><td class="value">{{ doc.source_qty }}</td></tr>
   {% endif %}
-  {% if dims.width_mm %}
-  <tr><td class="label">Width (MM)</td><td class="value">{{ dims.width_mm }}</td></tr>
+  {% if src_batch.width_mm %}
+  <tr><td class="label">Width (MM)</td><td class="value">{{ src_batch.width_mm }}</td></tr>
   {% endif %}
-  {% if dims.length_mtr %}
-  <tr><td class="label">Length (MTR)</td><td class="value">{{ dims.length_mtr }}</td></tr>
-  {% endif %}
-  {% if dims.qty_pkg %}
-  <tr><td class="label">Qty/Pkg</td><td class="value">{{ dims.qty_pkg }}</td></tr>
-  {% endif %}
-  {% if dims.total_pkg %}
-  <tr><td class="label">Total Pkg</td><td class="value">{{ dims.total_pkg }}</td></tr>
+  {% if src_batch.gsm %}
+  <tr><td class="label">GSM</td><td class="value">{{ src_batch.gsm }}</td></tr>
   {% endif %}
 </table>
 {% endif %}
 
-<div class="jo-qty-block">
-  <div class="jo-qty-val">{{ doc.target_qty or 0 }}</div>
-  <div class="jo-qty-uom">{{ doc.target_uom or "" }}</div>
+{# ── Outputs — a run can produce more than one item now. One block per
+   output, each with its own qty/dims/packing details. #}
+<div class="jo-section-title">{{ "Outputs" if doc.outputs|length > 1 else "Output" }}</div>
+{% for o in doc.outputs %}
+{% set dims = ns.so_dims.get(o.sales_order_item) %}
+<div class="jo-output">
+  <div class="jo-output-title">{{ o.item_code }}{% if o.item_name %} — {{ o.item_name }}{% endif %}</div>
+
+  <div class="jo-qty-block">
+    <div class="jo-qty-val">{{ o.planned_qty or 0 }}</div>
+    <div class="jo-qty-uom">{{ o.uom or "" }}</div>
+  </div>
+
+  {% if dims and (dims.color or dims.qty_pkg or dims.total_pkg) or o.width_mm or o.length_mtr or o.gsm %}
+  <table class="jo-meta">
+    {% if o.width_mm %}
+    <tr><td class="label">Width (MM)</td><td class="value">{{ o.width_mm }}</td></tr>
+    {% endif %}
+    {% if o.length_mtr %}
+    <tr><td class="label">Length (MTR)</td><td class="value">{{ o.length_mtr }}</td></tr>
+    {% endif %}
+    {% if o.gsm %}
+    <tr><td class="label">GSM</td><td class="value">{{ o.gsm }}</td></tr>
+    {% endif %}
+    {% if dims and dims.color %}
+    <tr><td class="label">Color</td><td class="value">{{ dims.color }}</td></tr>
+    {% endif %}
+    {% if dims and dims.qty_pkg %}
+    <tr><td class="label">Qty/Pkg</td><td class="value">{{ dims.qty_pkg }}</td></tr>
+    {% endif %}
+    {% if dims and dims.total_pkg %}
+    <tr><td class="label">Total Pkg</td><td class="value">{{ dims.total_pkg }}</td></tr>
+    {% endif %}
+  </table>
+  {% endif %}
+
+  {% if o.brand or o.core or o.ctn or o.shrink_film or o.packing_type or o.pack_count %}
+  <table class="jo-meta">
+    {% if o.packing_type %}
+    <tr><td class="label">Packing Type</td><td class="value">{{ o.packing_type }}</td></tr>
+    {% endif %}
+    {% if o.brand %}
+    <tr><td class="label">Brand</td><td class="value">{{ o.brand }}</td></tr>
+    {% endif %}
+    {% if o.core %}
+    <tr><td class="label">Core</td><td class="value">{{ o.core }}</td></tr>
+    {% endif %}
+    {% if o.ctn %}
+    <tr><td class="label">CTN</td><td class="value">{{ o.ctn }}</td></tr>
+    {% endif %}
+    {% if o.shrink_film %}
+    <tr><td class="label">Shrink Film</td><td class="value">{{ o.shrink_film }}</td></tr>
+    {% endif %}
+    {% if o.pack_count %}
+    <tr><td class="label">No. of Logs/Pcs</td><td class="value">{{ o.pack_count }}</td></tr>
+    {% endif %}
+  </table>
+  {% endif %}
 </div>
-
-{% if doc.target_uom == "PCS" and doc.pcs_to_make %}
-<div class="jo-make-line">Pieces to Make: {{ doc.pcs_to_make }}</div>
-{% elif doc.target_uom == "SQMT" and doc.logs_to_make %}
-<div class="jo-make-line">Logs to Make: {{ doc.logs_to_make }}</div>
-{% endif %}
-
-{% if jr %}
-<div class="jo-section-title">Jumbo Roll</div>
-<table class="jo-meta">
-  {% if jr.width_mm %}
-  <tr><td class="label">Jumbo Size (Width MM)</td><td class="value">{{ jr.width_mm }}</td></tr>
-  {% endif %}
-  {% if jr.length_mtr %}
-  <tr><td class="label">Jumbo Length (MTR)</td><td class="value">{{ jr.length_mtr }}</td></tr>
-  {% endif %}
-</table>
-{% endif %}
+{% endfor %}
 
 {% if doc.notes %}
 <div class="jo-section-title">Notes</div>
