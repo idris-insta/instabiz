@@ -9,24 +9,32 @@
   /* Negative side-margins matching body's own padding so the letterhead image
      bleeds truly edge-to-edge (100% of the page) instead of 100% of the
      10px-inset content area it would otherwise be constrained to. */
-  .jo-header { text-align: center; margin: 0 -10px 10px; }
-  .jo-header img { width: 100%; max-height: 60px; object-fit: contain; display: block; margin: 0 auto 6px; }
-  .jo-header h2 { margin: 4px 0 0; font-size: 20px; letter-spacing: 1px; }
-  .jo-wo-name { text-align: center; font-size: 15px; font-weight: bold; margin-bottom: 14px; }
-  .jo-wo-box { border: 2px solid #d97757; padding: 6px 16px; display: inline-block; }
+  .jo-header { text-align: center; margin: 0 -10px 0; }
+  .jo-header img { width: 100%; max-height: 60px; object-fit: contain; display: block; margin: 0 auto; }
+
+  {# ── IB Print Theme title bar (see ib_packing_list.html reference) ──
+     Bleeds edge-to-edge same as the letterhead above it (negative side
+     margins matching body's own 10px padding). #}
+  .ib-title-bar {
+    background: #fdf3ee; border-bottom: 2px solid #d97757;
+    text-align: center; padding: 6px; margin: 0 -10px 14px;
+  }
+  .ib-title-bar .t { font-size: 18px; font-weight: bold; letter-spacing: 1px; color: #b9502f; }
+  .ib-title-bar .s { font-size: 10px; color: #666; margin-top: 2px; }
+
   table.jo-meta { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; margin-bottom: 14px; }
   table.jo-meta td { padding: 5px 8px; vertical-align: top; border: none; border-bottom: 1px solid #eee; background: none; }
   table.jo-meta td.label { font-weight: bold; color: #444; }
   table.jo-meta td.value { }
   table.jo-meta col.jo-label-col { width: 160px; }
   table.jo-meta col.jo-value-col { width: auto; }
-  .jo-section-title { font-weight: bold; font-size: 12px; text-transform: uppercase; color: #d97757;
+  .jo-section-title { font-weight: bold; font-size: 12px; text-transform: uppercase; color: #b9502f;
                        border-bottom: 1px solid #d97757; margin: 16px 0 6px; padding-bottom: 2px; }
   .jo-qty-block { text-align: center; margin: 16px 0; }
   .jo-qty-block .jo-qty-val { font-size: 26px; font-weight: bold; }
   .jo-qty-block .jo-qty-uom { font-size: 14px; color: #555; }
   .jo-make-line { text-align: center; font-size: 15px; font-weight: bold; margin: 8px 0 4px;
-                  background: #fdf1ec; padding: 6px; border: 1px dashed #d97757; }
+                  background: #fdf3ee; padding: 6px; border: 1px dashed #d97757; color: #b9502f; }
   .jo-footer { margin-top: 30px; width: 100%; }
   .jo-footer td { padding: 4px; }
   .sig-line { border-top: 1px solid #444; padding-top: 4px; text-align: center; font-size: 10px; color: #555; }
@@ -34,11 +42,11 @@
 
 <div class="jo-header">
   <img src="/files/Instabiz_LH_v2.png">
-  <h2>JOB ORDER</h2>
 </div>
 
-<div class="jo-wo-name">
-  <span class="jo-wo-box">WO No: {{ doc.name }}</span>
+<div class="ib-title-bar">
+  <div class="t">JOB ORDER</div>
+  <div class="s">WO No: <strong>{{ doc.name }}</strong></div>
 </div>
 
 <table class="jo-meta">
