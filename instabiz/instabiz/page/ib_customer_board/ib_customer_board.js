@@ -430,7 +430,7 @@ class IBCustomerBoard {
 				: "No unassigned customers in your territory";
 			const empty_sub = col === "dormant"
 				? (this._is_manager
-					? "Assign accounts via Assignment Admin, or claim one from a rep's pool."
+					? "Assign accounts via the Team tab, or claim one from a rep's pool."
 					: "Your Sales Manager assigns accounts — check back soon or ask them directly.")
 				: "";
 			$cards.append(
