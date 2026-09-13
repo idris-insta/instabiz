@@ -87,7 +87,9 @@ class IBBiometricImport {
 					Tab-separated or comma-separated. Auto-detects columns.
 				</div>
 				<div class="ib-bio-drop" id="ib-bio-drop">
-					<div style="font-size:24px;margin-bottom:8px">📂</div>
+					<svg width="40" height="40" fill="none" stroke="#adb5bd" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom:8px">
+						<path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M16 12l-4-4-4 4M12 8v8"/>
+					</svg>
 					<div style="font-size:13px;font-weight:600">Drag &amp; drop CSV here, or click to browse</div>
 					<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Exported from biometric device</div>
 					<input type="file" id="ib-bio-file-input" accept=".csv,.txt,.xls,.xlsx">
