@@ -18,12 +18,31 @@ class TestIBProductionRecipe(FrappeTestCase):
 			"item_group": item_group,
 			"stock_uom": "Nos",
 			"is_stock_item": 1,
+			# india_compliance makes this mandatory for any is_sales_item once
+			# GST Settings.validate_hsn_code is on (it is, live — see item 76 in
+			# CLAUDE.md) — the fixture was written before that setting was
+			# enabled and started failing all 4 setUp-dependent tests with
+			# MandatoryError instead of exercising real Recipe/MRP logic.
+			"gst_hsn_code": "39199090",
 		}).insert(ignore_permissions=True)
 		return item_code
 
 	def setUp(self):
 		self.finished = self._make_item("_TEST-MRP-FG-1")
 		self.raw = self._make_item("_TEST-MRP-RAW-1")
+		# This test runner does not roll back the DB between individual test
+		# methods within one `bench run-tests` invocation (only masked before
+		# because every DB-touching test here failed identically in setUp on
+		# missing gst_hsn_code) — test_creates_recipe and
+		# test_rejects_duplicate_pair both use this exact (finished, raw) pair,
+		# so a recipe left over from an earlier test method in the same run
+		# collides with the "one recipe per pair" uniqueness check before the
+		# test under test even gets to run. Clear it defensively so each test
+		# method starts from a clean slate regardless of run order.
+		frappe.db.delete(
+			"IB Production Recipe",
+			{"finished_item": self.finished, "recipe_item": self.raw},
+		)
 
 	def test_creates_recipe(self):
 		doc = frappe.get_doc({
