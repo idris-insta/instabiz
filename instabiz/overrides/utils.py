@@ -376,6 +376,29 @@ def recalculate_items(doc):
         item.amount = round(flt(item.get("qty")) * rate, 2)
 
 
+def recalc_item_margins(doc):
+    """
+    custom_valuation_rate/custom_margin_pct are both no_copy — Frappe's
+    Duplicate clears them (to None) and nothing re-derives them until a user
+    manually re-touches the row's rate in the browser (form.js's
+    _ib_update_margin). Fill them in here, but ONLY when genuinely blank
+    (custom_valuation_rate is None — the post-duplicate/brand-new-row state).
+    A row that already has a real value (even 0.0, from a prior normal save)
+    is left untouched: valuation_rate is a live moving-average that drifts
+    with every stock transaction, so recomputing it on every save would
+    silently change an old quotation's margin on any unrelated re-save.
+    """
+    for item in doc.get("items") or []:
+        if item.get("custom_valuation_rate") is not None:
+            continue
+        cost = 0
+        if item.get("item_code"):
+            cost = flt(frappe.db.get_value("Item", item.item_code, "valuation_rate"))
+        item.custom_valuation_rate = cost
+        rate = flt(item.get("rate"))
+        item.custom_margin_pct = round(flt((rate - cost) / rate * 100), 1) if (rate and cost) else 0
+
+
 def recalculate_purchase_items(doc):
 	"""
 	For purchase docs (PO / GRN / PI):

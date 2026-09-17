@@ -8,6 +8,7 @@ from erpnext.selling.doctype.quotation.quotation import Quotation  # pyright: ig
 from instabiz.overrides.utils import (
     IbStatusMixin,
     recalculate_items,
+    recalc_item_margins,
     set_sales_person,
     sync_sales_team,
     reopen_sales_doc,
@@ -148,6 +149,7 @@ class CustomQuotation(IbStatusMixin, Quotation):
         set_sales_person(self)
         sync_sales_team(self)
         recalculate_items(self)
+        recalc_item_margins(self)
         _check_item_lifecycle(self)
         _check_customer_item_spec(self)
         _guard_document_attachments(self)
