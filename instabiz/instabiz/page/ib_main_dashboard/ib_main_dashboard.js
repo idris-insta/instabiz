@@ -116,6 +116,15 @@ class IBMainDashboard {
 				.map((k, i) => ibUI.stat({ v: k.v, l: k.l, sub: k.sub, route: `#kpi-${i}` }))
 				.join("")}</div>`,
 		).find(".ib-ui-stat--link").on("click", (e) => {
+			// KPI cards use data-route="#kpi-N" only to get ibUI.stat()'s
+			// clickable styling — it's not a real route. Without stopping
+			// propagation here, the click also bubbles to ibUI.wireRoutes'
+			// delegated [data-route] listener (bound on this.$el, see
+			// render() above), which calls frappe.set_route("#kpi-N")
+			// literally and throws "Resource not found" right after the
+			// correct navigation below — same bug on all 4 cards, since
+			// they all share this pattern.
+			e.stopPropagation();
 			const i = parseInt($(e.currentTarget).data("route").replace("#kpi-", ""), 10);
 			this._kpis[i].go();
 		});
