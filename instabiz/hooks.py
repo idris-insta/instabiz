@@ -155,7 +155,6 @@ app_version = "0.0.1"
 after_migrate = [
     "instabiz.overrides.indexes.after_migrate",
     "instabiz.overrides.overtime.after_migrate",
-    "instabiz.overrides.workspace_merge.hide_native",
 ]
 
 fixtures = [
