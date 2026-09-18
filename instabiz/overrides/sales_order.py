@@ -78,8 +78,11 @@ class CustomSalesOrder(IbStatusMixin, SalesOrder):
         _check_no_active_production(self)
 
     def before_submit(self):
-        # _check_credit_limit(self)  # temporarily disabled 2026-09-03 (user request) — re-enable when ready
-        # _check_overdue_block(self)  # temporarily disabled 2026-09-03 (user request) — re-enable when ready
+        # Credit-limit + 30-day-overdue blocks were switched off 2026-09-03 (user
+        # request). They now stay off unless site_config "ib_so_credit_checks" is
+        # truthy, so turning them back on is a config flip, not a code change.
+        if frappe.conf.get("ib_so_credit_checks"):
+            _run_credit_checks(self)
         check_advance_approval(self)
 
 
@@ -118,6 +121,27 @@ def _check_no_active_production(doc):
 
 
 # ── Credit limit ──────────────────────────────────────────────────────────────
+
+def _run_credit_checks(doc):
+    """Run the credit-limit and overdue checks. A Sales Manager / System Manager
+    can submit past a block by filling custom_credit_override_reason; the
+    override is recorded on the order's timeline."""
+    try:
+        _check_credit_limit(doc)
+        _check_overdue_block(doc)
+    except frappe.ValidationError:
+        from instabiz.overrides.permissions import _is_privileged
+        reason = (doc.get("custom_credit_override_reason") or "").strip()
+        if reason and _is_privileged(frappe.session.user):
+            frappe.clear_messages()  # drop the queued block message from frappe.throw
+            doc.add_comment(
+                "Info",
+                _("Credit block overridden by {0}: {1}").format(frappe.session.user, reason),
+            )
+            frappe.msgprint(_("Credit block overridden: {0}").format(reason), indicator="orange", alert=True)
+            return
+        raise
+
 
 def _check_credit_limit(doc):
     """Block submit if customer exceeds credit limit AND oldest unpaid invoice

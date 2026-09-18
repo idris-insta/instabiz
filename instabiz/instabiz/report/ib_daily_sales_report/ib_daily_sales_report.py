@@ -3,6 +3,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, get_first_day
 
+from instabiz.overrides.ib_status import stored_statuses
+
 
 def execute(filters=None):
 	filters = filters or {}
@@ -227,7 +229,8 @@ def _summary(data, date, month_start):
 	backlog = flt(frappe.db.sql(
 		"""SELECT COALESCE(SUM(rounded_total - COALESCE(per_delivered, 0) * rounded_total / 100), 0)
 		   FROM `tabSales Order`
-		   WHERE docstatus = 1 AND status NOT IN ('Completed','Cancelled','Closed')""",
+		   WHERE docstatus = 1 AND status NOT IN %(done)s""",
+		{"done": stored_statuses("Sales Order", "Completed", "Cancelled", "Closed")},
 	)[0][0])
 
 	mtd_pct = flt(total_mtd / total_target * 100, 1) if total_target else 0

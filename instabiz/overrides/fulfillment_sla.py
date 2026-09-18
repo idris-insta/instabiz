@@ -6,6 +6,8 @@ Delivery Note after SLA_HOURS hours. Deduplicates via [ib-sla-alert] marker.
 import frappe
 from frappe.utils import now_datetime, add_to_date
 
+from instabiz.overrides.ib_status import stored_statuses
+
 SLA_HOURS = 48
 _MARKER   = "[ib-sla-alert]"
 
@@ -20,7 +22,7 @@ def run_fulfillment_sla():
 		       so.custom_sales_person_user, so.grand_total
 		FROM `tabSales Order` so
 		WHERE so.docstatus = 1
-		  AND so.status NOT IN ('Closed', 'Cancelled')
+		  AND so.status NOT IN %(closed)s
 		  AND so.creation <= %(cutoff)s
 		  AND NOT EXISTS (
 		        SELECT 1
@@ -30,7 +32,7 @@ def run_fulfillment_sla():
 		          AND dn.docstatus = 1
 		  )
 		""",
-		{"cutoff": cutoff},
+		{"cutoff": cutoff, "closed": stored_statuses("Sales Order", "Closed", "Cancelled")},
 		as_dict=True,
 	)
 

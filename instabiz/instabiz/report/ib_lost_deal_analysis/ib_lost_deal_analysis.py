@@ -3,6 +3,8 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, flt
 
+from instabiz.overrides.ib_status import stored_statuses
+
 
 def execute(filters=None):
 	filters = filters or {}
@@ -82,8 +84,13 @@ def _lost_leads(filters):
 
 
 def _lost_quotations(filters):
-	cond = "WHERE q.status = 'Lost' AND DATE(q.modified) BETWEEN %(from_date)s AND %(to_date)s AND q.docstatus = 1"
-	vals = {"from_date": filters.get("from_date"), "to_date": filters.get("to_date")}
+	# CustomQuotation.STATUS_MAP stores "Lost" as "Cancelled" (docstatus stays 1)
+	cond = "WHERE q.status IN %(lost)s AND DATE(q.modified) BETWEEN %(from_date)s AND %(to_date)s AND q.docstatus = 1"
+	vals = {
+		"from_date": filters.get("from_date"),
+		"to_date": filters.get("to_date"),
+		"lost": stored_statuses("Quotation", "Lost"),
+	}
 
 	if filters.get("territory"):
 		cond += " AND q.territory = %(territory)s"

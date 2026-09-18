@@ -43,6 +43,7 @@ scheduler_events = {
         "instabiz.overrides.vendor_payment_alert.run_vendor_payment_alert",
         # Overdue Sales Invoice reminders: 7d bell to rep, 15d to managers, 30d block + bell
         "instabiz.overrides.overdue_alert.run_overdue_alert",
+        "instabiz.overrides.einvoice_age_alert.run_einvoice_age_alert",
         # Alert Accounts/Sales when PDC cheque date is 3 days away
         "instabiz.overrides.pdc_alert.run_pdc_alert",
         # Flag IB Asset Loans past expected_return_date as Overdue + alert HR/borrower
@@ -144,6 +145,9 @@ app_description = "Custom ERP extensions for Instabiz"
 app_version = "0.0.1"
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
+# Idempotent perf indexes on hot filter columns (overrides/indexes.py)
+after_migrate = ["instabiz.overrides.indexes.after_migrate"]
+
 fixtures = [
     "Custom Field",
     {

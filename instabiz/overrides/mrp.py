@@ -77,6 +77,8 @@ def _open_so_demand():
 	"""item_code -> total outstanding stock_qty across open Sales Orders
 	(docstatus=1, not fully delivered, not Closed/Cancelled).
 	"""
+	from instabiz.overrides.ib_status import stored_statuses
+
 	rows = frappe.db.sql(
 		"""
 		SELECT soi.item_code, SUM(soi.stock_qty - soi.delivered_qty) AS outstanding
@@ -84,10 +86,11 @@ def _open_so_demand():
 		INNER JOIN `tabSales Order` so ON so.name = soi.parent
 		WHERE so.docstatus = 1
 		  AND so.per_delivered < 100
-		  AND so.status NOT IN ('Closed', 'Cancelled')
+		  AND so.status NOT IN %(closed)s
 		GROUP BY soi.item_code
 		HAVING outstanding > 0
 		""",
+		{"closed": stored_statuses("Sales Order", "Closed", "Cancelled")},
 		as_dict=True,
 	)
 	return {r.item_code: flt(r.outstanding) for r in rows}

@@ -25,6 +25,8 @@ jobs:
       - name: js syntax
         run: |
           n=0; for f in $(find instabiz -name '*.js' -not -path '*/node_modules/*' -not -path '*/dist/*'); do node --check "$f" || exit 1; n=$((n+1)); done; echo "js OK ($n)"
+      - name: status literals
+        run: python3 scripts/check_status_literals.py
       - name: json valid
         run: |
           n=0; for f in $(find instabiz -name '*.json' -not -path '*/node_modules/*' -not -path '*/dist/*'); do python3 -c "import json,sys;json.load(open(sys.argv[1]))" "$f" || exit 1; n=$((n+1)); done; echo "json OK ($n)"
