@@ -3325,14 +3325,25 @@ class IBProductionStages {
 			return;
 		}
 
-		// Left-to-right chip order always follows the production route, not
-		// creation order (Move/manual stage jumps can otherwise reorder them).
+		// Left-to-right chip order: grouped by run first (oldest run's 5
+		// stages, then the next run's 5, in the order the backend already
+		// emits them — get_order_sheet_detail walks _all_runs_for_osi
+		// oldest-first), stage-route order within each run (Move/manual
+		// stage jumps can otherwise reorder a single run's own chips). A
+		// plain global sort-by-stage-order (the old logic, from back when
+		// an item could only ever have one run) would interleave two runs'
+		// chips by stage label instead — e.g. both runs' Coating chips
+		// adjacent, then both Slitting chips — reading as one garbled
+		// route instead of "run 1's full route, then run 2's".
 		const stageOrder = IB_STAGES.map((s) => s.label);
 
 		const rows = items.map((item) => {
-			const wos = [...(item.work_orders || [])].sort(
-				(a, b) => stageOrder.indexOf(a.stage) - stageOrder.indexOf(b.stage)
-			);
+			const runOrder = [];
+			(item.work_orders || []).forEach((wo) => { if (!runOrder.includes(wo.name)) runOrder.push(wo.name); });
+			const wos = [...(item.work_orders || [])].sort((a, b) => {
+				const runDiff = runOrder.indexOf(a.name) - runOrder.indexOf(b.name);
+				return runDiff !== 0 ? runDiff : stageOrder.indexOf(a.stage) - stageOrder.indexOf(b.stage);
+			});
 			const doneCount = wos.filter((wo) => wo.status === "Completed").length;
 			const stagePct = wos.length ? Math.round((doneCount / wos.length) * 100) : 0;
 			// Progress column uses the same stage-completion fraction as the Work
@@ -3355,33 +3366,32 @@ class IBProductionStages {
 			// (previously always-visible as a wall of <li> text) now lives in
 			// the hover tooltip; clicking a chip still opens the same WO side
 			// panel a click on the old list row used to.
-			// All 5 chips describe the SAME single real Work Order (one run,
-			// expanded per route stage just for this pill row) — every chip
-			// shares the same wo.name, so calling _wo_data.set(wo.name, ...)
-			// once per chip inside this loop clobbered itself 5 times over;
-			// whichever stage happened to render last (always "Packing", the
-			// final stage in route order) silently won, so clicking ANY pill —
-			// including the real current/active one — opened the panel showing
-			// Packing's Pending pseudo-state instead of the run's true current
-			// stage/status. Confirmed live. Fixed: store the backend's real
-			// current-state object (item.current_wo) once, keyed by the run's
-			// real name — every chip click resolves to the same correct entry,
-			// which is also the only one actually actionable (a run only has
-			// one current stage at a time; clicking a past/future stage pill
-			// can't act on it "as of" that stage anyway).
-			if (item.current_wo) {
-				this._wo_data.set(item.current_wo.name, {
-					...item.current_wo,
-					delivery_date: item.current_wo.delivery_date || (detail.order_sheet || {}).delivery_date,
-				});
-			}
-			const chips = wos.map((wo) => {
+			// Every chip within ONE run describes the SAME real Work Order (a
+			// run expanded per route stage just for this pill row) — chips
+			// used to be keyed only by item.current_wo, which is just the
+			// (at most one) LIVE run's data; an item with 2+ runs (a partial
+			// run held then finished by a second run, or a length-split —
+			// see _all_runs_for_osi's own comment) had its earlier run(s)'
+			// chips render but silently do nothing on click, since their
+			// name was never in _wo_data at all. Fixed: populate _wo_data
+			// from item.wo_data, which the backend now builds one entry per
+			// run, not just the current one.
+			Object.entries(item.wo_data || {}).forEach(([name, wo]) => {
+				this._wo_data.set(name, { ...wo, delivery_date: wo.delivery_date || (detail.order_sheet || {}).delivery_date });
+			});
+			const chips = wos.map((wo, i) => {
 				const abbr = STAGE_ABBR[wo.stage] || (wo.stage || "").substring(0, 2).toUpperCase();
 				const created = wo.creation ? frappe.datetime.str_to_user(wo.creation) : "—";
 				const title = `${wo.stage || ""}: ${wo.name || ""} — ${wo.status || ""} `
 					+ `(${wo.completed_qty || 0}/${wo.target_qty || 0}) — Created: ${created}`;
 				const cancelled_cls = wo.status === "Cancelled" ? " ib-ps-wo-chip--cancelled" : "";
+				// A visible gap where the run changes — without it, two runs'
+				// worth of chips read as one confusing 10-chip blob with no
+				// indication where the first run's route ends and the
+				// second's begins.
+				const newRun = i > 0 && wos[i - 1].name !== wo.name;
 				return `<span class="ib-ps-wo-chip indicator-pill ib-ps-pill-sm ${_ib_status_color(wo.status)}${cancelled_cls}"
+					style="${newRun ? "margin-left:8px" : ""}"
 					data-woid="${frappe.utils.escape_html(wo.name)}"
 					title="${frappe.utils.escape_html(title)}">${abbr}</span>`;
 			}).join("");

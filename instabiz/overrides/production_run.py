@@ -1691,7 +1691,26 @@ _ROW_BTN_STATUS = {"In Progress": "In Progress", "On Hold": "On Hold",
 def _latest_run_for_osi(soi, item_code, os_name):
 	"""The run currently producing an Order Sheet Item — matched by
 	outputs.sales_order_item, item_code fallback, newest non-cancelled first."""
-	rows = frappe.db.sql(
+	rows = _all_runs_for_osi(soi, item_code, os_name)
+	return rows[-1] if rows else None
+
+
+def _all_runs_for_osi(soi, item_code, os_name):
+	"""EVERY non-cancelled run producing an Order Sheet Item, oldest first.
+
+	An item is not always produced by exactly one run — confirmed live,
+	real data (IB-OS-2026-02860 / IS-51211V-038TRWBNL): a partial run held
+	or a length-split can leave 2+ separate real runs against the same
+	item. get_order_sheet_detail() used to call the single-row
+	_latest_run_for_osi() here, silently hiding every earlier run's own
+	stage progress/machine history from the Order-wise tab — the item's
+	own `qty` still showed the true total, but the stage-chip row only
+	ever reflected whichever run happened to be created last, making the
+	tab look wrong/incomplete for exactly this "one order took two runs"
+	case. Returns oldest-first so callers building a chip row read
+	left-to-right in the order the runs actually happened.
+	"""
+	return frappe.db.sql(
 		"""SELECT w.name, w.status, w.current_stage, w.machine, w.priority,
 		          w.source_batch, w.source_qty, w.posting_date, w.started_at,
 		          w.completed_at, w.fg_batch, o.uom, o.planned_qty, o.produced_qty
@@ -1699,10 +1718,9 @@ def _latest_run_for_osi(soi, item_code, os_name):
 		   JOIN `tabIB WO Output` o ON o.parent = w.name
 		   WHERE w.order_sheet = %(os)s AND w.status != 'Cancelled'
 		     AND (o.sales_order_item = %(soi)s OR (o.sales_order_item = '' AND o.item_code = %(ic)s))
-		   ORDER BY w.creation DESC LIMIT 1""",
+		   ORDER BY w.creation ASC""",
 		{"os": os_name, "soi": soi or "", "ic": item_code}, as_dict=True,
 	)
-	return rows[0] if rows else None
 
 
 def _stage_map_for_run(run):
@@ -1853,12 +1871,20 @@ def get_order_sheet_detail(order_sheet):
 	)
 	view = []
 	for it in items:
-		run = _latest_run_for_osi(it.sales_order_item, it.item_code, order_sheet)
+		runs = _all_runs_for_osi(it.sales_order_item, it.item_code, order_sheet)
 		wo_entries = []
+		all_wo_objects = []  # one full panel-openable dict per run — see wo_data below
 		next_sugg = ""
 		current_wo = None
-		if run:
+		total_produced = 0.0
+		# Every non-cancelled run producing this item, not just the latest —
+		# see _all_runs_for_osi's own comment for why (a partial/held run
+		# followed by a second run, or a length-split, both leave 2+ real
+		# runs against one item; showing only the newest one hid the
+		# earlier run's stage/machine history entirely).
+		for run in runs:
 			smap, route = _stage_map_for_run(run)
+			total_produced += flt(run.produced_qty)
 			for r in route:
 				info = smap[r.stage]
 				is_current = r.stage == run.current_stage
@@ -1871,32 +1897,31 @@ def get_order_sheet_detail(order_sheet):
 					"target_uom": info["target_uom"],
 					"creation": str(run.posting_date) if run.posting_date else None,
 					"pcs_to_make": 0, "logs_to_make": 0,
-					# All 5 stage chips describe the SAME single real Work Order
-					# (one run, expanded per route stage for the pill row) — only
-					# one of them is ever actually actionable. is_current flags it
-					# so the frontend doesn't open the panel using whichever
-					# pseudo-stage entry happened to be rendered/clobbered last
-					# (was always "Packing", the last stage in route order,
-					# regardless of which pill was clicked or the run's real
-					# current stage — confirmed live).
+					# Every one of a run's 5 stage chips describes the SAME
+					# real Work Order (one run, expanded per route stage for
+					# the pill row) — only one is ever actually actionable.
+					# is_current flags it so the frontend doesn't open the
+					# panel using whichever pseudo-stage entry happened to be
+					# rendered/clobbered last (was always "Packing", the last
+					# stage in route order, regardless of which pill was
+					# clicked or the run's real current stage — confirmed
+					# live). With multiple runs now in play, at most one
+					# chip across ALL of them is_current at a time.
 					"is_current": is_current,
 				})
-			if run.status == "Completed":
-				next_sugg = ""
-			elif run.current_stage in (None, "Done"):
-				next_sugg = ""
 			# Real current-state object for opening the WO panel — same shape
-			# _run_row()-derived data uses elsewhere (name/stage/status/
-			# target_qty/target_uom/machine/priority/sales_order/customer_name/
-			# order_sheet), always reflecting the run's TRUE current stage
-			# regardless of which of the 5 visual pills triggered the click.
+			# _run_row()-derived data uses elsewhere. Built for EVERY run
+			# (not just whichever ends up "the" current_wo below) so the
+			# frontend can populate _wo_data for every chip it renders —
+			# without this, clicking an older/completed run's chip silently
+			# did nothing (its name was never in _wo_data at all).
 			cur_info = smap.get(run.current_stage) or {}
-			current_wo = {
+			all_wo_objects.append({
 				"name": run.name,
 				"stage": run.current_stage,
 				"status": run.status,
 				"machine": run.machine,
-				"priority": run.priority,
+				"priority": os_doc.priority,
 				"sales_order": os_doc.sales_order,
 				"customer_name": os_doc.customer_name,
 				"order_sheet": order_sheet,
@@ -1906,7 +1931,22 @@ def get_order_sheet_detail(order_sheet):
 				"creation": str(run.posting_date) if run.posting_date else None,
 				"delivery_date": str(os_doc.delivery_date) if os_doc.delivery_date else None,
 				"pcs_to_make": 0, "logs_to_make": 0,
-			}
+			})
+
+		if runs:
+			# current_wo = whichever run is actually live right now (there's
+			# at most one — a second run only ever gets created once the
+			# first one is Completed/Cancelled); falls back to the most
+			# recent run (last in oldest-first `runs`) if none are live, so
+			# there's always something sane to open.
+			live = next((r for r in runs if r.status in ("In Progress", "On Hold")), None)
+			latest = runs[-1]
+			target = live or latest
+			current_wo = all_wo_objects[runs.index(target)]
+			if latest.status == "Completed":
+				next_sugg = ""
+			elif latest.current_stage in (None, "Done"):
+				next_sugg = ""
 		else:
 			rt = _get_stage_route(it.item_code, location)
 			next_sugg = rt[0] if rt else ""
@@ -1919,6 +1959,11 @@ def get_order_sheet_detail(order_sheet):
 			"next_stage_suggestion": next_sugg,
 			"work_orders": wo_entries,
 			"current_wo": current_wo,
+			# Every run's own panel data, keyed by run name — frontend needs
+			# this to make every chip clickable, not just the current run's.
+			"wo_data": {w["name"]: w for w in all_wo_objects},
+			"total_produced_qty": round(total_produced, 4),
+			"run_count": len(runs),
 		})
 
 	return {
