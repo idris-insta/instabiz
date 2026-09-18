@@ -1068,9 +1068,12 @@ class IBProductionDashboard {
 					if (!info.status) return "";
 					const cls = stageStatusCls[info.status] || "ib-pd-stg--pending";
 					const title = `${stage}: ${info.status} (${info.completed_qty}/${info.target_qty})`;
-					// Full stage name, not an abbreviation — direct ask: "make sure
-					// user knows which stage they are looking at" at a glance.
-					return `<span class="ib-pd-stg-chip ${cls}" title="${title}">${frappe.utils.escape_html(stage)}</span>`;
+					// Full stage name (not an abbreviation) + its own icon, and a
+					// pulse while genuinely In Progress — direct ask: "make sure
+					// user knows which stage they are looking at," "use icons with
+					// stages," "animate the stage in progress badge."
+					const liveCls = info.status === "In Progress" ? " ib-pd-stg--live" : "";
+					return `<span class="ib-pd-stg-chip ${cls}${liveCls}" title="${title}">${_stage_chip_icon(stage)}${frappe.utils.escape_html(stage)}</span>`;
 				}).join("");
 
 				// route_length/route_completed_count (get_production_plan,
@@ -2178,6 +2181,17 @@ class IBProductionDashboard {
 			.ib-pd-stg--done    { background: #dcfce7; color: #15803d; }
 			.ib-pd-stg--inprog  { background: #dbeafe; color: #1d4ed8; }
 			.ib-pd-stg--pending { background: var(--subtle-fg, #f1f5f9); color: #94a3b8; }
+			/* Genuinely running right now — a soft pulse so "In Progress" reads
+			   as actively moving, not just a static blue label sitting next to
+			   a green "done" one. */
+			.ib-pd-stg--live { animation: ib-pd-stg-pulse 1.6s ease-in-out infinite; }
+			@keyframes ib-pd-stg-pulse {
+				0%, 100% { box-shadow: 0 0 0 0 rgba(29, 78, 216, 0.35); }
+				50%      { box-shadow: 0 0 0 4px rgba(29, 78, 216, 0); }
+			}
+			@media (prefers-reduced-motion: reduce) {
+				.ib-pd-stg--live { animation: none; }
+			}
 			.ib-pd-plan-row-progress { display: flex; align-items: center; gap: 9px; }
 			.ib-pd-prog-bar-wrap {
 				height: 6px;
@@ -2278,6 +2292,16 @@ const IB_STAGES = [
 	{ key: "cutting",   label: "Cutting",   icon: "crop",       color: "#059669" },
 	{ key: "packing",   label: "Packing",   icon: "package",    color: "#d97706" },
 ];
+const STAGE_ICON_BY_LABEL = Object.fromEntries(IB_STAGES.map((s) => [s.label, s.icon]));
+
+// Small inline icon for a stage-chip label — direct ask: "use icons with
+// stages to indicate the stages." Reuses IB_STAGES' own icon (already
+// defined for the stage picker) rather than inventing a second icon set.
+function _stage_chip_icon(stageLabel) {
+	const icon = STAGE_ICON_BY_LABEL[stageLabel];
+	if (!icon) return "";
+	return `<iconify-icon icon="lucide:${icon}" width="10" height="10" style="vertical-align:-1px;margin-right:3px"></iconify-icon>`;
+}
 
 // Mirrors production.py's _STAGE_MACHINE_TYPE exactly.
 const STAGE_MACHINE_TYPE = {
@@ -2797,8 +2821,11 @@ class IBProductionStages {
 					// without having to hover for the tooltip.
 					const stageLabel = frappe.utils.escape_html(wo.stage || "—");
 					const cancelled_cls = wo.status === "Cancelled" ? " ib-ps-wo-chip--cancelled" : "";
+					// Pulses while genuinely running — direct ask: "animate the
+					// stage in progress badge (blue) to indicate progression."
+					const live_cls = wo.status === "In Progress" ? " ib-ps-wo-chip--live" : "";
 					const title = `${wo.stage}: ${wo.name} — ${wo.status} (${wo.completed_qty || 0}/${wo.target_qty || 0})`;
-					return `<span class="ib-ps-wo-chip indicator-pill ib-ps-pill-sm ${_ib_status_color(wo.status)}${cancelled_cls}" data-woid="${frappe.utils.escape_html(wo.name)}" title="${frappe.utils.escape_html(title)}">${stageLabel}</span>`;
+					return `<span class="ib-ps-wo-chip indicator-pill ib-ps-pill-sm ${_ib_status_color(wo.status)}${cancelled_cls}${live_cls}" data-woid="${frappe.utils.escape_html(wo.name)}" title="${frappe.utils.escape_html(title)}">${_stage_chip_icon(wo.stage)}${stageLabel}</span>`;
 				}).join("");
 				const so_link = g.sales_order
 					? `<a href="/app/sales-order/${encodeURIComponent(g.sales_order)}" target="_blank" class="ib-iw-so-link">${frappe.utils.escape_html(g.sales_order)}</a>`
@@ -3381,15 +3408,18 @@ class IBProductionStages {
 				const title = `${wo.stage || ""}: ${wo.name || ""} — ${wo.status || ""} `
 					+ `(${wo.completed_qty || 0}/${wo.target_qty || 0}) — Created: ${created}`;
 				const cancelled_cls = wo.status === "Cancelled" ? " ib-ps-wo-chip--cancelled" : "";
+				// Pulses while genuinely running — direct ask: "animate the
+				// stage in progress badge (blue) to indicate progression."
+				const live_cls = wo.status === "In Progress" ? " ib-ps-wo-chip--live" : "";
 				// A visible gap where the run changes — without it, two runs'
 				// worth of chips read as one confusing 10-chip blob with no
 				// indication where the first run's route ends and the
 				// second's begins.
 				const newRun = i > 0 && wos[i - 1].name !== wo.name;
-				return `<span class="ib-ps-wo-chip indicator-pill ib-ps-pill-sm ${_ib_status_color(wo.status)}${cancelled_cls}"
+				return `<span class="ib-ps-wo-chip indicator-pill ib-ps-pill-sm ${_ib_status_color(wo.status)}${cancelled_cls}${live_cls}"
 					style="${newRun ? "margin-left:8px" : ""}"
 					data-woid="${frappe.utils.escape_html(wo.name)}"
-					title="${frappe.utils.escape_html(title)}">${stageLabel}</span>`;
+					title="${frappe.utils.escape_html(title)}">${_stage_chip_icon(wo.stage)}${stageLabel}</span>`;
 			}).join("");
 
 			// JIT stage model (2026-08-13): an item with nothing active/pending
@@ -4605,6 +4635,18 @@ class IBProductionStages {
 }
 .ib-ps-wo-chip:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
 .ib-ps-wo-chip--cancelled { text-decoration: line-through; }
+/* Genuinely running right now — a soft pulse so "In Progress" reads as
+   actively moving, not a static blue label sitting next to a green "done"
+   one. Same keyframe shape as the Dashboard's own .ib-pd-stg--live so a
+   chip means the same thing (and pulses the same way) on both pages. */
+.ib-ps-wo-chip--live { animation: ib-ps-wo-chip-pulse 1.6s ease-in-out infinite; }
+@keyframes ib-ps-wo-chip-pulse {
+	0%, 100% { box-shadow: 0 0 0 0 rgba(29, 78, 216, 0.35); }
+	50%      { box-shadow: 0 0 0 4px rgba(29, 78, 216, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+	.ib-ps-wo-chip--live { animation: none; }
+}
 .ib-ps-wo-chip-progress { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
 .ib-ps-wo-chip-progress-wrap {
 	height: 5px; width: 60px; background: var(--border-color);
