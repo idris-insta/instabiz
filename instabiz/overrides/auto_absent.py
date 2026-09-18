@@ -63,7 +63,7 @@ def run_auto_absent():
 				continue
 
 			# Skip if it was a holiday for this employee
-			if _is_holiday(yesterday, emp.holiday_list):
+			if _is_holiday(yesterday, _resolve_holiday_list(emp)):
 				continue
 
 			# Skip if attendance already exists
@@ -131,6 +131,16 @@ def run_auto_absent():
 		f"[auto_absent] {yesterday}: marked {marked} absent, skipped {skipped_factory} factory, "
 		f"skipped {skipped_checkin} with a real check-in, {errors} errors"
 	)
+
+
+def _resolve_holiday_list(emp):
+	# Same fallback HRMS itself uses: an employee with no holiday_list of their
+	# own follows Company.default_holiday_list. Returning nothing here marked
+	# such employees Absent on company holidays.
+	if emp.holiday_list:
+		return emp.holiday_list
+	from erpnext.setup.doctype.employee.employee import get_holiday_list_for_employee
+	return get_holiday_list_for_employee(emp.name, raise_exception=False)
 
 
 def _is_holiday(date, holiday_list):

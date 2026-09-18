@@ -2979,7 +2979,9 @@ def get_so_list_badges(sales_orders):
 
 		if dn:
 			lr = dn.custom_lr_number or dn.lr_no or ""
-			if dn.status == "Completed":
+			# CustomDeliveryNote.STATUS_MAP persists "Completed"/"Closed" as
+			# "Confirmed" — the raw ERPNext value never reaches the DB.
+			if dn.status in ("Confirmed", "Completed"):
 				badge, color = "Delivered", "#059669"
 			elif lr:
 				badge, color = "In Transit", "#0891b2"

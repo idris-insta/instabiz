@@ -656,7 +656,7 @@ def _my_work_sales(user, today, since, date_fmt, group_fmt, month_start, pw):
 	open_quotes = frappe.db.sql("""
 		SELECT name, customer_name as customer, grand_total, status, valid_till, transaction_date
 		FROM `tabQuotation`
-		WHERE docstatus=1 AND status IN ('Open', 'Replied')
+		WHERE docstatus=1 AND status IN ('Pending', 'Open', 'Replied')
 		AND custom_sales_person_user = %s
 		ORDER BY valid_till ASC LIMIT 15
 	""", (user,), as_dict=True)
@@ -666,7 +666,7 @@ def _my_work_sales(user, today, since, date_fmt, group_fmt, month_start, pw):
 		SELECT name, customer_name as customer, grand_total, status,
 			   transaction_date, custom_advance_paid as advance_paid
 		FROM `tabSales Order`
-		WHERE docstatus=1 AND status NOT IN ('Completed', 'Cancelled')
+		WHERE docstatus=1 AND status NOT IN ('Completed', 'Cancelled', 'Confirmed')
 		AND custom_sales_person_user = %s
 		ORDER BY transaction_date ASC LIMIT 15
 	""", (user,), as_dict=True)

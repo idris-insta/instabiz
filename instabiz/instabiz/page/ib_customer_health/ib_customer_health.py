@@ -107,7 +107,7 @@ def get_customer_health(search=None, territory=None, limit=50, offset=0):
 			SELECT party_name as customer, COUNT(*) as open_quotes, COALESCE(SUM(grand_total),0) as quote_value
 			FROM `tabQuotation`
 			WHERE docstatus=1 AND quotation_to='Customer'
-			AND status NOT IN ('Ordered','Lost','Cancelled','Expired')
+			AND status NOT IN ('Ordered','Lost','Cancelled','Expired','Confirmed')
 			GROUP BY party_name
 		) oq ON oq.customer = c.name
 		WHERE {where}

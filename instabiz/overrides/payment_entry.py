@@ -107,6 +107,13 @@ def _auto_reconcile(doc):
 		return
 	if doc.references:
 		return
+	# An on-account advance recorded against a Draft SO ("Record Advance
+	# (Deposit)") is counted as that SO's advance by _compute_so_advance_total()
+	# from paid_amount — FIFO-linking it to old open invoices here as well would
+	# count the same cash twice (reduces an old invoice's outstanding AND shows
+	# as the new order's advance).
+	if doc.get("custom_advance_for_so"):
+		return
 
 	remaining = flt(doc.paid_amount)
 	# FOR UPDATE: without this, two Payment Entries submitted close together

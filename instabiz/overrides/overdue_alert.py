@@ -65,7 +65,7 @@ def _notify_7(inv, age, outstanding, rep, name):
 	if not rep:
 		return
 	marker = _MARKER_7.format(name=name)
-	if frappe.db.exists("Notification Log", {"for_user": rep, "subject": ["like", f"%{marker}%"]}):
+	if frappe.db.exists("Notification Log", {"for_user": rep, "document_name": name, "subject": ["like", f"%{marker}%"]}):
 		return
 	base = f"Overdue {age}d: {name} {inv.customer} {inv.currency} {outstanding:,.0f} due {inv.due_date}"
 	_send(rep, "Sales Invoice", name, f"{base[:140 - len(marker) - 1]} {marker}")
@@ -79,7 +79,7 @@ def _notify_15(inv, age, outstanding, managers, name):
 	base = f"OVERDUE {age}d: {name} {inv.customer} {inv.currency} {outstanding:,.0f} due {inv.due_date}"
 	subject = f"{base[:140 - len(marker) - 1]} {marker}"
 	for user in users:
-		if frappe.db.exists("Notification Log", {"for_user": user, "subject": ["like", f"%{marker}%"]}):
+		if frappe.db.exists("Notification Log", {"for_user": user, "document_name": name, "subject": ["like", f"%{marker}%"]}):
 			continue
 		_send(user, "Sales Invoice", name, subject)
 
@@ -89,10 +89,10 @@ def _notify_30(inv, age, outstanding, managers, name):
 	users  = managers
 	if inv.custom_sales_person_user:
 		users = list({inv.custom_sales_person_user} | set(managers))
-	base = f"CRITICAL OVERDUE {age}d: {name} {inv.customer} {inv.currency} {outstanding:,.0f} ORDERS BLOCKED"
+	base = f"CRITICAL OVERDUE {age}d: {name} {inv.customer} {inv.currency} {outstanding:,.0f} ACCOUNT FLAGGED"
 	subject = f"{base[:140 - len(marker) - 1]} {marker}"
 	for user in users:
-		if frappe.db.exists("Notification Log", {"for_user": user, "subject": ["like", f"%{marker}%"]}):
+		if frappe.db.exists("Notification Log", {"for_user": user, "document_name": name, "subject": ["like", f"%{marker}%"]}):
 			continue
 		_send(user, "Sales Invoice", name, subject)
 

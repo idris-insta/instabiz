@@ -61,13 +61,13 @@ def get_dashboard_data():
 	# ── Open Quotations ──────────────────────────────────────────────────────
 	quotes = flt(frappe.db.sql("""
 		SELECT COUNT(*) FROM `tabQuotation`
-		WHERE docstatus=1 AND status NOT IN ('Ordered','Lost','Cancelled','Expired')
+		WHERE docstatus=1 AND status NOT IN ('Ordered','Lost','Cancelled','Expired','Confirmed')
 	""")[0][0])
 
 	# ── Open Sales Orders ────────────────────────────────────────────────────
 	open_so = flt(frappe.db.sql("""
 		SELECT COUNT(*) FROM `tabSales Order`
-		WHERE docstatus=1 AND status NOT IN ('Completed','Cancelled','Closed')
+		WHERE docstatus=1 AND status NOT IN ('Completed','Cancelled','Closed','Confirmed')
 	""")[0][0])
 
 	# ── Pending Delivery Notes ───────────────────────────────────────────────

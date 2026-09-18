@@ -31,7 +31,9 @@ def _stale_quotations():
 	quotes = frappe.get_all(
 		"Quotation",
 		filters={
-			"status":   ["in", ["Open", "Replied"]],
+			# CustomQuotation.STATUS_MAP persists Open/Replied as "Pending"
+			# (same fix as quotation_expiry.py); raw values kept for legacy rows.
+			"status":   ["in", ["Pending", "Open", "Replied"]],
 			"docstatus": 1,
 			"modified": ["<", cutoff],
 		},

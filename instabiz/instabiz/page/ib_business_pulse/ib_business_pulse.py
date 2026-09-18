@@ -82,7 +82,7 @@ def get_pulse_data():
 
 	open_quotes = flt(frappe.db.sql("""
 		SELECT COUNT(*) FROM `tabQuotation`
-		WHERE docstatus=1 AND status NOT IN ('Ordered','Lost','Cancelled','Expired')
+		WHERE docstatus=1 AND status NOT IN ('Ordered','Lost','Cancelled','Expired','Confirmed')
 	""")[0][0])
 
 	# ── Inventory ────────────────────────────────────────────────────────────
