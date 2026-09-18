@@ -1220,6 +1220,25 @@ const KB_SECTIONS = [
 				],
 				note: "Same dev/prod billing-mode switch as the rest of the app: right now (billing not fully live) it lists open Sales Orders; once <code>ib_billing_mode</code> flips to prod it automatically switches to unpaid Sales Invoices instead — no separate setting to change. Emailing requires a working outgoing Email Account to be configured first (none is set up yet on this site) — downloading/printing the PDF works regardless.",
 			},
+			{
+				num: "162", title: "Collections Priority — Who to Chase Today",
+				desc: "A ranked list of customers with money outstanding, most urgent first: amount weighted by how old the oldest unpaid order/invoice is and by the customer’s health score. Each row has a Send reminder link that opens WhatsApp with a polite, pre-filled message.",
+				link: "/app/query-report/IB Collections Priority", linkLabel: "Collections Priority",
+				tags: "collections priority chase overdue outstanding reminder whatsapp dunning follow up payment",
+				steps: [
+					"Open <b>Collections Priority</b> from the Instabiz or Instabiz Finance workspace.",
+					"Work down from Rank 1. Oldest (days) and Health are colour-coded.",
+					"Click <b>Send reminder</b> to open WhatsApp with the message ready, check it, and send.",
+				],
+				note: "Sales Users see only customers they handle; Accounts and managers see everyone. Uses the same billing-mode basis as AR Aging (open Sales Orders now, unpaid Sales Invoices once <code>ib_billing_mode</code> is prod). The reminder link needs a mobile number on the Customer.",
+			},
+			{
+				num: "164", title: "Credit Block Override on Sales Orders",
+				desc: "When credit checks are switched on, a Sales Order for a customer over their credit limit (with an invoice past its allowed days) or 30+ days overdue cannot be submitted. A Sales Manager or System Manager can submit it anyway by filling <b>Credit Override Reason</b>; the reason and who approved it are recorded on the order’s timeline.",
+				link: "/app/sales-order", linkLabel: "Sales Orders",
+				tags: "credit limit override block overdue sales order manager approve submit",
+				note: "The checks are off unless <code>ib_so_credit_checks</code> is set to 1 in site config.",
+			},
 		],
 	},
 	{
@@ -1668,6 +1687,18 @@ const KB_SECTIONS = [
 		title: "Stock and Inventory",
 		roles: _STOCK,
 		items: [
+			{
+				num: "163", title: "Replenishment Suggestions — What to Reorder",
+				desc: "Lists stock items that will run short: daily demand from Sales Orders (recent month weighted more), projected stock across warehouses, days of cover, reorder point and a suggested order quantity. Nothing is ordered automatically.",
+				link: "/app/query-report/IB Replenishment Suggestions", linkLabel: "Replenishment",
+				tags: "replenishment reorder forecast demand stockout material request purchase suggest",
+				steps: [
+					"Open <b>Replenishment</b> from the Instabiz Stock or Instabiz Procurement workspace.",
+					"Red Days of Cover means stock runs out before a new order can arrive.",
+					"Tick the rows to order and click <b>Create Material Request</b>; review the draft, set the warehouse, and save.",
+				],
+				note: "Reorder point = daily demand × lead time + safety stock (both from the Item; lead time defaults to 14 days if not set). Suggested qty covers lead time plus a 7-day review cycle.",
+			},
 			{
 				num: "9", title: "Stock — Balance + Ledger (merged 2026-08-05)",
 				desc: "Workspace, Live Stock Balance. One page, two tabs, replacing the previously separate Stock Dashboard and Stock Ledger pages/shortcuts.<br><b>Balance tab</b>: real-time stock across 3 warehouses with multi-token search, color dots, warehouse breakdown popover, CSV export, and WebSocket live updates. Clicking a row's breakdown popover has a \"View Stock Ledger →\" link that jumps straight to the Ledger tab pre-filtered to that item.<br><b>Ledger tab</b>: full Stock Ledger Entry browser — date range presets, item/warehouse/customer/voucher-type filters, running In/Out/Balance per movement, CSV export.",
