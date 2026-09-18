@@ -619,6 +619,16 @@ def advance_run(work_order, output_qty=None, outputs_qty=None,
 			"input_qty": input_qty,
 			"output_qty": out_qty,
 			"notes": notes or "",
+			# wastage_qty/wastage_pct deliberately not set here — the doctype
+			# controller's validate() -> _roll_up_stage_events() computes them
+			# on every save from input_qty/output_qty (and _roll_up_totals()
+			# rolls stage_log into total_wastage_qty on the parent), so
+			# setting them here too would just be duplicate logic that has
+			# to stay in sync with the controller by hand. Verified: 0
+			# wastage_qty across every real stage event in this dev dataset
+			# is correct, not a bug — every real advance so far has been a
+			# full pass-through (no operator has entered a lower actual
+			# output yet), not evidence the computation is missing.
 		})
 		_mark_route_done(doc, stage)
 
@@ -887,10 +897,27 @@ def resume_run(work_order):
 @frappe.whitelist()
 def cancel_run(work_order, reason=None):
 	"""Cancel a run: undo its genealogy (serials + FG batch), then transition
-	the workflow to Cancelled. (Phase 3 will also reverse the Repack here.)"""
+	the workflow to Cancelled. (Phase 3 will also reverse the Repack here.)
+
+	Real bug, fixed here: cancelling a run that had already Completed (its
+	genealogy just got reversed above) never re-checked the Order Sheet
+	Item(s) it had finished — _settle_order_sheet only ever SET an item to
+	Completed, nothing ever un-set one. An order whose only completing run
+	got cancelled kept showing Completed / kept passing
+	get_order_dn_readiness, letting Create Delivery Note stay open for
+	production that had just been undone. Recompute every affected item
+	(and the Order Sheet's own rollup) after the cancel, same as a finish
+	does — see _recompute_osi_status's own comment for the real rule.
+	"""
 	_require_production_role()
-	if not frappe.db.exists("IB Work Order", work_order):
+	run_row = frappe.db.get_value(
+		"IB Work Order", work_order, ["order_sheet"], as_dict=True
+	)
+	if not run_row:
 		frappe.throw(_("Run {0} not found").format(work_order))
+	sales_order_items = frappe.get_all(
+		"IB WO Output", filters={"parent": work_order}, pluck="sales_order_item"
+	)
 
 	_reverse_run_genealogy(work_order)  # also nulls fg_batch links on the run + outputs
 
@@ -906,6 +933,13 @@ def cancel_run(work_order, reason=None):
 		# "Completed" has no "Cancel" transition in the workflow — force it.
 		frappe.db.set_value("IB Work Order", work_order,
 		                    {"status": "Cancelled", "current_stage": "Cancelled"})
+
+	if run_row.order_sheet:
+		for soi in sales_order_items:
+			if soi:
+				_recompute_osi_status(run_row.order_sheet, soi)
+		_roll_up_order_sheet_status(run_row.order_sheet)
+
 	frappe.db.commit()
 	_notify_floor_update()
 	return {"ok": True, "status": "Cancelled"}
@@ -1060,33 +1094,73 @@ def _finish_run(doc, outputs_qty=None):
 	}
 
 
+def _recompute_osi_status(order_sheet, soi):
+	"""Full, idempotent recompute of one Order Sheet Item's status from its
+	REAL current run history — not an incremental "mark Completed and never
+	look again" flag. Real bug this replaces: the old _settle_order_sheet
+	only ever SET an item to Completed, never reconsidered it — cancel_run()
+	reverses a Completed run's genealogy (deletes its FG serials/batch) but
+	had no path to also un-complete the Order Sheet Item it had finished,
+	so an order whose only completing run got cancelled still showed
+	"Completed" / still passed get_order_dn_readiness — Create Delivery
+	Note stayed open for production that had just been undone.
+
+	Real rule: Completed only if at least one non-cancelled run for this
+	item actually reached Completed AND nothing for it is still open
+	(Pending/In Progress/On Hold). Any non-cancelled run existing at all
+	(even if none finished yet) means real work has been attempted -> In
+	Progress. Zero non-cancelled runs ever (fresh item, or every run for it
+	got cancelled) -> Pending, matching a never-started item.
+	"""
+	row = frappe.db.get_value(
+		"IB Order Sheet Item", {"parent": order_sheet, "sales_order_item": soi}, "name"
+	)
+	if not row:
+		return
+	runs = frappe.db.sql(
+		"""SELECT w.status FROM `tabIB WO Output` o
+		   JOIN `tabIB Work Order` w ON w.name = o.parent
+		   WHERE o.sales_order_item = %s AND w.status != 'Cancelled'""",
+		(soi,), as_dict=True,
+	)
+	if not runs:
+		new_status = "Pending"
+	elif any(r.status in ("Pending", "In Progress", "On Hold") for r in runs):
+		new_status = "In Progress"
+	elif any(r.status == "Completed" for r in runs):
+		new_status = "Completed"
+	else:
+		new_status = "Pending"
+	frappe.db.set_value("IB Order Sheet Item", row, "status", new_status)
+
+
+def _roll_up_order_sheet_status(order_sheet):
+	"""Order Sheet status from its items' CURRENT states — symmetric both
+	ways (Completed can also revert back to In Progress), shared by both
+	call sites that need it after changing an item's status (a run
+	finishing via _settle_order_sheet, a run being cancelled via
+	cancel_run) so the two can't drift into different rollup rules."""
+	states = frappe.get_all(
+		"IB Order Sheet Item", filters={"parent": order_sheet}, pluck="status"
+	)
+	current = frappe.db.get_value("IB Order Sheet", order_sheet, "status")
+	if states and all(s == "Completed" for s in states):
+		if current != "Completed":
+			frappe.db.set_value("IB Order Sheet", order_sheet, "status", "Completed")
+	elif current == "Completed":
+		frappe.db.set_value("IB Order Sheet", order_sheet, "status", "In Progress")
+
+
 def _settle_order_sheet(doc):
-	"""Mark an Order Sheet Item Completed once every run producing it is done;
-	mark the whole Order Sheet Completed once all its items are."""
+	"""Recompute every item this run produces, then roll the Order Sheet's
+	own status up from them — symmetric both ways (Completed can also
+	revert, see _recompute_osi_status's own comment for why that matters)."""
 	if not doc.order_sheet:
 		return
 	osi_done = {o.sales_order_item for o in doc.outputs if o.sales_order_item}
 	for soi in osi_done:
-		row = frappe.db.get_value(
-			"IB Order Sheet Item", {"parent": doc.order_sheet, "sales_order_item": soi}, "name"
-		)
-		if not row:
-			continue
-		open_runs = frappe.db.sql(
-			"""SELECT 1 FROM `tabIB WO Output` o
-			   JOIN `tabIB Work Order` w ON w.name = o.parent
-			   WHERE o.sales_order_item = %s AND w.status IN ('Pending','In Progress','On Hold')
-			   LIMIT 1""",
-			(soi,),
-		)
-		if not open_runs:
-			frappe.db.set_value("IB Order Sheet Item", row, "status", "Completed")
-
-	states = frappe.get_all(
-		"IB Order Sheet Item", filters={"parent": doc.order_sheet}, pluck="status"
-	)
-	if states and all(s == "Completed" for s in states):
-		frappe.db.set_value("IB Order Sheet", doc.order_sheet, "status", "Completed")
+		_recompute_osi_status(doc.order_sheet, soi)
+	_roll_up_order_sheet_status(doc.order_sheet)
 
 
 # ---------------------------------------------------------------------------
