@@ -13,7 +13,7 @@ function _ib_home_route() {
     if (default_workspace && default_workspace.name) {
         return '/app/' + frappe.router.slug(default_workspace.name);
     }
-    return '/app/instabiz';
+    return '/app/selling';
 }
 
 frappe.router.on('change', () => {

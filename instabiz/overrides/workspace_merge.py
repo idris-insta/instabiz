@@ -1,195 +1,173 @@
 """instabiz.overrides.workspace_merge
 
-One workspace per module. The native ERPNext/HRMS workspaces (Selling, CRM,
-Accounting, Buying, Stock, Manufacturing, HR, Payroll...) stay hidden; their
-cards and links are copied into the matching Instabiz workspace so nothing
-they offered is lost, plus one Settings card per module.
+One tab per module. The Instabiz workspace and the matching ERPNext/HRMS
+workspace are merged into the ERPNext one (Buying, Selling, Manufacturing,
+Stock, HR):
 
-merge_into_files() rewrites the Instabiz workspace JSON files in the app (a
-build step, run by a developer: bench --site <site> execute
-instabiz.overrides.workspace_merge.merge_into_files). hide_native() runs after
-every migrate so an ERPNext/HRMS update can't bring a native workspace back.
+  - the Instabiz layout comes first, exactly as built (headings, shortcuts,
+    cards, number cards, charts);
+  - the ERPNext layout follows under an "ERPNext <module>" heading, minus any
+    shortcut, link or card the Instabiz part already has;
+  - the Instabiz workspace is hidden and takes its sidebar position with it,
+    and users whose default workspace was the Instabiz one move to the merged tab.
+
+Runs after every migrate (ERPNext/HRMS updates re-sync their own workspace JSON,
+so the merge is rebuilt from the app's JSON + the Instabiz workspace each time).
 """
 import json
 import os
 
 import frappe
-from frappe.utils import now
 
-# target Instabiz workspace -> native workspaces (app, module folder, workspace folder)
-MERGE_MAP = {
-	"Instabiz": [("erpnext", "selling", "selling"), ("erpnext", "crm", "crm")],
-	"Instabiz Finance": [
-		("erpnext", "accounts", "accounting"), ("erpnext", "accounts", "receivables"),
-		("erpnext", "accounts", "payables"), ("erpnext", "accounts", "financial_reports"),
-	],
-	"Instabiz Procurement": [("erpnext", "buying", "buying")],
-	"Instabiz Stock": [("erpnext", "stock", "stock"), ("erpnext", "assets", "assets")],
-	"Instabiz Production": [("erpnext", "manufacturing", "manufacturing"), ("erpnext", "quality_management", "quality")],
-	"Instabiz HR": [
-		("hrms", "hr", "hr"), ("hrms", "hr", "employee_lifecycle"), ("hrms", "hr", "leaves"),
-		("hrms", "hr", "shift_&_attendance"), ("hrms", "hr", "recruitment"), ("hrms", "hr", "performance"),
-		("hrms", "hr", "expense_claims"), ("hrms", "payroll", "payroll"), ("hrms", "payroll", "salary_payout"),
-		("hrms", "payroll", "tax_&_benefits"),
-	],
-	"Instabiz Misc": [("erpnext", "setup", "erpnext_settings")],
+# merged tab (native workspace) -> (Instabiz workspace, app, module folder, workspace folder)
+MERGE = {
+	"Selling": ("Instabiz", "erpnext", "selling", "selling"),
+	"Buying": ("Instabiz Procurement", "erpnext", "buying", "buying"),
+	"Manufacturing": ("Instabiz Production", "erpnext", "manufacturing", "manufacturing"),
+	"Stock": ("Instabiz Stock", "erpnext", "stock", "stock"),
+	"HR": ("Instabiz HR", "hrms", "hr", "hr"),
 }
 
-# one Settings card per module: (label, link_to, link_type)
-SETTINGS_CARD = {
-	"Instabiz": [("Sales Settings", "IB Sales Settings", "DocType"), ("Messaging Settings", "IB Messaging Settings", "DocType"),
-		("Message Templates", "IB Message Template", "DocType"), ("Terms and Conditions", "Terms and Conditions", "DocType"),
-		("Selling Settings", "Selling Settings", "DocType"), ("CRM Settings", "CRM Settings", "DocType")],
-	"Instabiz Finance": [("Accounts Settings (Instabiz)", "IB Accounts Settings", "DocType"),
-		("Print Settings (Instabiz)", "IB Print Settings", "DocType"), ("Financial Year", "ib-financial-year", "Page"),
-		("Accounts Settings", "Accounts Settings", "DocType"), ("Fiscal Year", "Fiscal Year", "DocType"),
-		("Accounting Period", "Accounting Period", "DocType"), ("GST Settings", "GST Settings", "DocType")],
-	"Instabiz Procurement": [("Stock & Buying Settings", "IB Stock Settings", "DocType"),
-		("Buying Settings", "Buying Settings", "DocType"), ("Terms and Conditions", "Terms and Conditions", "DocType")],
-	"Instabiz Stock": [("Stock & Buying Settings", "IB Stock Settings", "DocType"), ("Stock Settings", "Stock Settings", "DocType")],
-	"Instabiz Production": [("Manufacturing Settings", "Manufacturing Settings", "DocType")],
-	"Instabiz HR": [("HR Settings (Instabiz)", "IB HR Settings", "DocType"), ("HR Settings", "HR Settings", "DocType"),
-		("Payroll Settings", "Payroll Settings", "DocType")],
-	"Instabiz Misc": [("Print Settings (Instabiz)", "IB Print Settings", "DocType"),
-		("Messaging Settings", "IB Messaging Settings", "DocType"), ("Print Settings", "Print Settings", "DocType"),
-		("System Settings", "System Settings", "DocType")],
+CHILD_TABLES = {
+	# table fieldname -> (block type, block data key, row label field)
+	"shortcuts": ("shortcut", "shortcut_name", "label"),
+	"charts": ("chart", "chart_name", "label"),
+	"number_cards": ("number_card", "number_card_name", "label"),
+	"quick_lists": ("quick_list", "quick_list_name", "label"),
+	"custom_blocks": ("custom_block", "custom_block_name", "label"),
 }
-
-# Tally-style books on the Finance workspace (added before the native cards,
-# so the same reports are not repeated further down)
-BOOKS = [("Day Book", "IB Day Book"), ("General Ledger", "General Ledger"), ("Trial Balance", "Trial Balance"),
-	("Profit and Loss", "Profit and Loss Statement"), ("Balance Sheet", "Balance Sheet"), ("Cash Flow", "Cash Flow"),
-	("Accounts Receivable", "Accounts Receivable"), ("Accounts Payable", "Accounts Payable"),
-	("GSTR-1", "GSTR-1"), ("GST Balance", "GST Balance")]
-
-NATIVE = sorted({"Selling", "CRM", "Instabiz CRM", "HR", "Payroll", "Stock", "Buying", "Manufacturing", "Accounting",
-		"Payables", "Receivables", "Financial Reports", "Assets", "Quality", "ERPNext Settings",
-		"Leaves", "Recruitment", "Employee Lifecycle", "Performance", "Shift & Attendance", "Expense Claims",
-		"Salary Payout", "Tax & Benefits"})
+SKIP_FIELDS = {"name", "parent", "parentfield", "parenttype", "idx", "doctype", "owner", "creation",
+	"modified", "modified_by", "docstatus"}
 
 
-def _scrub(name):
-	return frappe.scrub(name)
+def _native_json(app, module, folder):
+	path = os.path.join(frappe.get_app_path(app, module, "workspace", folder), f"{folder}.json")
+	if not os.path.exists(path):
+		return None
+	with open(path) as f:
+		return json.load(f)
 
 
-def _target_path(name):
-	folder = _scrub(name)
-	return frappe.get_app_path("instabiz", "instabiz", "workspace", folder, f"{folder}.json")
-
-
-def _native_path(app, module, folder):
-	return os.path.join(frappe.get_app_path(app, module, "workspace", folder), f"{folder}.json")
+def _row(d):
+	return {k: v for k, v in d.items() if k not in SKIP_FIELDS}
 
 
 def _cards(links):
-	"""[(label, [link rows])] from a flat Card Break / Link list."""
 	cards, current = [], None
 	for row in links:
 		if row.get("type") == "Card Break":
-			current = (row.get("label"), [])
+			current = [row, []]
 			cards.append(current)
 		elif current is not None:
 			current[1].append(row)
 	return cards
 
 
-def _key(row):
-	return (row.get("link_type") or "DocType", row.get("link_to"))
+def _merged(ib, native):
+	"""(content blocks, child table rows) for the merged workspace."""
+	ib = ib.as_dict()
+	content = json.loads(ib.get("content") or "[]")
+	tables = {t: [_row(r) for r in ib.get(t) or []] for t in CHILD_TABLES}
+	links = [_row(r) for r in ib.get("links") or []]
 
+	seen_links = {(r.get("link_type") or "DocType", r.get("link_to")) for r in links if r.get("type") == "Link"}
+	seen_links |= {(r.get("type") or "DocType", r.get("link_to")) for r in tables["shortcuts"]}
+	labels = {t: {r.get(CHILD_TABLES[t][2]) for r in tables[t]} for t in CHILD_TABLES}
+	card_labels = {r.get("label") for r in links if r.get("type") == "Card Break"}
 
-def _link_row(label, link_to, link_type, source=None):
-	row = {"type": "Link", "label": label, "link_to": link_to, "link_type": link_type,
-		"hidden": 0, "is_query_report": 0, "onboard": 0, "link_count": 0, "dependencies": "", "only_for": ""}
-	if source:
-		for field in ("is_query_report", "onboard", "dependencies", "only_for", "report_ref_doctype"):
-			if source.get(field) is not None:
-				row[field] = source.get(field)
-	return row
-
-
-def merge_into_files():
-	written = []
-	for target, sources in MERGE_MAP.items():
-		path = _target_path(target)
-		if not os.path.exists(path):
-			continue
-		with open(path) as f:
-			ws = json.load(f)
-		seen = {_key(r) for r in ws.get("links", []) if r.get("type") == "Link"}
-		seen |= {(s.get("type") or "DocType", s.get("link_to")) for s in ws.get("shortcuts", [])}
-		cards = _cards(ws.get("links", []))
-		by_label = {label: rows for label, rows in cards}
-		new_labels = []  # (label, section heading)
-		section = {"name": "Settings"}
-
-		def add(label, rows):
-			keep = []
-			for r in rows:
-				if r.get("only_for") and r.get("only_for") != "India":
-					continue
-				if _key(r) in seen or not r.get("link_to"):
-					continue
-				seen.add(_key(r))
-				keep.append(r)
-			if not keep:
-				return
-			if label not in by_label:
-				by_label[label] = []
-				cards.append((label, by_label[label]))
-				new_labels.append((label, section["name"]))
-			by_label[label].extend(keep)
-
-		settings = [_link_row(label, link_to, link_type) for label, link_to, link_type in SETTINGS_CARD.get(target, [])
-			if link_type != "DocType" or frappe.db.exists("DocType", link_to)]
-		add("Settings", settings)
-		section["name"] = "Books"
-		if target == "Instabiz Finance":
-			books = []
-			for label, report in BOOKS:
-				if frappe.db.exists("Report", report):
-					row = _link_row(label, report, "Report")
-					row["is_query_report"] = 1
-					books.append(row)
-			add("Books", books)
-		for app, module, folder in sources:
-			npath = _native_path(app, module, folder)
-			if not os.path.exists(npath):
+	# ERPNext child rows that survive de-duplication, keyed by their block reference
+	keep = {t: {} for t in CHILD_TABLES}
+	for t, (_, _, label_field) in CHILD_TABLES.items():
+		for r in native.get(t) or []:
+			label = r.get(label_field)
+			if label in labels[t]:
 				continue
-			with open(npath) as f:
-				native = json.load(f)
-			section["name"] = native.get("title") or native.get("label") or folder.title()
-			for label, rows in _cards(native.get("links", [])):
-				add(label, [_link_row(r.get("label"), r.get("link_to"), r.get("link_type") or "DocType", r) for r in rows])
+			if t == "shortcuts" and (r.get("type") or "DocType", r.get("link_to")) in seen_links:
+				continue
+			keep[t][label] = _row(r)
+	card_rows = {}
+	for brk, rows in _cards(native.get("links") or []):
+		rows = [r for r in rows if not (r.get("only_for") and r.get("only_for") != "India")
+			and (r.get("link_type") or "DocType", r.get("link_to")) not in seen_links]
+		if not rows:
+			continue
+		label = brk.get("label")
+		if label in card_labels:
+			label = f"{label} (ERPNext)"
+		card_rows[brk.get("label")] = (dict(_row(brk), label=label, link_count=len(rows)), [_row(r) for r in rows])
 
-		links = []
-		for label, rows in cards:
-			links.append({"type": "Card Break", "label": label, "hidden": 0, "is_query_report": 0, "onboard": 0,
-				"link_count": len(rows), "dependencies": "", "only_for": "", "link_type": "DocType"})
-			links.extend(rows)
-		ws["links"] = links
+	native_blocks = []
+	for b in json.loads(native.get("content") or "[]"):
+		data = b.get("data") or {}
+		if b["type"] == "card":
+			hit = card_rows.get(data.get("card_name"))
+			if not hit:
+				continue
+			native_blocks.append(dict(b, data=dict(data, card_name=hit[0]["label"])))
+			continue
+		for t, (btype, key, _) in CHILD_TABLES.items():
+			if b["type"] == btype:
+				if data.get(key) not in keep[t]:
+					b = None
+				break
+		if b and b["type"] == "spacer" and native_blocks and native_blocks[-1]["type"] == "spacer":
+			continue
+		if b:
+			native_blocks.append(b)
 
-		content = json.loads(ws.get("content") or "[]")
-		present = {b["data"].get("card_name") for b in content if b.get("type") == "card"}
-		add_blocks = [(label, heading) for label, heading in new_labels if label not in present]
-		last_heading = None
-		for label, heading in add_blocks:
-			if heading != last_heading:
-				content.append({"id": frappe.generate_hash(length=10), "type": "header",
-					"data": {"text": f'<span class="h4"><b>{heading}</b></span>', "col": 12}})
-				last_heading = heading
-			content.append({"id": frappe.generate_hash(length=10), "type": "card",
-				"data": {"card_name": label, "col": 4}})
-		ws["content"] = json.dumps(content)
-		ws["modified"] = now()
-		with open(path, "w") as f:
-			f.write(frappe.as_json(ws) + "\n")
-		written.append(f"{target}: +{len(add_blocks)} cards, {sum(1 for r in links if r['type'] == 'Link')} links")
-	print("\n".join(written))
-	return written
+	# drop headings left with nothing under them
+	cleaned = []
+	for i, b in enumerate(native_blocks):
+		if b["type"] == "header":
+			nxt = next((x for x in native_blocks[i + 1:] if x["type"] not in ("spacer",)), None)
+			if nxt is None or nxt["type"] == "header":
+				continue
+		cleaned.append(b)
+	while cleaned and cleaned[-1]["type"] in ("spacer", "header"):
+		cleaned.pop()
+
+	if cleaned:
+		content.append({"id": "ibm-sp", "type": "spacer", "data": {"col": 12}})
+		content.append({"id": "ibm-hd", "type": "header",
+			"data": {"text": f'<span class="h4"><b>ERPNext {native.get("title") or native.get("name")}</b></span>', "col": 12}})
+		content.extend(cleaned)
+
+	for t in CHILD_TABLES:
+		tables[t].extend(keep[t].values())
+	for brk, rows in card_rows.values():
+		links.append(brk)
+		links.extend(rows)
+	tables["links"] = links
+	return content, tables
 
 
-def hide_native():
-	"""after_migrate: keep the native module workspaces hidden (merged above)."""
-	for name in NATIVE:
-		if frappe.db.exists("Workspace", name):
-			frappe.db.set_value("Workspace", name, "is_hidden", 1, update_modified=False)
+def merge_modules():
+	"""after_migrate: build the merged module tabs and hide the Instabiz duplicates."""
+	dev_mode = frappe.conf.developer_mode
+	frappe.conf.developer_mode = 0  # never write the merged result into erpnext/hrms files
+	try:
+		for target, (ib_name, app, module, folder) in MERGE.items():
+			if not (frappe.db.exists("Workspace", target) and frappe.db.exists("Workspace", ib_name)):
+				continue
+			native = _native_json(app, module, folder)
+			if not native:
+				continue
+			ib = frappe.get_doc("Workspace", ib_name)
+			content, tables = _merged(ib, native)
+
+			ws = frappe.get_doc("Workspace", target)
+			ws.content = json.dumps(content)
+			for t, rows in tables.items():
+				ws.set(t, [])
+				for r in rows:
+					ws.append(t, r)
+			ws.is_hidden = 0
+			ws.sequence_id = ib.sequence_id
+			ws.flags.ignore_links = True
+			ws.save(ignore_permissions=True)
+
+			frappe.db.set_value("Workspace", ib_name, "is_hidden", 1, update_modified=False)
+			frappe.db.sql("UPDATE `tabUser` SET default_workspace = %s WHERE default_workspace = %s", (target, ib_name))
+	finally:
+		frappe.conf.developer_mode = dev_mode
+	frappe.clear_cache()
