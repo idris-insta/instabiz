@@ -1,0 +1,728 @@
+{
+ "doctype": "DocType",
+ "name": "IB DPR Entry",
+ "module": "Instabiz",
+ "custom": 0,
+ "autoname": "DPR-.YYYY.-.#####",
+ "naming_rule": "Expression (old style)",
+ "title_field": "item_code",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "track_changes": 1,
+ "description": "Daily Production Report line — one machine run on one day, in the same columns and maths as the DPR sheet.",
+ "engine": "InnoDB",
+ "fields": [
+  {
+   "fieldname": "run_section",
+   "fieldtype": "Section Break",
+   "label": "Run",
+   "collapsible": 0
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Date",
+   "reqd": 1,
+   "default": "Today",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "shift",
+   "fieldtype": "Select",
+   "label": "Shift",
+   "options": "Day\nNight",
+   "default": "Day"
+  },
+  {
+   "fieldname": "location",
+   "fieldtype": "Select",
+   "label": "Location",
+   "options": "gujarat\nmaharashtra\nchennai",
+   "default": "gujarat",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "col_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "stage",
+   "fieldtype": "Select",
+   "label": "Stage",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "options": "Coating WB\nCoating HM\nCoating PVC\nSlitting\nRewinding\nCutting\nSilicon\nPacking"
+  },
+  {
+   "fieldname": "coating_substrate",
+   "fieldtype": "Select",
+   "label": "Coating Line / Film",
+   "depends_on": "eval:(doc.stage||'').indexOf('Coating')===0",
+   "mandatory_depends_on": "eval:(doc.stage||'').indexOf('Coating')===0",
+   "options": "\nBOPP\nPVC\nAluminium Foil\nFoam\nKraft Paper\nHDPE\nDS Polyester",
+   "description": "Sets the film density used in the consumption maths (BOPP/PVC/DS Poly 0.91, Foil 2.71, Foam 0.135, Kraft 1.0, HDPE 1.2)."
+  },
+  {
+   "fieldname": "machine",
+   "fieldtype": "Link",
+   "label": "Machine",
+   "options": "IB Machine",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "operator",
+   "fieldtype": "Link",
+   "label": "Operator",
+   "options": "Employee"
+  },
+  {
+   "fieldname": "col_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "work_order",
+   "fieldtype": "Link",
+   "label": "Work Order",
+   "options": "IB Work Order"
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Sales Order",
+   "options": "Sales Order"
+  },
+  {
+   "fieldname": "os_no",
+   "fieldtype": "Data",
+   "label": "OS No"
+  },
+  {
+   "fieldname": "jumbo_no",
+   "fieldtype": "Data",
+   "label": "Jumbo No"
+  },
+  {
+   "fieldname": "item_section",
+   "fieldtype": "Section Break",
+   "label": "Item",
+   "collapsible": 0
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Item Name",
+   "fetch_from": "item_code.item_name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "brand",
+   "fieldtype": "Data",
+   "label": "Brand"
+  },
+  {
+   "fieldname": "col_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "microns",
+   "fieldtype": "Float",
+   "label": "Microns"
+  },
+  {
+   "fieldname": "color",
+   "fieldtype": "Data",
+   "label": "Color"
+  },
+  {
+   "fieldname": "col_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "width_mm",
+   "fieldtype": "Float",
+   "label": "Width (MM)"
+  },
+  {
+   "fieldname": "length_mtr",
+   "fieldtype": "Float",
+   "label": "Length (MTR)"
+  },
+  {
+   "fieldname": "time_taken",
+   "fieldtype": "Float",
+   "label": "Time Taken (min)"
+  },
+  {
+   "fieldname": "coating_section",
+   "fieldtype": "Section Break",
+   "label": "Coating",
+   "depends_on": "eval:(doc.stage||'').indexOf('Coating')===0",
+   "collapsible": 0
+  },
+  {
+   "fieldname": "film_mic",
+   "fieldtype": "Float",
+   "label": "Film Mic"
+  },
+  {
+   "fieldname": "adh_mic",
+   "fieldtype": "Float",
+   "label": "Adhesive Mic"
+  },
+  {
+   "fieldname": "liner_mic",
+   "fieldtype": "Float",
+   "label": "Liner Mic",
+   "depends_on": "eval:doc.stage==='Coating HM'"
+  },
+  {
+   "fieldname": "adhesive_sides",
+   "fieldtype": "Float",
+   "label": "Adhesive Sides",
+   "depends_on": "eval:doc.stage==='Coating HM'",
+   "default": "1",
+   "description": "2 for double-sided foam / DS polyester."
+  },
+  {
+   "fieldname": "col_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "no_of_rolls",
+   "fieldtype": "Float",
+   "label": "No of Rolls"
+  },
+  {
+   "fieldname": "color_used",
+   "fieldtype": "Float",
+   "label": "Color Used (kg)"
+  },
+  {
+   "fieldname": "film_waste",
+   "fieldtype": "Float",
+   "label": "Film Waste (kg)"
+  },
+  {
+   "fieldname": "adh_waste",
+   "fieldtype": "Float",
+   "label": "Adhesive Waste (kg)"
+  },
+  {
+   "fieldname": "col_6",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "film_per_sqm",
+   "fieldtype": "Float",
+   "label": "Film / SQM (kg)",
+   "read_only": 1,
+   "precision": "6"
+  },
+  {
+   "fieldname": "adh_per_sqm",
+   "fieldtype": "Float",
+   "label": "Adhesive / SQM (kg)",
+   "read_only": 1,
+   "precision": "6"
+  },
+  {
+   "fieldname": "liner_per_sqm",
+   "fieldtype": "Float",
+   "label": "Liner / SQM (kg)",
+   "read_only": 1,
+   "precision": "6",
+   "depends_on": "eval:doc.stage==='Coating HM'"
+  },
+  {
+   "fieldname": "roll_weight",
+   "fieldtype": "Float",
+   "label": "Roll Weight (kg)",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "time_per_roll",
+   "fieldtype": "Float",
+   "label": "Time / Roll (min)",
+   "read_only": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "coating_usage_section",
+   "fieldtype": "Section Break",
+   "label": "Coating Consumption",
+   "depends_on": "eval:(doc.stage||'').indexOf('Coating')===0",
+   "collapsible": 0
+  },
+  {
+   "fieldname": "film_used",
+   "fieldtype": "Float",
+   "label": "Film Used / Roll (kg)",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "adh_used",
+   "fieldtype": "Float",
+   "label": "Adhesive Used / Roll (kg)",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "liner_used",
+   "fieldtype": "Float",
+   "label": "Liner Used / Roll (kg)",
+   "read_only": 1,
+   "precision": "3",
+   "depends_on": "eval:doc.stage==='Coating HM'"
+  },
+  {
+   "fieldname": "adh_solid",
+   "fieldtype": "Float",
+   "label": "Adhesive Solid / Roll (kg)",
+   "read_only": 1,
+   "precision": "3",
+   "depends_on": "eval:doc.stage!=='Coating HM'"
+  },
+  {
+   "fieldname": "col_7",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "film_total",
+   "fieldtype": "Float",
+   "label": "Film Consumed (kg)",
+   "read_only": 1,
+   "precision": "3",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "adh_total",
+   "fieldtype": "Float",
+   "label": "Adhesive Consumed (kg)",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "liner_total",
+   "fieldtype": "Float",
+   "label": "Liner Consumed (kg)",
+   "read_only": 1,
+   "precision": "3",
+   "depends_on": "eval:doc.stage==='Coating HM'"
+  },
+  {
+   "fieldname": "slit_section",
+   "fieldtype": "Section Break",
+   "label": "Slitting",
+   "depends_on": "eval:doc.stage==='Slitting'",
+   "collapsible": 0
+  },
+  {
+   "fieldname": "shafts",
+   "fieldtype": "Float",
+   "label": "Shafts"
+  },
+  {
+   "fieldname": "jumbo_width_mm",
+   "fieldtype": "Float",
+   "label": "Jumbo Width (MM)"
+  },
+  {
+   "fieldname": "col_8",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sqm_per_ctn",
+   "fieldtype": "Float",
+   "label": "SQM / CTN",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "shafts_used_per_ctn",
+   "fieldtype": "Float",
+   "label": "Shafts Used / CTN",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "shafts_req_per_ctn",
+   "fieldtype": "Float",
+   "label": "Shafts Required / CTN",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "col_9",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pcs_per_shaft",
+   "fieldtype": "Float",
+   "label": "PCS / Shaft",
+   "read_only": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "time_per_shaft",
+   "fieldtype": "Float",
+   "label": "Time / Shaft (min)",
+   "read_only": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "rew_section",
+   "fieldtype": "Section Break",
+   "label": "Rewinding",
+   "depends_on": "eval:doc.stage==='Rewinding'",
+   "collapsible": 0
+  },
+  {
+   "fieldname": "jumbo_mtr",
+   "fieldtype": "Float",
+   "label": "MTR of Jumbo"
+  },
+  {
+   "fieldname": "wastage_mtr",
+   "fieldtype": "Float",
+   "label": "Wastage (MTR)"
+  },
+  {
+   "fieldname": "col_10",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_mtrs",
+   "fieldtype": "Float",
+   "label": "Total MTRs",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "sqm_per_roll",
+   "fieldtype": "Float",
+   "label": "SQM / Roll",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "balance_mtrs",
+   "fieldtype": "Float",
+   "label": "Balance MTRs",
+   "read_only": 1,
+   "precision": "3"
+  },
+  {
+   "fieldname": "cut_section",
+   "fieldtype": "Section Break",
+   "label": "Cutting",
+   "depends_on": "eval:doc.stage==='Cutting'",
+   "collapsible": 0
+  },
+  {
+   "fieldname": "log_width_mm",
+   "fieldtype": "Float",
+   "label": "MM of Jumbo (log width)"
+  },
+  {
+   "fieldname": "col_11",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pcs_per_log",
+   "fieldtype": "Float",
+   "label": "PCS / Log",
+   "read_only": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "sil_section",
+   "fieldtype": "Section Break",
+   "label": "Silicon Filling",
+   "depends_on": "eval:doc.stage==='Silicon'",
+   "collapsible": 0
+  },
+  {
+   "fieldname": "drum_no",
+   "fieldtype": "Data",
+   "label": "Drum No"
+  },
+  {
+   "fieldname": "weight_per_pc",
+   "fieldtype": "Float",
+   "label": "Weight / PC (g)"
+  },
+  {
+   "fieldname": "weight_per_drum",
+   "fieldtype": "Float",
+   "label": "Weight / Drum (kg)"
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Link",
+   "label": "Party",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "col_12",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pcs_per_drum",
+   "fieldtype": "Float",
+   "label": "PCS / Drum",
+   "read_only": 1,
+   "precision": "1"
+  },
+  {
+   "fieldname": "ctns_per_drum",
+   "fieldtype": "Float",
+   "label": "CTNs / Drum",
+   "read_only": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "qty_section",
+   "fieldtype": "Section Break",
+   "label": "Quantity",
+   "depends_on": "eval:!!doc.stage",
+   "collapsible": 0
+  },
+  {
+   "fieldname": "no_of_logs",
+   "fieldtype": "Float",
+   "label": "No of Logs",
+   "depends_on": "eval:['Rewinding','Cutting'].includes(doc.stage)"
+  },
+  {
+   "fieldname": "qty_per_ctn",
+   "fieldtype": "Float",
+   "label": "QTY / CTN",
+   "depends_on": "eval:['Slitting','Cutting'].includes(doc.stage)"
+  },
+  {
+   "fieldname": "pcs_per_ctn",
+   "fieldtype": "Float",
+   "label": "PCS / CTN",
+   "depends_on": "eval:['Packing','Silicon'].includes(doc.stage)",
+   "default": "24"
+  },
+  {
+   "fieldname": "total_ctns",
+   "fieldtype": "Float",
+   "label": "Total CTNs",
+   "depends_on": "eval:['Slitting','Cutting','Packing','Silicon'].includes(doc.stage)",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_13",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_pcs",
+   "fieldtype": "Float",
+   "label": "Total PCS",
+   "read_only": 1,
+   "precision": "1",
+   "depends_on": "eval:['Slitting','Cutting','Packing','Silicon'].includes(doc.stage)"
+  },
+  {
+   "fieldname": "pcs_used",
+   "fieldtype": "Float",
+   "label": "PCS Used",
+   "read_only": 1,
+   "precision": "1",
+   "depends_on": "eval:['Slitting','Cutting'].includes(doc.stage)"
+  },
+  {
+   "fieldname": "balance_pcs",
+   "fieldtype": "Float",
+   "label": "Balance PCS",
+   "read_only": 1,
+   "precision": "1",
+   "depends_on": "eval:['Slitting','Cutting'].includes(doc.stage)"
+  },
+  {
+   "fieldname": "total_sqm",
+   "fieldtype": "Float",
+   "label": "Total SQM",
+   "read_only": 1,
+   "precision": "3",
+   "depends_on": "eval:['Slitting','Rewinding'].includes(doc.stage) || (doc.stage||'').indexOf('Coating')===0"
+  },
+  {
+   "fieldname": "time_per_log",
+   "fieldtype": "Float",
+   "label": "Time / Log (min)",
+   "read_only": 1,
+   "precision": "2",
+   "depends_on": "eval:['Rewinding','Cutting'].includes(doc.stage)"
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes",
+   "depends_on": null,
+   "collapsible": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Factory Management",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Factory Production",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 0
+  }
+ ],
+ "creation": "2026-09-19 14:00:00",
+ "modified": "2026-09-19 14:00:00",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "istable": 0,
+ "issingle": 0,
+ "is_submittable": 0,
+ "quick_entry": 0,
+ "states": [],
+ "links": [],
+ "actions": [],
+ "field_order": [
+  "run_section",
+  "posting_date",
+  "shift",
+  "location",
+  "col_1",
+  "stage",
+  "coating_substrate",
+  "machine",
+  "operator",
+  "col_2",
+  "work_order",
+  "sales_order",
+  "os_no",
+  "jumbo_no",
+  "item_section",
+  "item_code",
+  "item_name",
+  "brand",
+  "col_3",
+  "microns",
+  "color",
+  "col_4",
+  "width_mm",
+  "length_mtr",
+  "time_taken",
+  "coating_section",
+  "film_mic",
+  "adh_mic",
+  "liner_mic",
+  "adhesive_sides",
+  "col_5",
+  "no_of_rolls",
+  "color_used",
+  "film_waste",
+  "adh_waste",
+  "col_6",
+  "film_per_sqm",
+  "adh_per_sqm",
+  "liner_per_sqm",
+  "roll_weight",
+  "time_per_roll",
+  "coating_usage_section",
+  "film_used",
+  "adh_used",
+  "liner_used",
+  "adh_solid",
+  "col_7",
+  "film_total",
+  "adh_total",
+  "liner_total",
+  "slit_section",
+  "shafts",
+  "jumbo_width_mm",
+  "col_8",
+  "sqm_per_ctn",
+  "shafts_used_per_ctn",
+  "shafts_req_per_ctn",
+  "col_9",
+  "pcs_per_shaft",
+  "time_per_shaft",
+  "rew_section",
+  "jumbo_mtr",
+  "wastage_mtr",
+  "col_10",
+  "total_mtrs",
+  "sqm_per_roll",
+  "balance_mtrs",
+  "cut_section",
+  "log_width_mm",
+  "col_11",
+  "pcs_per_log",
+  "sil_section",
+  "drum_no",
+  "weight_per_pc",
+  "weight_per_drum",
+  "party",
+  "col_12",
+  "pcs_per_drum",
+  "ctns_per_drum",
+  "qty_section",
+  "no_of_logs",
+  "qty_per_ctn",
+  "pcs_per_ctn",
+  "total_ctns",
+  "col_13",
+  "total_pcs",
+  "pcs_used",
+  "balance_pcs",
+  "total_sqm",
+  "time_per_log",
+  "notes_section",
+  "remarks"
+ ]
+}

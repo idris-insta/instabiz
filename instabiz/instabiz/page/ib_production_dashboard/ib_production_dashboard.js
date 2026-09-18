@@ -788,7 +788,7 @@ class IBProductionDashboard {
 			df: {
 				label: "",
 				fieldtype: "Select",
-				options: ["", "Coating", "Slitting", "Rewinding", "Cutting", "Packing"],
+				options: ["", "Coating", "Slitting", "Rewinding", "Cutting", "Silicon", "Packing"],
 				placeholder: __("All Stages"),
 				onchange: () => {
 					this.plan_stage = stageCtrl.get_value() || "";
@@ -983,7 +983,7 @@ class IBProductionDashboard {
 		// stored label (IB Work Order.stage stores the exact-cased label).
 		const STAGE_KEY_TO_LABEL = {
 			coating: "Coating", slitting: "Slitting", rewinding: "Rewinding",
-			cutting: "Cutting", packing: "Packing",
+			cutting: "Cutting", silicon: "Silicon", packing: "Packing",
 		};
 		const $pipeline = this.$container.find("#ib-pd-pipeline").html(html);
 		$pipeline.find(".ib-pd-pipeline-card").on("click", (e) => {
@@ -2290,6 +2290,7 @@ const IB_STAGES = [
 	{ key: "slitting",  label: "Slitting",  icon: "scissors",   color: "#2563eb" },
 	{ key: "rewinding", label: "Rewinding", icon: "refresh-cw", color: "#0891b2" },
 	{ key: "cutting",   label: "Cutting",   icon: "crop",       color: "#059669" },
+	{ key: "silicon",   label: "Silicon",   icon: "droplet",    color: "#db2777" },
 	{ key: "packing",   label: "Packing",   icon: "package",    color: "#d97706" },
 ];
 const STAGE_ICON_BY_LABEL = Object.fromEntries(IB_STAGES.map((s) => [s.label, s.icon]));
@@ -2306,7 +2307,7 @@ function _stage_chip_icon(stageLabel) {
 // Mirrors production.py's _STAGE_MACHINE_TYPE exactly.
 const STAGE_MACHINE_TYPE = {
 	"Coating": "Coating", "Slitting": "Slitting", "Rewinding": "Rewinding",
-	"Cutting": "Cutting", "Packing": "Packing",
+	"Cutting": "Cutting", "Silicon": "Silicon", "Packing": "Packing",
 };
 
 // Frappe's own indicator-pill color words (frappe/public/scss/common/indicator.scss)
@@ -3601,7 +3602,7 @@ class IBProductionStages {
 
 		const TYPE_COLOR = {
 			Coating: "#7c3aed", Slitting: "#2563eb", Rewinding: "#0891b2",
-			Cutting: "#059669", Packing: "#d97706",
+			Cutting: "#059669", Silicon: "#db2777", Packing: "#d97706",
 		};
 
 		const top_toolbar = `
@@ -3833,7 +3834,7 @@ class IBProductionStages {
 					// Packing — batch-assign to any Ready-to-Deliver/Delivered WO
 					// then correctly rejected it server-side, since 0 machines
 					// system-wide had machine_type="Despatch" until fixed 2026-08-05.
-					options: ["Coating", "Slitting", "Rewinding", "Cutting", "Packing", "Quality Control", "Despatch"],
+					options: ["Coating", "Slitting", "Rewinding", "Cutting", "Silicon", "Packing", "Quality Control", "Despatch"],
 					default: machine?.machine_type || "Coating",
 				},
 				{

@@ -155,6 +155,7 @@ app_version = "0.0.1"
 after_migrate = [
     "instabiz.overrides.indexes.after_migrate",
     "instabiz.overrides.overtime.after_migrate",
+    "instabiz.overrides.incentive_scale.after_migrate",  # incentive scales + User.custom_incentive_scale
     "instabiz.overrides.workspace_merge.merge_modules",  # one tab per module (Instabiz + ERPNext)
 ]
 

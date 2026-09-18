@@ -18,7 +18,7 @@ frappe.query_reports["IB Production Report"] = {
 			fieldname: "stage",
 			label: __("Stage"),
 			fieldtype: "Select",
-			options: "\nCoating\nSlitting\nRewinding\nCutting\nPacking",
+			options: "\nCoating\nSlitting\nRewinding\nCutting\nSilicon\nPacking",
 		},
 		{
 			fieldname: "machine",

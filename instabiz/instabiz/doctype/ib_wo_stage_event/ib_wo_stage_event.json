@@ -3,7 +3,7 @@
  "engine": "InnoDB", "istable": 1, "module": "Instabiz", "name": "IB WO Stage Event",
  "field_order": ["stage","machine","operator","skipped","col1","started_at","completed_at","sec_qty","input_qty","output_qty","wastage_qty","wastage_pct","notes"],
  "fields": [
-  {"fieldname":"stage","fieldtype":"Select","label":"Stage","options":"Coating\nSlitting\nRewinding\nCutting\nPacking","in_list_view":1,"reqd":1,"columns":2},
+  {"fieldname":"stage","fieldtype":"Select","label":"Stage","options":"Coating\nSlitting\nRewinding\nCutting\nSilicon\nPacking","in_list_view":1,"reqd":1,"columns":2},
   {"fieldname":"machine","fieldtype":"Link","options":"IB Machine","label":"Machine","in_list_view":1,"columns":2},
   {"fieldname":"operator","fieldtype":"Link","options":"User","label":"Operator","in_list_view":1,"columns":2},
   {"fieldname":"skipped","fieldtype":"Check","label":"Skipped","in_list_view":1,"columns":1},

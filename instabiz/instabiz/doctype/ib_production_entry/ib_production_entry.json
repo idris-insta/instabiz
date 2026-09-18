@@ -82,7 +82,7 @@
    "fetch_from": "work_order.stage",
    "in_list_view": 1,
    "label": "Stage",
-   "options": "Coating\nSlitting\nRewinding\nCutting\nPacking\nReady to Deliver\nDelivered",
+   "options": "Coating\nSlitting\nRewinding\nCutting\nSilicon\nPacking\nReady to Deliver\nDelivered",
    "read_only": 1
   },
   {

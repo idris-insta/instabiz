@@ -12,12 +12,13 @@ const _IB_PT_STAGE_ICONS = {
 	"Slitting":         "lucide:scissors",
 	"Rewinding":        "lucide:rotate-cw",
 	"Cutting":          "lucide:scissors",
+	"Silicon":          "lucide:droplet",
 	"Packing":          "lucide:package",
 	"Ready to Deliver": "lucide:truck",
 	"Delivered":        "lucide:check-circle",
 };
 
-const _IB_PT_STAGES = ["Coating", "Slitting", "Rewinding", "Cutting", "Packing", "Ready to Deliver"];
+const _IB_PT_STAGES = ["Coating", "Slitting", "Rewinding", "Cutting", "Silicon", "Packing", "Ready to Deliver"];
 
 const _IB_PT_RISK = {
 	"overdue":  { label: "Overdue",  color: "#dc2626", bg: "#fef2f2" },

@@ -58,7 +58,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Machine Type",
-   "options": "Coating\nSlitting\nRewinding\nCutting\nPacking\nQuality Control\nDespatch",
+   "options": "Coating\nSlitting\nRewinding\nCutting\nSilicon\nPacking\nQuality Control\nDespatch",
    "reqd": 1
   },
   {

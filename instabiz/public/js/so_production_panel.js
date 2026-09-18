@@ -53,6 +53,7 @@ const _IB_STAGE_ICONS = {
 	"Slitting":         "lucide:scissors",
 	"Rewinding":        "lucide:rotate-cw",
 	"Cutting":          "lucide:cut",
+	"Silicon":          "lucide:droplet",
 	"Packing":          "lucide:package",
 	"Ready to Deliver": "lucide:truck",
 	"Delivered":        "lucide:check-circle",

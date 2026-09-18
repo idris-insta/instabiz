@@ -13,6 +13,7 @@ STAGE_CHECK_FIELDS = {
 	"Slitting": "allow_slitting",
 	"Rewinding": "allow_rewinding",
 	"Cutting": "allow_cutting",
+	"Silicon": "allow_packing",
 	"Packing": "allow_packing",
 }
 

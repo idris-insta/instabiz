@@ -7,6 +7,7 @@ _STAGE_MACHINE_TYPE = {
 	"Coating": "Coating",
 	"Slitting": "Slitting",
 	"Rewinding": "Rewinding",
+	"Silicon": "Silicon",
 	"Cutting": "Cutting",
 	"Packing": "Packing",
 }

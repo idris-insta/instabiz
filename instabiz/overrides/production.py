@@ -45,6 +45,7 @@ STAGES = [
 	"Slitting",
 	"Rewinding",
 	"Cutting",
+	"Silicon",
 	"Packing",
 ]
 
@@ -53,6 +54,7 @@ _STAGE_MACHINE_TYPE = {
 	"Slitting":  "Slitting",
 	"Rewinding": "Rewinding",
 	"Cutting":   "Cutting",
+	"Silicon":   "Silicon",
 	"Packing":   "Packing",
 }
 
@@ -72,8 +74,8 @@ _ITEM_GROUP_STAGE_ROUTES = {
 	"AEROSOL-LUBRICANT": ["Packing"],
 	"AEROSOL-MULTI":     ["Packing"],
 	"AEROSOL-PU FOAM":   ["Packing"],
-	"SEALANT-ACRYLIC":   ["Packing"],
-	"SEALANT-SILICONE":  ["Packing"],
+	"SEALANT-ACRYLIC":   ["Silicon", "Packing"],
+	"SEALANT-SILICONE":  ["Silicon", "Packing"],
 	"ADHESIVE-HOTMELT":  ["Packing"],
 }
 _DEFAULT_STAGE_ROUTE = ["Cutting", "Packing"]
@@ -192,7 +194,7 @@ def _auto_assign_machine(stage, location=None):
 
 _ASSUMED_TRIM_MM = 20.0            # slitter edge trim per jumbo (assumed; TODO shop-floor number)
 _CHANGEOVER_PENALTY_MIN = 30.0    # used when IB Machine.changeover_min is unset
-_SIG_STAGES = ("Coating", "Slitting", "Rewinding", "Cutting", "Packing")
+_SIG_STAGES = ("Coating", "Slitting", "Rewinding", "Cutting", "Silicon", "Packing")
 
 _MACHINE_CAP_COLS = [
 	"name", "location", "capacity", "floor",

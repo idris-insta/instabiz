@@ -325,7 +325,7 @@ def _production_data(today, since, date_fmt, group_fmt, pw):
 			FROM `tabIB Work Order`
 			WHERE status != 'Cancelled' AND stage IS NOT NULL AND stage != ''
 		""", as_dict=True)
-		_stage_order = ["Coating", "Slitting", "Rewinding", "Cutting", "Packing"]  # RTD/Delivered collapsed out 2026-08-13
+		_stage_order = ["Coating", "Slitting", "Rewinding", "Cutting", "Silicon", "Packing"]  # RTD/Delivered collapsed out 2026-08-13
 		_stage_rank = {s: i for i, s in enumerate(_stage_order)}
 		_item_groups = {}
 		for row in stage_wo_rows:
@@ -852,7 +852,7 @@ def _my_work_production(user, today, since, date_fmt, group_fmt, month_start, pw
 		FROM `tabIB Work Order`
 		WHERE status != 'Cancelled'
 	""", as_dict=True)
-	_stage_order = ["Coating", "Slitting", "Rewinding", "Cutting", "Packing"]  # RTD/Delivered collapsed out 2026-08-13
+	_stage_order = ["Coating", "Slitting", "Rewinding", "Cutting", "Silicon", "Packing"]  # RTD/Delivered collapsed out 2026-08-13
 	_stage_rank = {s: i for i, s in enumerate(_stage_order)}
 	_item_groups = {}
 	for row in _stage_wo_rows:

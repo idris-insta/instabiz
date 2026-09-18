@@ -1,0 +1,55 @@
+{
+ "doctype": "DocType",
+ "creation": "2026-09-19 15:00:00",
+ "modified": "2026-09-19 15:00:00",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "module": "Instabiz",
+ "engine": "InnoDB",
+ "links": [],
+ "actions": [],
+ "states": [],
+ "name": "IB Incentive Scale Slab",
+ "istable": 1,
+ "editable_grid": 1,
+ "permissions": [],
+ "fields": [
+  {
+   "fieldname": "slab_label",
+   "fieldtype": "Data",
+   "label": "Slab",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "from_amount",
+   "fieldtype": "Currency",
+   "label": "From (net sale)",
+   "in_list_view": 1,
+   "reqd": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "to_amount",
+   "fieldtype": "Currency",
+   "label": "To (0 = no cap)",
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "rate_pct",
+   "fieldtype": "Float",
+   "label": "Incentive %",
+   "in_list_view": 1,
+   "precision": "3",
+   "columns": 2,
+   "description": "Paid only on the part of the month's net sale that falls inside this band."
+  }
+ ],
+ "field_order": [
+  "slab_label",
+  "from_amount",
+  "to_amount",
+  "rate_pct"
+ ]
+}

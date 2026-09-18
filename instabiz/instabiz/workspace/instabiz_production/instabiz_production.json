@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\": \"prod-h0\", \"type\": \"paragraph\", \"data\": {\"text\": \"<span class=\\\"h5\\\"><b>PRODUCTION</b></span>\", \"col\": 12}}, {\"id\": \"prod-pd\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Production Dashboard\", \"col\": 3}}, {\"id\": \"prod-dpr\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"DPR Report\", \"col\": 3}}, {\"id\": \"prod-analytics-hub\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Analytics Hub\", \"col\": 3}}, {\"id\": \"fu-shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Follow-Ups\", \"col\": 3}}, {\"id\": \"prod-h1\", \"type\": \"paragraph\", \"data\": {\"text\": \"<span class=\\\"h5\\\"><b>WORK MANAGEMENT</b></span>\", \"col\": 12}}, {\"id\": \"prod-mach\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Machines\", \"col\": 3}}, {\"id\": \"prod-floor\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Floors\", \"col\": 3}}, {\"id\": \"prod-wo\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Work Orders\", \"col\": 3}}, {\"id\": \"prod-h2\", \"type\": \"paragraph\", \"data\": {\"text\": \"<span class=\\\"h5\\\"><b>INVENTORY</b></span>\", \"col\": 12}}, {\"id\": \"prod-sb\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Live Stock Balance\", \"col\": 3}}, {\"data\": {\"shortcut_name\": \"Jumbo Rolls\", \"col\": 3}, \"id\": \"prod-jumbo\", \"type\": \"shortcut\"}, {\"id\": \"prod-h3\", \"type\": \"paragraph\", \"data\": {\"text\": \"<span class=\\\"h5\\\"><b>REPORTS</b></span>\", \"col\": 12}}, {\"id\": \"prod-rpt\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Production Report\", \"col\": 3}}, {\"id\": \"prod-h4\", \"type\": \"paragraph\", \"data\": {\"text\": \"<span class=\\\"h5\\\"><b>HELP &amp; KNOWLEDGE BASE</b></span>\", \"col\": 12}}, {\"id\": \"prod-kb\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Knowledge Base\", \"col\": 3}}, {\"id\": \"0554f14a10\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Traceability\", \"col\": 3}}, {\"id\": \"30b61a0473\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"FG Serials\", \"col\": 3}}]",
+ "content": "[{\"id\":\"prod-h0\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>PRODUCTION</b></span>\",\"col\":12}},{\"id\":\"prod-pd\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Production Dashboard\",\"col\":3}},{\"id\":\"prod-dpr\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"DPR Report\",\"col\":3}},{\"id\":\"prod-analytics-hub\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Analytics Hub\",\"col\":3}},{\"id\":\"fu-shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Follow-Ups\",\"col\":3}},{\"id\":\"prod-h1\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>WORK MANAGEMENT</b></span>\",\"col\":12}},{\"id\":\"prod-mach\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Machines\",\"col\":3}},{\"id\":\"prod-floor\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Floors\",\"col\":3}},{\"id\":\"prod-wo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Work Orders\",\"col\":3}},{\"id\":\"ibc8yow1gj\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"DPR Entry\",\"col\":3}},{\"id\":\"prod-h2\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>INVENTORY</b></span>\",\"col\":12}},{\"id\":\"prod-sb\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Live Stock Balance\",\"col\":3}},{\"data\":{\"shortcut_name\":\"Jumbo Rolls\",\"col\":3},\"id\":\"prod-jumbo\",\"type\":\"shortcut\"},{\"id\":\"prod-h3\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>REPORTS</b></span>\",\"col\":12}},{\"id\":\"prod-rpt\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Production Report\",\"col\":3}},{\"id\":\"ibb3u9bxax\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"DPR Sheet\",\"col\":3}},{\"id\":\"ibrk46dhfg\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Stock Working\",\"col\":3}},{\"id\":\"prod-h4\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>HELP &amp; KNOWLEDGE BASE</b></span>\",\"col\":12}},{\"id\":\"prod-kb\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Knowledge Base\",\"col\":3}},{\"id\":\"0554f14a10\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Traceability\",\"col\":3}},{\"id\":\"30b61a0473\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"FG Serials\",\"col\":3}}]",
  "creation": "2026-08-10 20:28:49.376271",
  "custom_blocks": [],
  "docstatus": 0,
@@ -11,7 +11,7 @@
  "is_hidden": 0,
  "label": "Instabiz Production",
  "links": [],
- "modified": "2026-09-10 13:52:41.037215",
+ "modified": "2026-09-19 17:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "Instabiz Production",
@@ -31,7 +31,7 @@
    "role": "System Manager"
   }
  ],
- "sequence_id": 7.0,
+ "sequence_id": 7,
  "shortcuts": [
   {
    "color": "Orange",
@@ -126,6 +126,29 @@
    "label": "FG Serials",
    "link_to": "IB FG Serial",
    "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "DPR Entry",
+   "link_to": "IB DPR Entry",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "DPR Sheet",
+   "link_to": "IB DPR Sheet",
+   "type": "Report",
+   "report_ref_doctype": "IB DPR Entry"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Stock Working",
+   "link_to": "IB Stock Working",
+   "type": "Report",
+   "report_ref_doctype": "Item"
   }
  ],
  "title": "Instabiz Production"
