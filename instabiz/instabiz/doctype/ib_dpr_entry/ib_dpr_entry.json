@@ -105,6 +105,23 @@
    "label": "Jumbo No"
   },
   {
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "label": "Source",
+   "options": "Manual\nProduction",
+   "default": "Manual",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "stage_event",
+   "fieldtype": "Data",
+   "label": "Stage Event",
+   "read_only": 1,
+   "hidden": 1,
+   "search_index": 1
+  },
+  {
    "fieldname": "item_section",
    "fieldtype": "Section Break",
    "label": "Item",
@@ -570,6 +587,39 @@
    "depends_on": "eval:['Rewinding','Cutting'].includes(doc.stage)"
   },
   {
+   "fieldname": "prod_section",
+   "fieldtype": "Section Break",
+   "label": "From Production",
+   "depends_on": "eval:doc.source==='Production'",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "input_qty",
+   "fieldtype": "Float",
+   "label": "Input Qty",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_14",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "output_qty",
+   "fieldtype": "Float",
+   "label": "Output Qty",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_15",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "wastage_qty",
+   "fieldtype": "Float",
+   "label": "Wastage Qty",
+   "read_only": 1
+  },
+  {
    "fieldname": "notes_section",
    "fieldtype": "Section Break",
    "label": "Notes",
@@ -621,7 +671,7 @@
   }
  ],
  "creation": "2026-09-19 14:00:00",
- "modified": "2026-09-19 14:00:00",
+ "modified": "2026-09-19 18:00:00",
  "modified_by": "Administrator",
  "owner": "Administrator",
  "istable": 0,
@@ -646,6 +696,8 @@
   "sales_order",
   "os_no",
   "jumbo_no",
+  "source",
+  "stage_event",
   "item_section",
   "item_code",
   "item_name",
@@ -722,6 +774,12 @@
   "balance_pcs",
   "total_sqm",
   "time_per_log",
+  "prod_section",
+  "input_qty",
+  "col_14",
+  "output_qty",
+  "col_15",
+  "wastage_qty",
   "notes_section",
   "remarks"
  ]

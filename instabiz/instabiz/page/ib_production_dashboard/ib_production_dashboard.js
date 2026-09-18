@@ -468,28 +468,64 @@ function ibBulkStartResults(result) {
 // class method) since both IBProductionDashboard's Active Production Plan
 // row buttons and IBProductionStages' WO side panel need it — same pattern
 // as _start_production_flow above.
-function _prompt_actual_output(wo, onConfirm) {
+// Also collects the stage's DPR numbers (shafts, logs, cartons, microns...)
+// pre-filled from the run — the Daily Production Report line is created
+// from this completion (overrides/dpr_auto.py), nobody fills the DPR twice.
+function _prompt_actual_output(wo, onConfirm, woName) {
+	const name = (wo && wo.name) || woName;
+	if (!name) return _show_output_dialog(wo, onConfirm, null);
+	frappe.call({
+		method: "instabiz.overrides.dpr_auto.get_prompt",
+		args: { work_order: name },
+		callback: (r) => _show_output_dialog(wo, onConfirm, { name, ...(r.message || {}) }),
+		error: () => _show_output_dialog(wo, onConfirm, null),
+	});
+}
+
+function _show_output_dialog(wo, onConfirm, dpr) {
 	const target = Number(wo.target_qty) || 0;
 	const uom = wo.target_uom || "";
+	const fields = [
+		{
+			fieldname: "actual_qty",
+			fieldtype: "Float",
+			label: `Actual Output${uom ? ` (${uom})` : ""}`,
+			default: target,
+			reqd: 1,
+			description: `Target: ${target}${uom ? " " + uom : ""}. Wastage is the difference.`,
+		},
+	];
+	const dprFields = (dpr && dpr.fields) || [];
+	if (dprFields.length) {
+		fields.push({ fieldtype: "Section Break", label: __("DPR — {0}", [dpr.dpr_stage]) });
+		dprFields.forEach((f, i) => {
+			if (i && i % 3 === 0) fields.push({ fieldtype: "Column Break" });
+			fields.push({ fieldname: `dpr_${f.fieldname}`, fieldtype: f.fieldtype === "Data" ? "Data" : "Float",
+				label: f.label, default: f.default });
+		});
+	}
 	const d = new frappe.ui.Dialog({
 		title: "Complete Stage",
-		fields: [
-			{
-				fieldname: "actual_qty",
-				fieldtype: "Float",
-				label: `Actual Output${uom ? ` (${uom})` : ""}`,
-				default: target,
-				reqd: 1,
-				description: `Target: ${target}${uom ? " " + uom : ""}. Wastage is the difference.`,
-			},
-		],
+		size: dprFields.length ? "large" : "small",
+		fields,
 		primary_action_label: "Complete",
 		primary_action: (vals) => {
 			d.hide();
-			onConfirm(vals.actual_qty);
+			if (!dprFields.length) return onConfirm(vals.actual_qty);
+			const data = {};
+			dprFields.forEach((f) => { data[f.fieldname] = vals[`dpr_${f.fieldname}`]; });
+			frappe.call({
+				method: "instabiz.overrides.dpr_auto.stash",
+				args: { work_order: dpr.name, stage: _dpr_raw_stage(dpr.dpr_stage), data },
+				always: () => onConfirm(vals.actual_qty),
+			});
 		},
 	});
 	d.show();
+}
+
+function _dpr_raw_stage(label) {
+	return (label || "").startsWith("Coating") ? "Coating" : label;
 }
 
 // Shared by both places a run gets advanced (Active Production Plan row +
@@ -1319,6 +1355,7 @@ class IBProductionDashboard {
 						},
 					);
 				},
+				wo,
 			);
 		});
 		$el.off("click", ".ib-pd-row-start-stage").on("click", ".ib-pd-row-start-stage", (e) => {

@@ -6,7 +6,7 @@ Monthly sales incentive the way "COMM ACC MUM 2026.xlsx" works it out:
 (marginal slabs; the last band has no cap). The person's scale comes from
 User.custom_incentive_scale.
 
-Sales follow the billing mode used everywhere else: Sales Orders by creation
+Sales follow the billing mode (as on the Sales Incentives page): Sales Orders by order
 date while billing runs on orders, Sales Invoices by posting date afterwards.
 """
 import frappe
@@ -51,7 +51,7 @@ def scale_slabs(scale):
 def net_sales(month_start, month_end, user=None, deduct_unpaid=False):
 	"""{user: {gross, gst, unpaid, net, docs}} for the period."""
 	if is_dev_billing_mode():
-		doctype, date_expr = "Sales Order", "DATE(creation)"
+		doctype, date_expr = "Sales Order", "transaction_date"
 		unpaid_expr = "GREATEST(rounded_total - IFNULL(custom_advance_paid, 0), 0)"
 	else:
 		doctype, date_expr = "Sales Invoice", "posting_date"
@@ -84,13 +84,40 @@ def month_bounds(month):
 	return get_first_day(d), get_last_day(d)
 
 
+def user_scale(user):
+	"""The person's scale: set on their User record, else from their role —
+	Sales Manager role → Sales Manager, a Lead Sales Team leader → Area Sales
+	Manager, any other sales user → Sales Executive."""
+	scale = frappe.db.get_value("User", user, "custom_incentive_scale") if frappe.db.has_column("User", "custom_incentive_scale") else None
+	if scale:
+		return scale
+	roles = set(frappe.get_roles(user))
+	if "Sales Manager" in roles:
+		scale = "Sales Manager"
+	elif frappe.db.exists("Lead Sales Team", {"team_leader": user}):
+		scale = "Area Sales Manager"
+	elif "Sales User" in roles:
+		scale = "Sales Executive"
+	return scale if scale and frappe.db.exists("IB Incentive Scale", {"name": scale, "is_active": 1}) else None
+
+
+def scale_incentive(user, start, end, deduct_unpaid=False):
+	"""(incentive, scale, net_sale) for one person over a period."""
+	scale = user_scale(user)
+	sale = net_sales(start, end, user, deduct_unpaid).get(user)
+	net = sale.net if sale else 0
+	if not scale:
+		return 0, None, net
+	return sum(b[5] for b in slab_breakup(net, scale_slabs(scale))), scale, net
+
+
 @frappe.whitelist()
 def incentive_for(user, month):
 	"""One person's incentive for one month (used by the report and the Sales Incentives page)."""
 	if user != frappe.session.user and not frappe.has_permission("IB Incentive Scale", "write"):
 		frappe.throw(frappe._("Not permitted"), frappe.PermissionError)
 	start, end = month_bounds(month)
-	scale = frappe.db.get_value("User", user, "custom_incentive_scale")
+	scale = user_scale(user)
 	sale = net_sales(start, end, user).get(user) or frappe._dict(gross=0, gst=0, unpaid=0, net=0, docs=0)
 	rows = slab_breakup(sale.net, scale_slabs(scale))
 	return {"scale": scale, "sale": sale, "slabs": rows, "incentive": sum(r[5] for r in rows)}
@@ -139,3 +166,20 @@ def _map_sheet_people():
 		match = by_first.get(first) or []
 		if len(match) == 1 and not match[0].custom_incentive_scale and frappe.db.exists("IB Incentive Scale", scale):
 			frappe.db.set_value("User", match[0].name, "custom_incentive_scale", scale, update_modified=False)
+
+
+def run_monthly_notice():
+	"""1st of the month: tell each sales person last month's net sale and incentive."""
+	from frappe.utils import add_months, today
+	start, end = month_bounds(add_months(today(), -1))
+	label = start.strftime("%b %Y")
+	for user in net_sales(start, end):
+		incentive, scale, net = scale_incentive(user, start, end)
+		if not scale:
+			continue
+		frappe.get_doc({
+			"doctype": "Notification Log", "for_user": user, "type": "Alert",
+			"subject": f"Incentive {label}: ₹{frappe.utils.fmt_money(incentive, 0)} on net sale ₹{frappe.utils.fmt_money(net, 0)} ({scale})",
+			"document_type": "Report", "document_name": "IB Incentive Statement",
+		}).insert(ignore_permissions=True)
+	frappe.db.commit()

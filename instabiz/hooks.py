@@ -1,5 +1,7 @@
 # ── Scheduler events ──────────────────────────────────────────────────────────
 scheduler_events = {
+    # 1st of month: each sales person gets last month's net sale + incentive (IB Incentive Scale)
+    "monthly": ["instabiz.overrides.incentive_scale.run_monthly_notice"],
     "daily": [
         # Runs on relieving_date — creates handover doc, notifies HR Managers
         "instabiz.overrides.employee_exit.run_exit_handover_daily",
@@ -388,7 +390,10 @@ doc_events = {
         # wo-per-run (feature/wo-per-run): milestone bell + genealogy cleanup on
         # the new run shape. Old per-(item x stage) handlers in production.py are
         # dead post-migration.
-        "on_update": "instabiz.overrides.production_run.on_work_order_update_notify",
+        "on_update": [
+            "instabiz.overrides.production_run.on_work_order_update_notify",
+            "instabiz.overrides.dpr_auto.sync_from_work_order",  # DPR line per completed stage
+        ],
         "on_trash": "instabiz.overrides.production_run.reverse_run_stock",
     },
 }

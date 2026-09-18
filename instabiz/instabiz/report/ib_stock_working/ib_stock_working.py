@@ -10,7 +10,7 @@ as is; anything else (rolls, nos) is multiplied by the item's width × length.
 """
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate, today
+from frappe.utils import cint, flt, getdate, today
 
 SQM_UOMS = {"sqm", "sqmt", "sq meter", "sq. meter", "square meter", "square metre", "sq mtr", "m2"}
 DETAIL = {"Delivery Note": "Delivery Note Item", "Purchase Receipt": "Purchase Receipt Item",
@@ -62,21 +62,35 @@ def _summary(f):
 	if f.warehouse:
 		wh = " AND b.warehouse IN (SELECT name FROM `tabWarehouse` WHERE lft >= (SELECT lft FROM `tabWarehouse` WHERE name = %(wh)s) AND rgt <= (SELECT rgt FROM `tabWarehouse` WHERE name = %(wh)s))"
 		args["wh"] = f.warehouse
-	qty = dict(frappe.db.sql(f"SELECT b.item_code, SUM(b.actual_qty) FROM `tabBin` b WHERE b.item_code IN %(items)s {wh} GROUP BY b.item_code", args))
+	bins = frappe.db.sql(f"""SELECT b.item_code, b.warehouse, SUM(b.actual_qty) qty FROM `tabBin` b
+		WHERE b.item_code IN %(items)s {wh} GROUP BY b.item_code, b.warehouse""", args, as_dict=True)
+	by_wh = cint(f.get("by_warehouse", 1))
+	qty = {}
+	for b in bins:
+		key = (b.item_code, b.warehouse if by_wh else "")
+		qty[key] = qty.get(key, 0) + flt(b.qty)
 	data = []
-	for i, it in enumerate(items, 1):
-		stock_sqm = flt(qty.get(it.name)) * _factor(it)
-		if f.hide_zero and abs(stock_sqm) < 0.001:
-			continue
+	for it in items:
+		keys = sorted(k for k in qty if k[0] == it.name) or [(it.name, "")]
 		roll = _roll_sqm(it)
-		data.append(frappe._dict(sr=i, item_code=it.name, item_name=it.item_name, item_group=it.item_group,
-			microns=it.microns, color=it.color, width_mm=it.width_mm, length_mtr=it.length_mtr, sqm_per_roll=roll,
-			stock_qty=flt(qty.get(it.name)), stock_uom=it.stock_uom, stock_sqm=stock_sqm,
-			stock_rolls=stock_sqm / roll if roll else 0))
+		item_sqm = 0
+		for key in keys:
+			stock_qty = flt(qty.get(key))
+			stock_sqm = stock_qty * _factor(it)
+			if f.hide_zero and abs(stock_sqm) < 0.001:
+				continue
+			item_sqm += stock_sqm
+			data.append(frappe._dict(item_code=it.name, item_name=it.item_name, item_group=it.item_group,
+				warehouse=key[1], microns=it.microns, color=it.color, width_mm=it.width_mm, length_mtr=it.length_mtr,
+				sqm_per_roll=roll, stock_qty=stock_qty, stock_uom=it.stock_uom, stock_sqm=stock_sqm,
+				stock_rolls=stock_sqm / roll if roll else 0))
+		if by_wh and len([k for k in keys if abs(flt(qty.get(k))) > 0.001]) > 1:
+			data.append(frappe._dict(item_code=it.name, warehouse="<b>" + _("All warehouses") + "</b>", bold=1,
+				stock_sqm=item_sqm, stock_rolls=item_sqm / roll if roll else 0, sqm_per_roll=roll))
 	return _summary_columns(), data, None, None, [
-		{"label": _("Materials"), "value": len(data), "datatype": "Int"},
-		{"label": _("Stock (SQM)"), "value": sum(d.stock_sqm for d in data), "datatype": "Float"},
-		{"label": _("Stock (jumbo rolls)"), "value": round(sum(d.stock_rolls for d in data), 2), "datatype": "Float"},
+		{"label": _("Materials"), "value": len({d.item_code for d in data}), "datatype": "Int"},
+		{"label": _("Stock (SQM)"), "value": sum(flt(d.stock_sqm) for d in data if not d.get("bold")), "datatype": "Float"},
+		{"label": _("Stock (jumbo rolls)"), "value": round(sum(flt(d.stock_rolls) for d in data if not d.get("bold")), 2), "datatype": "Float"},
 	]
 
 
@@ -84,6 +98,7 @@ def _summary_columns():
 	return [
 		{"label": _("Item"), "fieldname": "item_code", "fieldtype": "Link", "options": "Item", "width": 170},
 		{"label": _("Item Name"), "fieldname": "item_name", "fieldtype": "Data", "width": 200},
+		{"label": _("Warehouse"), "fieldname": "warehouse", "fieldtype": "Data", "width": 170},
 		{"label": _("Microns"), "fieldname": "microns", "fieldtype": "Data", "width": 75},
 		{"label": _("Color"), "fieldname": "color", "fieldtype": "Data", "width": 80},
 		{"label": _("Width (MM)"), "fieldname": "width_mm", "fieldtype": "Float", "width": 90},

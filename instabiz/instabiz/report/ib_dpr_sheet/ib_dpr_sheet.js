@@ -10,6 +10,14 @@ frappe.query_reports["IB DPR Sheet"] = {
 	],
 	onload(report) {
 		report.page.add_inner_button(__("New DPR Line"), () => frappe.new_doc("IB DPR Entry"));
+		if (frappe.user.has_role(["System Manager", "Factory Management"])) {
+			report.page.add_inner_button(__("Fill from Production"), () => {
+				frappe.prompt({ fieldname: "from_date", fieldtype: "Date", label: __("Completed on or after"), default: report.get_filter_value("from_date") },
+					(v) => frappe.call({ method: "instabiz.overrides.dpr_auto.backfill", args: v, freeze: true,
+						callback: (r) => { frappe.show_alert(r.message); report.refresh(); } }),
+					__("Create DPR lines from completed production stages"));
+			});
+		}
 	},
 	formatter(value, row, column, data, default_formatter) {
 		value = default_formatter(value, row, column, data);

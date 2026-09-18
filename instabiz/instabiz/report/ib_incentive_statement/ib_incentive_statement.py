@@ -9,7 +9,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
-from instabiz.overrides.incentive_scale import month_bounds, net_sales, scale_slabs, slab_breakup
+from instabiz.overrides.incentive_scale import month_bounds, net_sales, scale_slabs, slab_breakup, user_scale
 
 SLABS = 5
 
@@ -37,8 +37,13 @@ def _people(sales, user):
 	if user:
 		users = {user}
 	info = {u.name: u for u in frappe.get_all("User", filters={"name": ["in", list(users) or [""]]},
-		fields=["name", "full_name", "custom_incentive_scale"])}
-	return [info[u] for u in users if u in info]
+		fields=["name", "full_name"])}
+	out = []
+	for u in users:
+		if u in info:
+			info[u].custom_incentive_scale = user_scale(u)
+			out.append(info[u])
+	return out
 
 
 def _month(f, user):

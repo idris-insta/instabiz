@@ -262,7 +262,7 @@ def _individual_incentive(sales_person, month_start, month_end):
 
 	desig = _get_slab_designation(row.sp_user)
 	row.slab_designation = desig
-	commission, slab_label = _apply_slab(row.revenue, row.pct, desig, slabs_by_desig)
+	commission, slab_label = _commission(row, desig, slabs_by_desig, month_start, month_end)
 	row.commission = commission
 	row.slab_earned = slab_label
 
@@ -357,7 +357,7 @@ def _team_incentives(month_start, month_end):
 
 		desig = _get_slab_designation(row.sp_user)
 		row.slab_designation = desig
-		commission, slab_label = _apply_slab(row.revenue, row.pct, desig, slabs_by_desig)
+		commission, slab_label = _commission(row, desig, slabs_by_desig, month_start, month_end)
 		row.commission = commission
 		row.slab_earned = slab_label
 
@@ -424,3 +424,14 @@ def _team_incentives(month_start, month_end):
 		"trend": trend,
 		"top_customers": top_customers,
 	}
+
+
+def _commission(row, desig, slabs_by_desig, month_start, month_end):
+	"""Incentive from the person's own net sales on their IB Incentive Scale
+	(COMM ACC slabs); falls back to the older target-% slabs when no scale applies."""
+	from instabiz.overrides.incentive_scale import scale_incentive
+	incentive, scale, net = scale_incentive(row.sp_user, month_start, month_end)
+	if scale:
+		row.net_sale = net
+		return round(incentive, 2), f"{scale} · net ₹{frappe.utils.fmt_money(net, 0)}"
+	return _apply_slab(row.revenue, row.pct, desig, slabs_by_desig)
