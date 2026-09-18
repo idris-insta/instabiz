@@ -348,6 +348,28 @@ def _assign_machine(stage, location=None, spec=None):
 	pool = preferred if preferred else machines
 
 	feasible = [m for m in pool if _machine_feasible(m, stage, spec)]
+
+	# Real gap, fixed: this auto-picker never checked IB Machine.capacity at
+	# all — only the MANUAL assign_machine RPC enforced it. Auto-assignment
+	# (used here by create_run/resume_run/every stage-advance) could pile
+	# unlimited concurrent runs onto one machine automatically; it only
+	# ever load-balanced by queued minutes, never capped. Same "blank/0 =
+	# no limit" convention as assign_machine's own check. Filtered here
+	# (dropped from the candidate pool), not thrown per-machine — this
+	# function picks among several candidates, it doesn't validate one.
+	under_capacity = []
+	for m in feasible:
+		cap = flt(m.get("capacity"))
+		if cap <= 0:
+			under_capacity.append(m)
+			continue
+		load = frappe.db.count(
+			"IB Work Order", filters={"machine": m["name"], "status": ["in", ("Pending", "In Progress")]}
+		)
+		if load < cap:
+			under_capacity.append(m)
+	feasible = under_capacity
+
 	if not feasible:
 		bits = []
 		if flt(spec.get("input_width_mm")):
@@ -356,8 +378,9 @@ def _assign_machine(stage, location=None, spec=None):
 		if ows:
 			bits.append(_("{0} output(s): {1}mm").format(len(ows), "/".join(str(int(w)) for w in ows)))
 		frappe.throw(_(
-			"No active {0} machine at {1} can run this job ({2}). "
-			"Check the Physical Capability limits on the machine masters."
+			"No active {0} machine at {1} can run this job ({2}) — every machine that could either "
+			"doesn't fit it or is already at capacity. Check the Physical Capability limits and "
+			"Capacity on the machine masters."
 		).format(machine_type, location or _("any location"), ", ".join(bits) or _("given dimensions")))
 
 	if len(feasible) == 1:

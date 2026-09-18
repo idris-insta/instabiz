@@ -466,6 +466,37 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 
 	source_qty = flt(source_qty) or sum(flt(o.get("planned_qty")) for o in outputs)
 
+	# Real gap, now closed: IB Batch.qty was never checked or decremented
+	# anywhere — the same batch could be used as the source for unlimited
+	# runs, consuming far more material than it physically has, with no
+	# warning. Reserve BEFORE building/inserting the run (not after) so a
+	# failed reservation never leaves an orphaned Work Order with no real
+	# material behind it — nothing has been created yet at this point, a
+	# throw here is a clean abort. The UPDATE's own "AND qty >= %s" guard
+	# (not a plain read-then-write) makes this atomic: two create_run calls
+	# against the same batch from two DIFFERENT order sheets (the per-
+	# order-sheet lock below doesn't cover that case) can't both succeed
+	# past each other's deduction the way a Python-side check-then-write
+	# would allow. cancel_run() restores this if the run is later
+	# cancelled. Length-split (advance_with_length_split) doesn't call
+	# create_run for its child runs — it redistributes THIS run's already-
+	# reserved source_qty across siblings, so no double-reservation there.
+	if flt(source_qty) > flt(batch.qty):
+		frappe.throw(_(
+			"Source batch {0} only has {1} remaining, but this run needs {2}."
+		).format(source_batch, batch.qty, source_qty))
+	# frappe.db.sql() itself returns () for an UPDATE — the real affected-
+	# row count only shows up on the driver cursor. Verified live (bench
+	# execute): 1 for a real matching change, 0 when the guard excludes it.
+	frappe.db.sql(
+		"UPDATE `tabIB Batch` SET qty = qty - %s WHERE name = %s AND qty >= %s",
+		(source_qty, source_batch, source_qty),
+	)
+	if frappe.db._cursor.rowcount == 0:
+		frappe.throw(_(
+			"Source batch {0} no longer has {1} available — someone else just allocated from it. Please retry."
+		).format(source_batch, source_qty))
+
 	# route: explicit, else derive from the first output's item group
 	if not route:
 		route = _get_stage_route(outputs[0].get("item_code"), location)
@@ -871,27 +902,44 @@ def skip_stage(work_order, reason=None):
 
 @frappe.whitelist()
 def hold_run(work_order, reason=None):
+	# Real gap, fixed: every other mutating function in this file
+	# (advance_run/create_run/cancel_run/skip_stage/assign_machine) takes
+	# the same GET_LOCK('IB-WO-{name}') — this one didn't, so a double-
+	# click or two tabs hitting Hold/Resume/Advance on the same run at once
+	# could race past each other's status check before either write lands.
 	_require_production_role()
-	doc = frappe.get_doc("IB Work Order", work_order)
-	if reason:
-		doc.notes = (doc.notes or "") + f"\n[Hold] {reason}"
-		doc.save(ignore_permissions=True)
-	# free the machine while held
-	_wf(doc, "Hold", {"machine": ""})
-	frappe.db.commit()
-	_notify_floor_update()
-	return {"ok": True, "status": "On Hold"}
+	lock = f"IB-WO-{work_order}"
+	if not frappe.db.sql("SELECT GET_LOCK(%s, 5)", lock)[0][0]:
+		frappe.throw(_("Could not acquire lock for run {0}. Please try again.").format(work_order))
+	try:
+		doc = frappe.get_doc("IB Work Order", work_order)
+		if reason:
+			doc.notes = (doc.notes or "") + f"\n[Hold] {reason}"
+			doc.save(ignore_permissions=True)
+		# free the machine while held
+		_wf(doc, "Hold", {"machine": ""})
+		frappe.db.commit()
+		_notify_floor_update()
+		return {"ok": True, "status": "On Hold"}
+	finally:
+		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock)
 
 
 @frappe.whitelist()
 def resume_run(work_order):
 	_require_production_role()
-	doc = frappe.get_doc("IB Work Order", work_order)
-	machine = _assign_machine(doc.current_stage, _run_location(doc), _spec_from_run(doc)) or ""
-	_wf(doc, "Resume", {"machine": machine})
-	frappe.db.commit()
-	_notify_floor_update()
-	return {"ok": True, "status": "In Progress", "machine": machine}
+	lock = f"IB-WO-{work_order}"
+	if not frappe.db.sql("SELECT GET_LOCK(%s, 5)", lock)[0][0]:
+		frappe.throw(_("Could not acquire lock for run {0}. Please try again.").format(work_order))
+	try:
+		doc = frappe.get_doc("IB Work Order", work_order)
+		machine = _assign_machine(doc.current_stage, _run_location(doc), _spec_from_run(doc)) or ""
+		_wf(doc, "Resume", {"machine": machine})
+		frappe.db.commit()
+		_notify_floor_update()
+		return {"ok": True, "status": "In Progress", "machine": machine}
+	finally:
+		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock)
 
 
 @frappe.whitelist()
@@ -911,13 +959,27 @@ def cancel_run(work_order, reason=None):
 	"""
 	_require_production_role()
 	run_row = frappe.db.get_value(
-		"IB Work Order", work_order, ["order_sheet"], as_dict=True
+		"IB Work Order", work_order,
+		["order_sheet", "status", "source_batch", "source_qty"], as_dict=True,
 	)
 	if not run_row:
 		frappe.throw(_("Run {0} not found").format(work_order))
 	sales_order_items = frappe.get_all(
 		"IB WO Output", filters={"parent": work_order}, pluck="sales_order_item"
 	)
+
+	# Give back what this run had reserved from its source batch (see
+	# create_run's own comment for why that reservation exists) — a
+	# cancelled run's material was never actually consumed. Guarded on the
+	# run's status BEFORE this call, not just "not already restored" —
+	# cancel_run can be called again on an already-Cancelled run (the
+	# workflow-transition fallback below tolerates it) and must not
+	# restore the same qty twice.
+	if run_row.status != "Cancelled" and run_row.source_batch and flt(run_row.source_qty):
+		frappe.db.sql(
+			"UPDATE `tabIB Batch` SET qty = qty + %s WHERE name = %s",
+			(run_row.source_qty, run_row.source_batch),
+		)
 
 	_reverse_run_genealogy(work_order)  # also nulls fg_batch links on the run + outputs
 
@@ -985,17 +1047,32 @@ def _finish_run(doc, outputs_qty=None):
 	final_out = flt(doc.stage_log[-1].output_qty) if doc.stage_log else 0.0
 	planned_total = sum(flt(o.planned_qty) for o in doc.outputs) or 0.0
 
-	# resolve produced_qty per output row
+	# resolve produced_qty per output row. The proportional-split branches
+	# (planned-ratio and even-split) used to round each row independently,
+	# which can drift the SUM away from final_out by a few thousandths per
+	# extra output row (harmless at 2-3 outputs, a real minor discrepancy
+	# on a run with many outputs). Fixed by rounding every row except the
+	# last, then giving the last row whatever's left — sum(produced) always
+	# exactly equals final_out. Not applied to the outputs_qty branch: those
+	# are operator-entered exact values, which may legitimately not sum to
+	# final_out (e.g. real measured wastage differs per output) — forcing
+	# them to match would silently overwrite what the operator typed.
 	produced = {}
-	for o in doc.outputs:
+	split_rows = [o for o in doc.outputs if not (outputs_qty and (o.name in outputs_qty or o.item_code in outputs_qty))]
+	running_total = 0.0
+	for i, o in enumerate(doc.outputs):
 		if outputs_qty and (o.name in outputs_qty or o.item_code in outputs_qty):
 			produced[o.name] = flt(outputs_qty.get(o.name, outputs_qty.get(o.item_code)))
 		elif len(doc.outputs) == 1:
 			produced[o.name] = final_out
+		elif o is split_rows[-1]:
+			produced[o.name] = round(final_out - running_total, 3)
 		elif planned_total:
 			produced[o.name] = round(final_out * flt(o.planned_qty) / planned_total, 3)
+			running_total += produced[o.name]
 		else:
 			produced[o.name] = round(final_out / len(doc.outputs), 3)
+			running_total += produced[o.name]
 
 	ts = now()
 	doc.current_stage = "Done"
@@ -1041,6 +1118,7 @@ def _finish_run(doc, outputs_qty=None):
 	fg_batch_id = fg_batch_by_item[item_codes[0]]  # WO.fg_batch stays a single Link — primary/first item's batch
 
 	serials_made = 0
+	truncated_items = []  # real gap, fixed: this cap used to be silent — see the message built below
 	try:
 		from instabiz.overrides.item import _SERIAL_ITEM_GROUPS
 
@@ -1050,7 +1128,10 @@ def _finish_run(doc, outputs_qty=None):
 			if grp not in _SERIAL_ITEM_GROUPS:
 				o.db_set("fg_batch", row_fg_batch)
 				continue
-			n_units = min(cint(o.pack_count) or 1, 2000)
+			real_count = cint(o.pack_count) or 1
+			if real_count > 2000:
+				truncated_items.append((o.item_code, real_count))
+			n_units = min(real_count, 2000)
 			stamp = _serial_stamp()
 			seq = _next_serial_seq(o.item_code, stamp)
 			made = 0
@@ -1087,8 +1168,24 @@ def _finish_run(doc, outputs_qty=None):
 	# roll the Order Sheet / its items up
 	_settle_order_sheet(doc)
 
+	message = _("Run complete — FG batch {0}, {1} serial(s)").format(fg_batch_id, serials_made)
+	if truncated_items:
+		# Was silent before — a genuinely large run (2000+ real units) just
+		# under-reported its serial count with nothing telling anyone it
+		# happened. Now surfaced both in the immediate response (shown as
+		# the alert after Advance/Complete) and logged for later audit.
+		detail = ", ".join(f"{code} ({count})" for code, count in truncated_items)
+		message += " " + _(
+			"⚠ Serial generation capped at 2000 per item — {0} produced more than that; "
+			"only the first 2000 got real IB FG Serial records each."
+		).format(detail)
+		frappe.log_error(
+			title="IB FG Serial cap hit",
+			message=f"Work Order {doc.name}: {detail} exceeded the 2000-serial-per-item cap.",
+		)
+
 	return {
-		"message": _("Run complete — FG batch {0}, {1} serial(s)").format(fg_batch_id, serials_made),
+		"message": message,
 		"fg_batch": fg_batch_id,
 		"serials": serials_made,
 	}

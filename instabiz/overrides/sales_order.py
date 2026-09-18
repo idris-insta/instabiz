@@ -75,11 +75,46 @@ class CustomSalesOrder(IbStatusMixin, SalesOrder):
     def before_cancel(self):
         if not (self.custom_cancel_reason or "").strip():
             frappe.throw(_("Fill in Cancellation Reason before cancelling this Sales Order."))
+        _check_no_active_production(self)
 
     def before_submit(self):
         # _check_credit_limit(self)  # temporarily disabled 2026-09-03 (user request) — re-enable when ready
         # _check_overdue_block(self)  # temporarily disabled 2026-09-03 (user request) — re-enable when ready
         check_advance_approval(self)
+
+
+# ── Active production guard ───────────────────────────────────────────────────
+
+def _check_no_active_production(doc):
+    """Block cancelling a Sales Order that still has real production against
+    it. Real gap this closes: before_cancel only ever required a reason
+    string — a Sales Order with genuine in-progress (or completed but not
+    yet delivered) Work Orders could be cancelled at any time with zero
+    warning, leaving the underlying IB Order Sheet / IB Work Order records
+    orphaned (referencing a now-cancelled order, with nothing ever
+    reconciling that). Blocks on ANY non-cancelled run — Pending/In
+    Progress/On Hold/Completed all represent real floor work already
+    started or finished, not just "actively running right now" — the
+    message tells the user to cancel those runs first (a deliberate,
+    auditable action) rather than silently orphaning them.
+    """
+    order_sheets = frappe.get_all(
+        "IB Order Sheet", filters={"sales_order": doc.name, "status": ["!=", "Cancelled"]},
+        pluck="name",
+    )
+    if not order_sheets:
+        return
+    active = frappe.db.sql(
+        """SELECT name, status FROM `tabIB Work Order`
+           WHERE order_sheet IN %(sheets)s AND status != 'Cancelled'
+           LIMIT 1""",
+        {"sheets": order_sheets}, as_dict=True,
+    )
+    if active:
+        frappe.throw(_(
+            "Cannot cancel {0} — it has real production against it (Work Order {1}, status {2}). "
+            "Cancel that Work Order in the Production module first if it genuinely shouldn't have happened."
+        ).format(doc.name, active[0].name, active[0].status))
 
 
 # ── Credit limit ──────────────────────────────────────────────────────────────
