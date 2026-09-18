@@ -595,6 +595,13 @@ Stock Raven app, no custom instabiz code. All 22 System Users + Administrator ha
     - `QPF_V2` / `OSPF_V2` added to the fixtures filter: run `bench --site frontend export-fixtures --app instabiz` on dev and commit `fixtures/print_format.json`.
     - Tests: `test_core_paths` now 15 tests.
 
+164. **Module settings, merged workspaces, financial year, Day Book, house-style prints (2026-09-19)** — same branch `feat/erp-upgrade-2026-09`.
+    - **Settings split per module** (replaces the single Instabiz Settings of item 163): IB Sales / Accounts / Stock / HR / Print / Messaging Settings (singles). `overrides/ib_settings_fields.json` maps field → doctype and is written by the generator together with the doctypes, so callers still use `ib_settings.get(field, default)`. Standard terms seeded from the live QPF_V2 terms. Base controller `ib_settings.ModuleSettings`.
+    - **Prints rebuilt in the QPF_V2 house style** (letterhead, BANK DETAILS | GST + ADDRESS, WEBSITE / PHONE / EMAIL, bordered box "- TITLE -", customer / document / order-procedure columns, the dimension item grid, totals, amount in words, uppercase terms). Frappe's own 0.75in print padding is kept (the first version overrode it and ran off the page in the browser); every table is fixed-layout, 7-9px.
+    - **Workspaces merged**: `overrides/workspace_merge.merge_into_files` (developer build step) copies the native ERPNext/HRMS workspace cards and links into the matching Instabiz workspace (de-duplicated against existing links and shortcuts, grouped under a heading per source) and adds a Settings card per module and a Books card on Finance. `workspace_merge.hide_native` runs after_migrate so the natives stay hidden.
+    - **Financial year** (`overrides/financial_year.py`, page `ib-financial-year`, `public/js/ib_fiscal_year.js`): per-user selected year (user default `ib_fiscal_year`, boot `frappe.boot.ib_fiscal_year`); navbar FY switch; `erpnext.utils.get_fiscal_year(today)` and out-of-year Date filter defaults open in the chosen year. Page: year cards with ledger totals, create next year, lock books (Accounts Settings acc_frozen_upto), new Period Closing Voucher, year-end checklist (drafts, bank recon, IRN, negative stock, lock, PCV).
+    - **IB Day Book** script report (GL grouped by voucher).
+
 ## GST & NIC API Configuration State (as of 2026-05-18)
 
 ### Credentials in GST Settings (tabGST Credential)

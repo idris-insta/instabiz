@@ -134,15 +134,15 @@ class TestCreditOverride(FrappeTestCase):
 		self.assertIn("customer paid by cheque", self.comments[0])
 
 	def test_credit_limit_on_overdue_off_by_default(self):
-		# Instabiz Settings never saved: credit-limit check runs (it only acts on
+		# IB Sales Settings never saved: credit-limit check runs (it only acts on
 		# customers with a limit), 30-day overdue block stays off.
 		credit, overdue = [], []
 		self.so._check_credit_limit = lambda doc: credit.append(1)
 		self.so._check_overdue_block = lambda doc: overdue.append(1)
 		orig = self.so.check_advance_approval
 		self.so.check_advance_approval = lambda doc: None
-		saved = frappe.db.sql("SELECT field, value FROM `tabSingles` WHERE doctype=%s", "Instabiz Settings")
-		frappe.db.sql("DELETE FROM `tabSingles` WHERE doctype=%s", "Instabiz Settings")
+		saved = frappe.db.sql("SELECT field, value FROM `tabSingles` WHERE doctype=%s", "IB Sales Settings")
+		frappe.db.sql("DELETE FROM `tabSingles` WHERE doctype=%s", "IB Sales Settings")
 		conf = frappe.local.conf
 		prev = conf.get("ib_so_credit_checks")
 		try:
@@ -156,7 +156,7 @@ class TestCreditOverride(FrappeTestCase):
 			self.so.check_advance_approval = orig
 			for field, value in saved:
 				frappe.db.sql("INSERT INTO `tabSingles` (doctype, field, value) VALUES (%s, %s, %s)",
-					("Instabiz Settings", field, value))
+					("IB Sales Settings", field, value))
 			if prev is None:
 				conf.pop("ib_so_credit_checks", None)
 			else:

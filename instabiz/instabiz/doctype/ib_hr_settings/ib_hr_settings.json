@@ -1,0 +1,154 @@
+{
+ "actions": [],
+ "creation": "2026-09-19 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "ot_section",
+  "ot_day_basis",
+  "ot_hours_per_day",
+  "ot_col",
+  "ot_rate_multiplier",
+  "ot_salary_component",
+  "ot_pay_on_approval",
+  "leave_section",
+  "auto_allocate_leave",
+  "annual_casual_leave",
+  "leave_col",
+  "annual_sick_leave",
+  "annual_privilege_leave",
+  "monthly_leave_credit"
+ ],
+ "fields": [
+  {
+   "fieldname": "ot_section",
+   "fieldtype": "Section Break",
+   "label": "Overtime Rate",
+   "description": "Overtime is paid at the regular rate: monthly salary ÷ day basis = per-day rate; per-day ÷ hours per day = per-hour rate."
+  },
+  {
+   "fieldname": "ot_day_basis",
+   "fieldtype": "Select",
+   "label": "Per-Day Rate Basis",
+   "options": "26 days\n30 days\nDays in the month",
+   "default": "26 days"
+  },
+  {
+   "fieldname": "ot_hours_per_day",
+   "fieldtype": "Float",
+   "label": "Working Hours per Day",
+   "default": "8"
+  },
+  {
+   "fieldname": "ot_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ot_rate_multiplier",
+   "fieldtype": "Float",
+   "label": "Overtime Multiplier",
+   "default": "1"
+  },
+  {
+   "fieldname": "ot_salary_component",
+   "fieldtype": "Link",
+   "label": "Overtime Salary Component",
+   "options": "Salary Component",
+   "description": "Blank = 'Overtime' (created automatically)."
+  },
+  {
+   "fieldname": "ot_pay_on_approval",
+   "fieldtype": "Check",
+   "label": "Add Approved Overtime to Payroll",
+   "default": "1"
+  },
+  {
+   "fieldname": "leave_section",
+   "fieldtype": "Section Break",
+   "label": "Leave"
+  },
+  {
+   "fieldname": "auto_allocate_leave",
+   "fieldtype": "Check",
+   "label": "Allocate Leave Each Financial Year",
+   "default": "1"
+  },
+  {
+   "fieldname": "annual_casual_leave",
+   "fieldtype": "Float",
+   "label": "Casual Leave per Year",
+   "default": "12"
+  },
+  {
+   "fieldname": "leave_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "annual_sick_leave",
+   "fieldtype": "Float",
+   "label": "Sick Leave per Year",
+   "default": "12"
+  },
+  {
+   "fieldname": "annual_privilege_leave",
+   "fieldtype": "Float",
+   "label": "Privilege Leave per Year",
+   "default": "15"
+  },
+  {
+   "fieldname": "monthly_leave_credit",
+   "fieldtype": "Float",
+   "label": "IB Payroll Monthly Leave Credit (Days)",
+   "default": "2"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-19 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "IB HR Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "HR Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "HR User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 0,
+   "report": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

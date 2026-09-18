@@ -6,7 +6,7 @@ Overtime is paid at the regular salary rate (user decision 2026-09-18):
 	per-hour rate = per-day rate / working hours per day
 	overtime pay  = hours x per-hour rate x multiplier (1 = regular rate)
 
-Day basis, hours per day and the multiplier live in Instabiz Settings (HR tab).
+Day basis, hours per day and the multiplier live in IB HR Settings.
 An approved IB Overtime Request becomes a submitted Additional Salary on the
 overtime date, so the next salary slip for that month pays it. Rejecting (or
 un-approving) the request cancels that Additional Salary.

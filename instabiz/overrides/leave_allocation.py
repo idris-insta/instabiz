@@ -6,7 +6,7 @@ without this, balances drop to zero every 1 April. Also covers new joiners
 the day after they are added (allocation starts on their joining date,
 prorated by remaining whole months).
 
-Days per year come from Instabiz Settings (HR tab). A leave type set to 0 is
+Days per year come from IB HR Settings. A leave type set to 0 is
 skipped. Existing allocations are never touched, so re-running is safe.
 """
 import math
@@ -85,7 +85,7 @@ def run_yearly_leave_allocation(on_date=None):
 					"from_date": start,
 					"to_date": fy_end,
 					"new_leaves_allocated": days,
-					"description": "Auto-allocated from Instabiz Settings",
+					"description": "Auto-allocated from IB HR Settings",
 				})
 				alloc.insert(ignore_permissions=True)
 				alloc.submit()

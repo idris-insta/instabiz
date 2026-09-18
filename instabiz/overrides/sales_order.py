@@ -97,7 +97,7 @@ class CustomSalesOrder(IbStatusMixin, SalesOrder):
         _check_no_active_production(self)
 
     def before_submit(self):
-        # Instabiz Settings decides both checks. The credit-limit check only acts
+        # IB Sales Settings decides both checks. The credit-limit check only acts
         # on customers that have a Credit Limit row, so it is on by default; the
         # overdue block is off by default. site_config "ib_so_credit_checks"
         # still forces both on (older switch).

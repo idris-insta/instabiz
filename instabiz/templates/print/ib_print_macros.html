@@ -1,290 +1,212 @@
-{#- Shared layout for Instabiz customer / supplier documents.
-    Data comes from instabiz.overrides.print_helpers (ib_print, ib_items,
-    ib_totals, ib_hsn_summary). Built with tables only: PDFs render through
-    wkhtmltopdf, whose WebKit has no flexbox or grid. -#}
+{#- Shared layout for Instabiz customer documents, in the house style of the
+    live QPF_V2 quotation: letterhead, bank + GST/address block, contact line,
+    a bordered box with "- TITLE -", a three-column party/document/dispatch
+    row, the item grid, totals, amount in words, terms.
+    Sizing: Frappe's own print padding (0.75in) is kept, every table is
+    width:100% with table-layout:fixed so nothing can run past the page, text
+    is 8-9px. Tables only (wkhtmltopdf has no flexbox). Data comes from
+    instabiz.overrides.print_helpers. -#}
 
 {% macro styles(p) %}
 <style>
-  /* IB Print Theme: Inter (same webfont as the desk), rust accent #d97757 */
-  @font-face { font-family: "Inter"; src: url("/assets/instabiz/fonts/InterVariable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; }
-  .print-format { margin: 0mm; padding: 7mm 8mm 6mm; font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 9.5px; color: #1f2328; line-height: 1.4; }
-  .print-format table { width: 100%; border-collapse: collapse; }
-  .print-format td, .print-format th { vertical-align: top; }
-  .ib-lh img { width: 100%; height: auto; display: block; }
-  .ib-seller { font-size: 8.5px; color: #555; padding: 3px 0 5px; border-bottom: 1.5px solid {{ p.accent }}; }
-  .ib-seller b { color: #1f2328; }
-  .ib-title-row td { padding-top: 7px; }
-  .ib-title { font-size: 17px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: {{ p.accent }}; }
-  .ib-subtitle { font-size: 8.5px; color: #666; letter-spacing: .5px; margin-top: 1px; }
-  .ib-meta { width: auto !important; margin-left: auto; }
-  .ib-meta td { padding: 1px 0 1px 10px; font-size: 9px; white-space: nowrap; }
-  .ib-meta td.k { color: #666; text-align: right; }
-  .ib-meta td.v { font-weight: 700; }
-  .ib-parties { margin-top: 8px; }
-  .ib-parties > tbody > tr > td { border: 1px solid #d9d6d0; padding: 6px 8px; width: 50%; }
-  .ib-parties > tbody > tr > td + td { border-left: none; }
-  .ib-label { font-size: 7.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: {{ p.accent }}; margin-bottom: 2px; }
-  .ib-party-name { font-size: 10.5px; font-weight: 700; }
-  .ib-muted { color: #666; }
-  .ib-small { font-size: 8.5px; }
-  .ib-items { margin-top: 8px; }
-  .ib-items th { background: #fdf3ee; color: #b9502f; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding: 5px 5px; border-bottom: 1.5px solid {{ p.accent }}; text-align: left; }
-  .ib-items td { padding: 5px 5px; border-bottom: 1px solid #e7e4df; }
-  .ib-items tr.alt td { background: #fbfaf8; }
-  .ib-items .r { text-align: right; } .ib-items .c { text-align: center; }
-  .ib-items .num { white-space: nowrap; }
-  .ib-items .iname { font-weight: 700; font-size: 9.5px; }
-  .ib-items .icode { color: #777; font-size: 8px; }
-  .ib-items .ispec { color: #444; font-size: 8.5px; margin-top: 1px; }
-  .ib-items tfoot td { font-weight: 700; border-bottom: none; border-top: 1px solid #bbb; }
-  .ib-sum { margin-top: 6px; }
-  .ib-words { padding: 6px 8px; border: 1px solid #e7e4df; background: #fbfaf8; }
-  .ib-totals { width: 100%; }
-  .ib-totals td { padding: 2px 6px; }
-  .ib-totals td.v { text-align: right; white-space: nowrap; }
-  .ib-totals tr.grand td { border-top: 1.5px solid #1f2328; font-size: 11.5px; font-weight: 700; padding-top: 4px; }
-  .ib-totals tr.grand td.v { color: {{ p.accent }}; }
-  .ib-hsn { margin-top: 8px; }
-  .ib-hsn th { font-size: 7.5px; font-weight: 700; text-transform: uppercase; color: #555; border-bottom: 1px solid #bbb; padding: 3px 4px; text-align: right; }
-  .ib-hsn th:first-child, .ib-hsn td:first-child { text-align: left; }
-  .ib-hsn td { font-size: 8.5px; padding: 2px 4px; text-align: right; border-bottom: 1px solid #eee; }
-  .ib-hsn tr.tot td { font-weight: 700; border-top: 1px solid #bbb; }
-  .ib-foot { margin-top: 10px; page-break-inside: avoid; }
-  .ib-foot > tbody > tr > td { padding: 0; }
-  .ib-box { border: 1px solid #e7e4df; padding: 6px 8px; }
-  .ib-kv td { padding: 1px 0; font-size: 9px; }
-  .ib-kv td.k { color: #666; width: 34%; white-space: nowrap; padding-right: 6px; }
-  .ib-kv td.v { font-weight: 700; }
-  .ib-terms { font-size: 8.5px; color: #333; }
-  .ib-terms p, .ib-terms ol, .ib-terms ul { margin: 0 0 2px; }
-  .ib-terms ol, .ib-terms ul { padding-left: 14px; }
-  .ib-sign { text-align: right; }
-  .ib-sign img { height: 58px; width: auto; display: inline-block; margin: 4px 0; }
-  .ib-sign .for { font-weight: 700; }
-  .ib-sign .who { border-top: 1px solid #999; display: inline-block; padding-top: 2px; min-width: 150px; text-align: center; font-size: 8.5px; color: #555; }
-  .ib-note { text-align: center; font-size: 8px; color: #888; margin-top: 8px; border-top: 1px solid #eee; padding-top: 4px; }
-  .ib-mark { position: fixed; top: 38%; left: 0; width: 100%; text-align: center; font-size: 84px; font-weight: 800; letter-spacing: 12px; color: #d0342c; opacity: .12; -webkit-transform: rotate(-30deg); transform: rotate(-30deg); z-index: 1000; }
-  .ib-pill { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 7.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; border: 1px solid {{ p.accent }}; color: {{ p.accent }}; }
-  .ib-sheet-break { page-break-before: always; }
+  .ibp { font-family: "Inter", Arial, sans-serif; font-size: 9px; color: #111; line-height: 1.45; }
+  .ibp table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .ibp td, .ibp th { vertical-align: top; word-wrap: break-word; overflow-wrap: break-word; }
+  .ibp .lh img { width: 100%; height: auto; display: block; }
+  .ibp .lbl { font-weight: 700; text-transform: uppercase; }
+  .ibp .red { color: {{ p.accent }}; }
+  .ibp .up { text-transform: uppercase; }
+  .ibp .r { text-align: right; } .ibp .c { text-align: center; }
+  .ibp .muted { color: #555; }
+  .ibp .seller td { padding: 4px 4px 4px 0; font-size: 9px; }
+  .ibp .contact { border-top: 1px solid #bbb; border-bottom: 1px solid #bbb; margin: 3px 0 8px; }
+  .ibp .contact td { padding: 4px 0; font-size: 9px; }
+  .ibp .box { border: 1.2px solid #111; }
+  .ibp .title { text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 1px; padding: 6px 0; border-bottom: 1px solid #111; text-transform: uppercase; }
+  .ibp .parties td { padding: 6px 8px; font-size: 9px; line-height: 1.6; }
+  .ibp .parties td + td { border-left: 1px solid #ddd; }
+  .ibp .items th { word-break: keep-all; overflow-wrap: normal; hyphens: none; font-size: 7px; font-weight: 700; text-transform: uppercase; padding: 5px 3px; border-top: 1px solid #111; border-bottom: 1px solid #111; background: #f4f4f4; text-align: left; line-height: 1.25; }
+  .ibp .items td { font-size: 8px; padding: 5px 3px; border-bottom: 1px solid #e3e3e3; }
+  .ibp .items th + th, .ibp .items td + td { border-left: 1px solid #e3e3e3; }
+  .ibp .items .nm { font-weight: 700; text-transform: uppercase; }
+  .ibp .items .sub { color: #555; font-size: 7.5px; }
+  .ibp .items tr.tot td { font-weight: 700; background: #fafafa; border-bottom: 1px solid #111; }
+  .ibp .sum td { vertical-align: top; }
+  .ibp .sum .left { border-right: 1px solid #111; padding: 6px 8px; font-size: 8.5px; }
+  .ibp .totals td { padding: 5px 8px; font-size: 9px; text-transform: uppercase; border-bottom: 1px solid #e3e3e3; }
+  .ibp .totals td.k { font-style: italic; color: #333; text-transform: uppercase; }
+  .ibp .totals tr.net td { font-weight: 700; font-style: normal; font-size: 10.5px; background: #f4f4f4; border-bottom: none; }
+  .ibp .words { border-top: 1px solid #111; padding: 6px 8px; font-size: 9px; text-transform: uppercase; }
+  .ibp .terms { margin-top: 10px; font-size: 8.5px; text-transform: uppercase; color: #333; }
+  .ibp .terms h4 { margin: 0 0 5px; font-size: 10px; font-weight: 700; color: {{ p.accent }}; }
+  .ibp .terms ol, .ibp .terms ul { margin: 0; padding-left: 14px; }
+  .ibp .terms li, .ibp .terms p { margin: 0 0 3px; }
+  .ibp .sign { margin-top: 12px; page-break-inside: avoid; }
+  .ibp .sign td { font-size: 9px; }
+  .ibp .sign img { height: 55px; width: auto; display: inline-block; margin: 3px 0; }
+  .ibp .note { text-align: center; font-size: 8px; color: #777; margin-top: 8px; }
+  .ibp .kv td { padding: 1px 0; font-size: 9px; }
+  .ibp .mark { position: fixed; top: 40%; left: 0; width: 100%; text-align: center; font-size: 80px; font-weight: 800; letter-spacing: 12px; color: #d0342c; opacity: .12; -webkit-transform: rotate(-30deg); transform: rotate(-30deg); z-index: 1000; }
+  .ibp tr { page-break-inside: avoid; }
 </style>
 {% endmacro %}
 
 {% macro watermark(p) %}
-{% if p.is_cancelled %}<div class="ib-mark">CANCELLED</div>{% elif p.is_draft %}<div class="ib-mark">DRAFT</div>{% endif %}
+{% if p.is_cancelled %}<div class="mark">CANCELLED</div>{% elif p.is_draft %}<div class="mark">DRAFT</div>{% endif %}
 {% endmacro %}
 
-{#- Banner, seller strip, title + meta (list of [label, value] pairs). -#}
-{% macro header(p, title, meta, subtitle="") %}
+{#- Letterhead, BANK DETAILS | GST + ADDRESS, then WEBSITE | PHONE | EMAIL. -#}
+{% macro seller_block(p, show_bank=True) %}
 {{ watermark(p) }}
-{% if p.letterhead %}<div class="ib-lh"><img src="{{ p.letterhead }}"></div>{% endif %}
-<div class="ib-seller">
-  <b>{{ p.seller.name }}</b>{% if p.seller.lines %} · {{ p.seller.lines | join(", ") }}{% endif %}<br>
-  {% if p.seller.gstin %}GSTIN <b>{{ p.seller.gstin }}</b>{% if p.seller.state %} ({{ p.seller.state }}, code {{ p.seller.state_code }}){% endif %}{% endif %}
-  {% if p.seller.pan %} · PAN {{ p.seller.pan }}{% endif %}
-  {% if p.seller.phone %} · Ph {{ p.seller.phone }}{% endif %}
-  {% if p.seller.email %} · {{ p.seller.email }}{% endif %}
-</div>
-<table class="ib-title-row"><tr>
-  <td style="width:48%">
-    <div class="ib-title">{{ title }}</div>
-    {% if subtitle %}<div class="ib-subtitle">{{ subtitle }}</div>{% endif %}
+{% if p.letterhead %}<div class="lh"><img src="{{ p.letterhead }}"></div>{% endif %}
+<table class="seller" style="margin-top:6px"><tr>
+  {% if show_bank and p.bank %}
+  <td style="width:33%">
+    <div class="lbl red">Bank details</div>
+    <div><span class="lbl">Name :</span> <span class="up">{{ p.bank.holder }}</span></div>
+    <div><span class="lbl">Bank name :</span> <span class="up">{{ p.bank.bank }}</span></div>
+    {% if p.bank.branch %}<div><span class="lbl">Branch :</span> <span class="up">{{ p.bank.branch }}</span></div>{% endif %}
+    <div><span class="lbl">A/C no :</span> {{ p.bank.account_no }}</div>
+    <div><span class="lbl">IFSC code :</span> {{ p.bank.ifsc }}</div>
   </td>
-  <td style="width:52%">
-    <table class="ib-meta">
-      {% for row in meta if row[1] %}
-      <tr><td class="k">{{ row[0] }}</td><td class="v">{{ row[1] }}</td></tr>
-      {% endfor %}
-    </table>
+  {% endif %}
+  <td>
+    {% if p.seller.gstin %}<div><span class="lbl">GST :</span> {{ p.seller.gstin }}</div>{% endif %}
+    {% if p.seller.lines %}<div><span class="lbl">Address :</span> <span class="up">{{ p.seller.lines | join(", ") }}</span></div>{% endif %}
+    {% if p.seller.pan %}<div><span class="lbl">PAN :</span> {{ p.seller.pan }}</div>{% endif %}
   </td>
+</tr></table>
+<table class="contact"><tr>
+  <td style="width:33%"><span class="lbl">Website :</span> {{ p.website }}</td>
+  <td style="width:34%" class="c"><span class="lbl">Phone :</span> {{ p.phone }}</td>
+  <td style="width:33%" class="r"><span class="lbl">Email :</span> {{ p.email }}</td>
 </tr></table>
 {% endmacro %}
 
-{% macro address_lines(a) %}
-{% if a %}{% for line in a.lines %}<div>{{ line }}</div>{% endfor %}{% endif %}
-{% endmacro %}
-
-{#- Bill-to / ship-to. left_label e.g. "Bill To" / "Supplier". -#}
-{% macro parties(p, left_label="Bill To", right_label="Ship To", right_html="") %}
-<table class="ib-parties"><tr>
-  <td>
-    <div class="ib-label">{{ left_label }}</div>
-    <div class="ib-party-name">{{ p.party.name }}</div>
-    {{ address_lines(p.party.bill) }}
-    {% if p.party.gstin %}<div>GSTIN <b>{{ p.party.gstin }}</b>{% if p.party.state %} · {{ p.party.state }}{% if p.party.state_code %} ({{ p.party.state_code }}){% endif %}{% endif %}</div>{% endif %}
-    {% if p.party.contact or p.party.mobile %}<div class="ib-muted ib-small">{{ p.party.contact }}{% if p.party.contact and p.party.mobile %} · {% endif %}{{ p.party.mobile }}</div>{% endif %}
+{#- Box title + three columns. Each column is a list of [label, value];
+    a row whose label starts with "#" is a red sub-heading. -#}
+{% macro doc_head(title, col1, col2, col3) %}
+<div class="title">- {{ title }} -</div>
+<table class="parties"><tr>
+  {% for col in [col1, col2, col3] %}
+  <td style="width:{{ '36%' if loop.first else ('28%' if loop.index == 2 else '36%') }}">
+    {% for row in col if row[1] or row[0].startswith('#') %}
+      {% if row[0].startswith('#') %}<div class="lbl red">{{ row[0][1:] }}</div>
+      {% else %}<div><span class="lbl">{{ row[0] }} :</span> <span class="up">{{ row[1] }}</span></div>{% endif %}
+    {% endfor %}
   </td>
-  <td>
-    {% if right_html %}{{ right_html }}{% else %}
-    <div class="ib-label">{{ right_label }}</div>
-    {% if p.party.ship %}
-      <div class="ib-party-name">{{ p.party.ship.address_title or p.party.name }}</div>
-      {{ address_lines(p.party.ship) }}
-      {% if p.party.ship.gstin %}<div>GSTIN <b>{{ p.party.ship.gstin }}</b></div>{% endif %}
-    {% else %}
-      <div class="ib-muted">Same as billing address</div>
-    {% endif %}
-    {% if p.party.place_of_supply %}<div class="ib-small" style="margin-top:3px">Place of supply: <b>{{ p.party.place_of_supply }}</b></div>{% endif %}
-    {% endif %}
-  </td>
+  {% endfor %}
 </tr></table>
 {% endmacro %}
 
-{#- Item table. opts: show_rate, show_gst, show_hsn, show_weight, show_disc -#}
-{% macro item_table(lines, currency="INR", show_rate=True, show_gst=True, show_hsn=True, show_weight=False, show_pkg=False) %}
-{% set ns = namespace(qty=0, amt=0, wt=0, pkg=0, disc=False) %}
-{% for l in lines %}{% if l.discount_pct %}{% set ns.disc = True %}{% endif %}{% endfor %}
-<table class="ib-items">
+{#- The QPF_V2 item grid. show_money=False for a quantity-only challan. -#}
+{% macro item_grid(lines, currency="INR", show_money=True, gst_label="GST") %}
+{% set ns = namespace(qty=0, val=0, tax=0, tot=0, pkg=0) %}
+<table class="items">
   <thead><tr>
-    <th class="c" style="width:4%">#</th>
-    <th>Item &amp; Description</th>
-    {% if show_hsn %}<th class="c" style="width:9%">HSN</th>{% endif %}
-    <th class="r" style="width:12%">Qty</th>
-    {% if show_pkg %}<th class="r" style="width:8%">Pkgs</th>{% endif %}
-    {% if show_weight %}<th class="r" style="width:9%">Weight</th>{% endif %}
-    {% if show_rate %}<th class="r" style="width:10%">Rate</th>{% endif %}
-    {% if show_rate and ns.disc %}<th class="r" style="width:6%">Disc</th>{% endif %}
-    {% if show_gst %}<th class="c" style="width:6%">GST</th>{% endif %}
-    {% if show_rate %}<th class="r" style="width:13%">Amount</th>{% endif %}
+    <th style="width:3%">#</th>
+    <th style="width:{{ '19%' if show_money else '33%' }}">Item</th>
+    <th style="width:7%">Thick<br>ness</th>
+    <th style="width:8%">Color</th>
+    <th style="width:6%">Width<br>(mm)</th>
+    <th style="width:6%">Length<br>(mtr)</th>
+    <th style="width:5%">Qty /<br>pkg</th>
+    <th style="width:5%">Total<br>pkg</th>
+    <th style="width:{{ '8%' if show_money else '12%' }}" class="r">Qty</th>
+    {% if show_money %}
+    <th style="width:6%" class="r">Price</th>
+    <th style="width:6%">Rate<br>for</th>
+    <th style="width:8%" class="r">Value</th>
+    <th style="width:6%" class="r">{{ gst_label }}</th>
+    <th style="width:8%" class="r">Total</th>
+    {% else %}
+    <th style="width:10%">HSN</th>
+    <th style="width:5%" class="r">Wt kg</th>
+    {% endif %}
   </tr></thead>
   <tbody>
   {% for l in lines %}
-    {% set ns.qty = ns.qty + l.qty %}{% set ns.amt = ns.amt + l.amount %}{% set ns.wt = ns.wt + l.weight %}{% set ns.pkg = ns.pkg + l.packages %}
-    <tr class="{{ 'alt' if loop.index is even else '' }}" style="page-break-inside:avoid">
-      <td class="c ib-muted">{{ l.idx }}</td>
-      <td>
-        <div class="iname">{{ l.item_name }}</div>
-        {% if l.item_name != l.item_code %}<div class="icode">{{ l.item_code }}</div>{% endif %}
-        {% if l.spec %}<div class="ispec">{{ l.spec }}</div>{% endif %}
-        {% if l.description and l.description != l.item_name %}<div class="ispec">{{ l.description }}</div>{% endif %}
-        {% if l.specifications %}<div class="ispec">{{ l.specifications }}</div>{% endif %}
-        {% if l.note %}<div class="ispec" style="color:#a35a00">{{ l.note }}</div>{% endif %}
+    {% set ns.qty = ns.qty + l.qty %}{% set ns.val = ns.val + l.amount %}{% set ns.tax = ns.tax + l.tax %}{% set ns.tot = ns.tot + l.total %}{% set ns.pkg = ns.pkg + l.packages %}
+    <tr>
+      <td>{{ l.idx }}.</td>
+      <td><div class="nm">{{ l.item_name }}{% if l.item_name != l.item_code %} - {{ l.item_code }}{% endif %}</div>
+        {% if l.description %}<div class="sub">{{ l.description }}</div>{% endif %}
+        {% if l.specifications %}<div class="sub">{{ l.specifications }}</div>{% endif %}
+        {% if l.row.custom_branding or l.row.custom_marking %}<div class="sub">{{ ("Branding: " ~ l.row.custom_branding) if l.row.custom_branding else "" }}{{ " · " if l.row.custom_branding and l.row.custom_marking else "" }}{{ ("Marking: " ~ l.row.custom_marking) if l.row.custom_marking else "" }}</div>{% endif %}
+        {% if l.note %}<div class="sub" style="color:#a35a00">{{ l.note }}</div>{% endif %}
       </td>
-      {% if show_hsn %}<td class="c">{{ l.hsn }}</td>{% endif %}
-      <td class="r num"><b>{{ "{:,.2f}".format(l.qty).rstrip("0").rstrip(".") }}</b> {{ l.uom }}</td>
-      {% if show_pkg %}<td class="r num">{{ "%g" | format(l.packages) if l.packages else "" }}</td>{% endif %}
-      {% if show_weight %}<td class="r num">{{ ("%g kg" | format(l.weight)) if l.weight else "" }}</td>{% endif %}
-      {% if show_rate %}<td class="r num">{{ ib_money(l.rate, currency) }}</td>{% endif %}
-      {% if show_rate and ns.disc %}<td class="r num">{{ ("%g%%" | format(l.discount_pct)) if l.discount_pct else "" }}</td>{% endif %}
-      {% if show_gst %}<td class="c num">{{ ("%g%%" | format(l.gst_rate)) if l.gst_rate else "—" }}</td>{% endif %}
-      {% if show_rate %}<td class="r num"><b>{{ ib_money(l.amount, currency) }}</b></td>{% endif %}
+      <td class="up">{{ l.row.custom_thickness or "" }}</td>
+      <td class="up">{{ l.row.color or "" }}</td>
+      <td>{{ "%g" | format(l.row.width_mm) if l.row.width_mm else "" }}</td>
+      <td>{{ "%g" | format(l.row.length_mtr) if l.row.length_mtr else "" }}</td>
+      <td>{{ "%g" | format(l.row.qty_pkg) if l.row.qty_pkg else "" }}</td>
+      <td>{{ "%g" | format(l.row.total_pkg) if l.row.total_pkg else "" }}</td>
+      <td class="r">{{ "%g" | format(l.qty) }} <span class="up">{{ l.uom }}</span></td>
+      {% if show_money %}
+      <td class="r">{{ "%.2f" | format(l.rate) }}</td>
+      <td class="up">{{ l.uom }}</td>
+      <td class="r">{{ "%.2f" | format(l.amount) }}</td>
+      <td class="r">{{ "%.2f" | format(l.tax) }}</td>
+      <td class="r">{{ "%.2f" | format(l.total) }}</td>
+      {% else %}
+      <td>{{ l.hsn }}</td>
+      <td class="r">{{ "%g" | format(l.weight) if l.weight else "" }}</td>
+      {% endif %}
     </tr>
   {% endfor %}
-  </tbody>
   {% if lines | length > 1 %}
-  <tfoot><tr>
-    <td></td><td class="r">Total</td>
-    {% if show_hsn %}<td></td>{% endif %}
-    <td class="r num">{{ "{:,.2f}".format(ns.qty).rstrip("0").rstrip(".") }}</td>
-    {% if show_pkg %}<td class="r num">{{ "%g" | format(ns.pkg) if ns.pkg else "" }}</td>{% endif %}
-    {% if show_weight %}<td class="r num">{{ ("%g kg" | format(ns.wt)) if ns.wt else "" }}</td>{% endif %}
-    {% if show_rate %}<td></td>{% endif %}
-    {% if show_rate and ns.disc %}<td></td>{% endif %}
-    {% if show_gst %}<td></td>{% endif %}
-    {% if show_rate %}<td class="r num">{{ ib_money(ns.amt, currency) }}</td>{% endif %}
-  </tr></tfoot>
+    <tr class="tot">
+      <td></td><td>Total</td><td></td><td></td><td></td><td></td><td></td>
+      <td>{{ "%g" | format(ns.pkg) if ns.pkg else "" }}</td>
+      <td class="r">{{ "%g" | format(ns.qty) }}</td>
+      {% if show_money %}<td></td><td></td><td class="r">{{ "%.2f" | format(ns.val) }}</td><td class="r">{{ "%.2f" | format(ns.tax) }}</td><td class="r">{{ "%.2f" | format(ns.tot) }}</td>
+      {% else %}<td></td><td></td>{% endif %}
+    </tr>
   {% endif %}
+  </tbody>
 </table>
 {% endmacro %}
 
-{#- Amount in words on the left, totals on the right. extra_rows: [[label, value]] -#}
-{% macro summary(t, currency="INR", extra_rows=[]) %}
-<table class="ib-sum"><tr>
-  <td style="width:55%; padding-right:10px">
-    <div class="ib-words">
-      <div class="ib-label">Amount in words</div>
-      <b>{{ t.words }}</b>
-    </div>
-  </td>
-  <td style="width:45%">
-    <table class="ib-totals">
-      {% if t.discount %}
-      <tr><td>Gross total</td><td class="v">{{ ib_money(t.total, currency) }}</td></tr>
-      <tr><td>Discount</td><td class="v">− {{ ib_money(t.discount, currency) }}</td></tr>
-      {% endif %}
-      <tr><td>Taxable value</td><td class="v">{{ ib_money(t.net, currency) }}</td></tr>
+{#- Totals box: left cell free text, right cell before-tax / taxes / net. -#}
+{% macro totals_block(t, currency="INR", left_html="", extra_rows=[]) %}
+<table class="sum"><tr>
+  <td class="left" style="width:55%">{{ left_html }}</td>
+  <td style="width:45%; padding:0">
+    <table class="totals">
+      {% if t.discount %}<tr><td class="k">Discount</td><td class="r">- {{ "%.2f" | format(t.discount) }}</td></tr>{% endif %}
+      <tr><td class="k">Total amount before tax ({{ currency }}):</td><td class="r" style="width:32%">{{ "%.2f" | format(t.net) }}</td></tr>
       {% for tax in t.taxes %}
-      <tr><td>{{ tax.description }}{% if tax.rate %} @ {{ "%g" | format(tax.rate) }}%{% endif %}</td><td class="v">{{ ib_money(tax.tax_amount, currency) }}</td></tr>
+      <tr><td class="k">{{ tax.description }}{% if tax.rate %} ({{ "%g" | format(tax.rate) }}%){% endif %}:</td><td class="r">{{ "%.2f" | format(tax.tax_amount) }}</td></tr>
       {% endfor %}
-      {% if t.extra %}<tr><td>Freight &amp; other charges</td><td class="v">{{ ib_money(t.extra, currency) }}</td></tr>{% endif %}
-      {% if t.rounding %}<tr><td class="ib-muted">Rounding</td><td class="v ib-muted">{{ ib_money(t.rounding, currency) }}</td></tr>{% endif %}
-      <tr class="grand"><td>Grand total</td><td class="v">{{ ib_money(t.grand, currency) }}</td></tr>
+      {% if t.extra %}<tr><td class="k">Freight &amp; other charges:</td><td class="r">{{ "%.2f" | format(t.extra) }}</td></tr>{% endif %}
+      {% if t.rounding %}<tr><td class="k">Rounding:</td><td class="r">{{ "%.2f" | format(t.rounding) }}</td></tr>{% endif %}
+      <tr class="net"><td>Net amount ({{ currency }}):</td><td class="r">{{ "%.2f" | format(t.grand) }}</td></tr>
       {% for row in extra_rows if row[1] %}
-      <tr><td>{{ row[0] }}</td><td class="v">{{ row[1] }}</td></tr>
+      <tr><td class="k">{{ row[0] }}:</td><td class="r">{{ row[1] }}</td></tr>
       {% endfor %}
     </table>
   </td>
 </tr></table>
+<div class="words"><span class="lbl">Amount (in words) :</span> {{ t.words }}</div>
 {% endmacro %}
 
-{% macro hsn_table(h, currency="INR") %}
-{% if h.rows %}
-<table class="ib-hsn">
-  <thead><tr>
-    <th>HSN / SAC</th><th>Taxable value</th>
-    {% if h.interstate %}<th>IGST rate</th><th>IGST</th>{% else %}<th>CGST rate</th><th>CGST</th><th>SGST rate</th><th>SGST</th>{% endif %}
-    <th>Total tax</th>
-  </tr></thead>
-  <tbody>
-  {% for r in h.rows %}
-    <tr><td>{{ r.hsn }}</td><td>{{ ib_money(r.taxable, currency) }}</td>
-    {% if h.interstate %}<td>{{ "%g" | format(r.igst_rate) }}%</td><td>{{ ib_money(r.igst, currency) }}</td>
-    {% else %}<td>{{ "%g" | format(r.cgst_rate) }}%</td><td>{{ ib_money(r.cgst, currency) }}</td><td>{{ "%g" | format(r.sgst_rate) }}%</td><td>{{ ib_money(r.sgst, currency) }}</td>{% endif %}
-    <td>{{ ib_money(r.tax, currency) }}</td></tr>
-  {% endfor %}
-  {% if h.rows | length > 1 %}
-    <tr class="tot"><td>Total</td><td>{{ ib_money(h.total.taxable, currency) }}</td>
-    {% if h.interstate %}<td></td><td>{{ ib_money(h.total.igst, currency) }}</td>
-    {% else %}<td></td><td>{{ ib_money(h.total.cgst, currency) }}</td><td></td><td>{{ ib_money(h.total.sgst, currency) }}</td>{% endif %}
-    <td>{{ ib_money(h.total.tax, currency) }}</td></tr>
-  {% endif %}
-  </tbody>
-</table>
-{% endif %}
-{% endmacro %}
-
-{% macro bank_block(p) %}
-{% if p.bank %}
-<div class="ib-label">Bank details for payment</div>
-<table class="ib-kv">
-  <tr><td class="k">Account name</td><td class="v">{{ p.bank.holder }}</td></tr>
-  <tr><td class="k">Bank</td><td class="v">{{ p.bank.bank }}{% if p.bank.branch %}, {{ p.bank.branch }}{% endif %}</td></tr>
-  <tr><td class="k">Account no.</td><td class="v">{{ p.bank.account_no }}</td></tr>
-  <tr><td class="k">IFSC</td><td class="v">{{ p.bank.ifsc }}</td></tr>
-</table>
-{% endif %}
-{% endmacro %}
-
-{% macro terms_block(p, title="Terms &amp; conditions") %}
+{% macro terms_block(p, heading="General terms and conditions") %}
 {% if p.terms %}
-<div class="ib-label" style="margin-top:6px">{{ title }}</div>
-<div class="ib-terms">{{ p.terms }}</div>
+<div class="terms"><h4>{{ heading | upper }}</h4>{{ p.terms }}</div>
 {% endif %}
 {% endmacro %}
 
-{% macro sign_block(p, label="Authorised Signatory", show_stamp=True) %}
-<div class="ib-sign">
-  <div class="for">for {{ p.seller.name }}</div>
-  {% if show_stamp and p.stamp and not p.is_draft %}<img src="{{ p.stamp }}">{% else %}<div style="height:58px"></div>{% endif %}
-  <div><span class="who">{{ label }}</span></div>
-</div>
-{% endmacro %}
-
-{#- Bank + terms left, signature right. -#}
-{% macro footer(p, show_bank=True, sign_label="Authorised Signatory", receiver=False) %}
-<table class="ib-foot"><tr>
-  <td style="width:62%; padding-right:10px">
-    <div class="ib-box">
-      {% if show_bank %}{{ bank_block(p) }}{% endif %}
-      {{ terms_block(p) }}
-      {% if not (show_bank and p.bank) and not p.terms %}<div class="ib-muted ib-small">—</div>{% endif %}
-    </div>
+{#- Signature; receiver=True adds a receiver's signature on the left. -#}
+{% macro sign_block(p, receiver=False) %}
+<table class="sign"><tr>
+  <td style="width:50%; vertical-align:bottom">
+    {% if receiver %}<div style="height:55px"></div><div style="border-top:1px solid #999; width:70%; padding-top:2px" class="lbl">Receiver's signature &amp; stamp</div>{% endif %}
   </td>
-  <td style="width:38%">
-    {{ sign_block(p, sign_label) }}
-    {% if receiver %}
-    <div style="margin-top:14px; text-align:right"><span class="who" style="border-top:1px solid #999; display:inline-block; min-width:150px; text-align:center; font-size:8.5px; color:#555; padding-top:2px">Receiver's signature &amp; stamp</span></div>
-    {% endif %}
+  <td style="width:50%" class="r">
+    <div class="lbl">For {{ p.seller.name }}</div>
+    {% if p.stamp and not p.is_draft %}<img src="{{ p.stamp }}">{% else %}<div style="height:55px"></div>{% endif %}
+    <div class="lbl">Authorised signatory</div>
   </td>
 </tr></table>
-<div class="ib-note">{% if p.footer_note %}{{ p.footer_note }} · {% endif %}This is a computer generated document.</div>
+{% if p.footer_note %}<div class="note">{{ p.footer_note }}</div>{% endif %}
 {% endmacro %}

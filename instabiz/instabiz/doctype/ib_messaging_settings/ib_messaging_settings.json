@@ -1,0 +1,159 @@
+{
+ "actions": [],
+ "creation": "2026-09-19 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "wa_section",
+  "whatsapp_mode",
+  "whatsapp_country_code",
+  "wa_col",
+  "pdf_link_valid_days",
+  "wa_api_section",
+  "wa_api_url",
+  "wa_sender_number",
+  "wa_api_col",
+  "wa_api_token",
+  "email_section",
+  "email_help"
+ ],
+ "fields": [
+  {
+   "fieldname": "wa_section",
+   "fieldtype": "Section Break",
+   "label": "WhatsApp"
+  },
+  {
+   "fieldname": "whatsapp_mode",
+   "fieldtype": "Select",
+   "label": "Sending Mode",
+   "options": "Free link (wa.me)\nAPI",
+   "default": "Free link (wa.me)",
+   "description": "Free link opens WhatsApp with the message ready; API sends automatically."
+  },
+  {
+   "fieldname": "whatsapp_country_code",
+   "fieldtype": "Data",
+   "label": "Default Country Code",
+   "default": "91"
+  },
+  {
+   "fieldname": "wa_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pdf_link_valid_days",
+   "fieldtype": "Int",
+   "label": "PDF Link Valid For (Days)",
+   "default": "30"
+  },
+  {
+   "fieldname": "wa_api_section",
+   "fieldtype": "Section Break",
+   "label": "WhatsApp API",
+   "depends_on": "eval:doc.whatsapp_mode==\"API\""
+  },
+  {
+   "fieldname": "wa_api_url",
+   "fieldtype": "Data",
+   "label": "API Endpoint URL"
+  },
+  {
+   "fieldname": "wa_sender_number",
+   "fieldtype": "Data",
+   "label": "Sender Number"
+  },
+  {
+   "fieldname": "wa_api_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "wa_api_token",
+   "fieldtype": "Password",
+   "label": "API Token"
+  },
+  {
+   "fieldname": "email_section",
+   "fieldtype": "Section Break",
+   "label": "Email"
+  },
+  {
+   "fieldname": "email_help",
+   "fieldtype": "HTML",
+   "options": "<p class='text-muted small'>Email uses the default outgoing <a href='/app/email-account'>Email Account</a>. Wording lives in <a href='/app/ib-message-template'>IB Message Template</a>.</p>"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-19 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "IB Messaging Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "Purchase User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "Stock User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 0,
+   "report": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

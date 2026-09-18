@@ -13,11 +13,11 @@ import frappe
 from frappe import _
 from frappe.utils import flt, fmt_money
 
-APPROVER_EMAIL = "idris@instabizsolutions.com"  # default when Instabiz Settings has none
+APPROVER_EMAIL = "idris@instabizsolutions.com"  # default when IB Sales Settings has none
 
 
 def advance_approvers():
-	"""Users who can approve advances (Instabiz Settings: main + backup)."""
+	"""Users who can approve advances (IB Sales Settings: main + backup)."""
 	from instabiz.overrides.ib_settings import get
 
 	main = get("advance_approver", APPROVER_EMAIL)

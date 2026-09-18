@@ -1,0 +1,161 @@
+{
+ "actions": [],
+ "creation": "2026-09-19 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "receipt_section",
+  "default_receipt_bank_account",
+  "default_receipt_cost_center",
+  "receipt_col",
+  "irn_warn_from_day",
+  "late_payment_interest_pct",
+  "claim_window_days",
+  "bank_section",
+  "bank_account_maharashtra",
+  "bank_account_gujarat",
+  "bank_col",
+  "bank_account_chennai",
+  "invoice_section",
+  "invoice_declaration",
+  "jurisdiction"
+ ],
+ "fields": [
+  {
+   "fieldname": "receipt_section",
+   "fieldtype": "Section Break",
+   "label": "Customer Receipts"
+  },
+  {
+   "fieldname": "default_receipt_bank_account",
+   "fieldtype": "Link",
+   "label": "Default Receipt Account",
+   "options": "Account",
+   "description": "Account a Sales User's quick payment entry deposits into."
+  },
+  {
+   "fieldname": "default_receipt_cost_center",
+   "fieldtype": "Link",
+   "label": "Default Receipt Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "receipt_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "irn_warn_from_day",
+   "fieldtype": "Int",
+   "label": "Warn About Missing IRN From Day",
+   "default": "20",
+   "description": "The IRP accepts an invoice up to 30 days after its date."
+  },
+  {
+   "fieldname": "late_payment_interest_pct",
+   "fieldtype": "Percent",
+   "label": "Late Payment Interest (% p.a.)",
+   "default": "24"
+  },
+  {
+   "fieldname": "claim_window_days",
+   "fieldtype": "Int",
+   "label": "Quality Claim Window (Days)",
+   "default": "15"
+  },
+  {
+   "fieldname": "bank_section",
+   "fieldtype": "Section Break",
+   "label": "Bank Details on Documents",
+   "description": "Used when the location's warehouse has no Bank Details."
+  },
+  {
+   "fieldname": "bank_account_maharashtra",
+   "fieldtype": "Link",
+   "label": "Maharashtra Bank Account",
+   "options": "Bank Account"
+  },
+  {
+   "fieldname": "bank_account_gujarat",
+   "fieldtype": "Link",
+   "label": "Gujarat Bank Account",
+   "options": "Bank Account"
+  },
+  {
+   "fieldname": "bank_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bank_account_chennai",
+   "fieldtype": "Link",
+   "label": "Chennai Bank Account",
+   "options": "Bank Account"
+  },
+  {
+   "fieldname": "invoice_section",
+   "fieldtype": "Section Break",
+   "label": "Invoice Text"
+  },
+  {
+   "fieldname": "invoice_declaration",
+   "fieldtype": "Small Text",
+   "label": "Invoice Declaration",
+   "default": "1. We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.\n2. Interest @ 24% p.a. will be charged if payment is not made on or before the due date.\n3. No claim will be accepted after 15 days from the invoice date."
+  },
+  {
+   "fieldname": "jurisdiction",
+   "fieldtype": "Data",
+   "label": "Jurisdiction",
+   "default": "Mumbai",
+   "description": "Printed as 'Subject to <city> jurisdiction'."
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-19 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "IB Accounts Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 0,
+   "report": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

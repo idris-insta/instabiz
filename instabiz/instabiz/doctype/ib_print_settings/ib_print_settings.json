@@ -1,0 +1,95 @@
+{
+ "actions": [],
+ "creation": "2026-09-19 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "brand_section",
+  "print_letterhead_image",
+  "print_stamp_image",
+  "brand_col",
+  "print_accent_color",
+  "print_website",
+  "print_phone",
+  "print_email",
+  "print_footer_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "brand_section",
+   "fieldtype": "Section Break",
+   "label": "Branding"
+  },
+  {
+   "fieldname": "print_letterhead_image",
+   "fieldtype": "Attach Image",
+   "label": "Letterhead Banner",
+   "default": "/files/Instabiz_LH_v2.png"
+  },
+  {
+   "fieldname": "print_stamp_image",
+   "fieldtype": "Attach Image",
+   "label": "Company Stamp / Signature",
+   "default": "/files/IB_Stamp.jpeg"
+  },
+  {
+   "fieldname": "brand_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "print_accent_color",
+   "fieldtype": "Color",
+   "label": "Heading Colour",
+   "default": "#c0392b"
+  },
+  {
+   "fieldname": "print_website",
+   "fieldtype": "Data",
+   "label": "Website",
+   "default": "www.instabizsolutions.com"
+  },
+  {
+   "fieldname": "print_phone",
+   "fieldtype": "Data",
+   "label": "Phone",
+   "default": "+91-8104393117"
+  },
+  {
+   "fieldname": "print_email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "default": "info@instabizsolutions.com"
+  },
+  {
+   "fieldname": "print_footer_note",
+   "fieldtype": "Small Text",
+   "label": "Footer Note",
+   "description": "Added to the bottom of customer documents."
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-19 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "IB Print Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 0,
+   "report": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

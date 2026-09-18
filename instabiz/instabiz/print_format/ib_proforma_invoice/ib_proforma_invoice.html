@@ -1,31 +1,20 @@
 {% import "templates/print/ib_print_macros.html" as ib with context %}
 {% set p = ib_print(doc, "proforma") %}
 {% set cur = doc.currency or "INR" %}
+{% set lines = ib_items(doc) %}
 {% set t = ib_totals(doc) %}
-{% set balance = t.grand - t.advance %}
 {{ ib.styles(p) }}
-{{ ib.header(p, "Proforma Invoice", [
-	["Proforma no.", "PI-" ~ doc.name],
-	["Date", ib_date(frappe.utils.today())],
-	["Against order", doc.name],
-	["Your PO", doc.po_no or doc.get("custom_reference_po")],
-	["Expected dispatch", ib_date(doc.delivery_date)],
-], "Not a tax invoice · issued for advance payment") }}
-{{ ib.parties(p, "Bill To", "Ship To") }}
-{{ ib.item_table(ib_items(doc), cur) }}
-{{ ib.hsn_table(ib_hsn_summary(doc), cur) }}
-{{ ib.summary(t, cur, [
-	["Advance already received", ib_money(t.advance, cur) if t.advance else ""],
-	["Amount payable now", ib_money(balance, cur) if t.advance else ""],
-]) }}
-<table class="ib-foot"><tr>
-  <td style="width:62%; padding-right:10px">
-    <div class="ib-box" style="border-color:{{ p.accent }}">
-      {{ ib.bank_block(p) }}
-      <div class="ib-small ib-muted" style="margin-top:4px">Please quote <b>{{ doc.name }}</b> in the payment reference and share the UTR / payment proof with your sales contact{% if p.sales_person %} ({{ p.sales_person.name }}{% if p.sales_person.phone %}, {{ p.sales_person.phone }}{% endif %}){% endif %}.</div>
-    </div>
-    {% if p.terms %}<div class="ib-box" style="margin-top:6px">{{ ib.terms_block(p) }}</div>{% endif %}
-  </td>
-  <td style="width:38%">{{ ib.sign_block(p) }}</td>
-</tr></table>
-<div class="ib-note">{% if p.footer_note %}{{ p.footer_note }} · {% endif %}A GST tax invoice will be issued at the time of dispatch.</div>
+<div class="ibp">
+{{ ib.seller_block(p) }}
+<div class="box">
+{{ ib.doc_head("Proforma Invoice",
+	[["Customer name", p.party.name], ["GST no", p.party.gstin], ["Address", (p.party.bill.lines | join(", ")) if p.party.bill else ""], ["Contact no", p.party.mobile]],
+	[["Sales person", p.sales_person.name if p.sales_person else doc.get("custom_sales_person")], ["Location", doc.get("custom_location")], ["PI no", doc.name], ["Date", ib_date(doc.transaction_date)]],
+	[["#Order procedure", ""], ["Transport", doc.get("custom_transport")], ["Booking for", doc.get("booking_for")], ["Reference PO", doc.po_no or doc.get("custom_reference_po")]]) }}
+{{ ib.item_grid(lines, cur, gst_label=ib_gst_label(lines)) }}
+{% set left %}<span class="lbl">Please quote {{ doc.name }} in your payment reference.</span><br>A GST tax invoice will be issued at the time of dispatch.{% endset %}
+{{ ib.totals_block(t, cur, left, [["Advance received", "%.2f" | format(t.advance) if t.advance else ""], ["Amount payable", "%.2f" | format(t.grand - t.advance) if t.advance else ""]]) }}
+</div>
+{{ ib.terms_block(p) }}
+{{ ib.sign_block(p) }}
+</div>

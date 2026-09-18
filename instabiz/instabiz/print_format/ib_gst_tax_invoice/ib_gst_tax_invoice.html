@@ -603,7 +603,7 @@
         <tr><td>Net Balance &nbsp;:</td><td><strong>{{ fm(net_bal) }} Dr</strong></td></tr>
       </table>
 
-      {# location's bank (warehouse Bank Details, else Instabiz Settings); the
+      {# location's bank (warehouse Bank Details, else IB Accounts Settings); the
          old block printed "(Mumbai)" for every location #}
       {% set _bk = _ibp.bank %}
       {% if _bk %}

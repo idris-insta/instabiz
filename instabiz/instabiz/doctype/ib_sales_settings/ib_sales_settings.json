@@ -1,0 +1,237 @@
+{
+ "actions": [],
+ "creation": "2026-09-19 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "approval_section",
+  "advance_approver",
+  "advance_approver_backup",
+  "approval_col",
+  "enable_credit_limit_check",
+  "enable_overdue_block",
+  "timeline_section",
+  "default_delivery_days",
+  "quotation_validity_days",
+  "fulfillment_sla_hours",
+  "timeline_col",
+  "dormant_days",
+  "quote_stale_days",
+  "lead_stale_days",
+  "winback_cooldown_days",
+  "dormant_escalation_section",
+  "enable_dormant_escalation",
+  "dormant_reassign_daily_cap",
+  "dormant_escalation_col",
+  "dormant_notice_1_days",
+  "dormant_notice_2_days",
+  "dormant_reassign_days",
+  "terms_section",
+  "quotation_terms",
+  "proforma_terms",
+  "sales_order_terms"
+ ],
+ "fields": [
+  {
+   "fieldname": "approval_section",
+   "fieldtype": "Section Break",
+   "label": "Approvals & Credit"
+  },
+  {
+   "fieldname": "advance_approver",
+   "fieldtype": "Link",
+   "label": "Advance Approver",
+   "options": "User",
+   "description": "Approves a Sales Order that has an advance payment before it can be confirmed. Blank = idris@instabizsolutions.com."
+  },
+  {
+   "fieldname": "advance_approver_backup",
+   "fieldtype": "Link",
+   "label": "Backup Advance Approver",
+   "options": "User"
+  },
+  {
+   "fieldname": "approval_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "enable_credit_limit_check",
+   "fieldtype": "Check",
+   "label": "Block Orders Over Credit Limit",
+   "default": "1",
+   "description": "Only for customers with a Credit Limit on their Customer record. A Sales Manager can still submit by filling Credit Override Reason."
+  },
+  {
+   "fieldname": "enable_overdue_block",
+   "fieldtype": "Check",
+   "label": "Block Orders for 30+ Day Overdue Customers",
+   "default": "0"
+  },
+  {
+   "fieldname": "timeline_section",
+   "fieldtype": "Section Break",
+   "label": "Timelines"
+  },
+  {
+   "fieldname": "default_delivery_days",
+   "fieldtype": "Int",
+   "label": "Default Delivery Days",
+   "default": "8",
+   "description": "Order date + this = expected dispatch when none is entered."
+  },
+  {
+   "fieldname": "quotation_validity_days",
+   "fieldtype": "Int",
+   "label": "Quotation Valid For (Days)",
+   "default": "30",
+   "description": "Valid Till on a new quotation = date + this."
+  },
+  {
+   "fieldname": "fulfillment_sla_hours",
+   "fieldtype": "Int",
+   "label": "Dispatch SLA (Hours)",
+   "default": "48"
+  },
+  {
+   "fieldname": "timeline_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "dormant_days",
+   "fieldtype": "Int",
+   "label": "Dormant Customer After (Days)",
+   "default": "60"
+  },
+  {
+   "fieldname": "quote_stale_days",
+   "fieldtype": "Int",
+   "label": "Stale Quotation After (Days)",
+   "default": "14"
+  },
+  {
+   "fieldname": "lead_stale_days",
+   "fieldtype": "Int",
+   "label": "Cold Lead After (Days)",
+   "default": "30"
+  },
+  {
+   "fieldname": "winback_cooldown_days",
+   "fieldtype": "Int",
+   "label": "Repeat Nudge Every (Days)",
+   "default": "14"
+  },
+  {
+   "fieldname": "dormant_escalation_section",
+   "fieldtype": "Section Break",
+   "label": "Dormant Customer Reassignment"
+  },
+  {
+   "fieldname": "enable_dormant_escalation",
+   "fieldtype": "Check",
+   "label": "Enable Reassignment",
+   "default": "1"
+  },
+  {
+   "fieldname": "dormant_reassign_daily_cap",
+   "fieldtype": "Int",
+   "label": "Max per Sales Person per Day",
+   "default": "25",
+   "description": "Applies to reassignments and to reminders. Most-inactive customers first."
+  },
+  {
+   "fieldname": "dormant_escalation_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "dormant_notice_1_days",
+   "fieldtype": "Int",
+   "label": "First Notice After (Days)",
+   "default": "30"
+  },
+  {
+   "fieldname": "dormant_notice_2_days",
+   "fieldtype": "Int",
+   "label": "Second Notice After (Days)",
+   "default": "60"
+  },
+  {
+   "fieldname": "dormant_reassign_days",
+   "fieldtype": "Int",
+   "label": "Reassign After (Days)",
+   "default": "90"
+  },
+  {
+   "fieldname": "terms_section",
+   "fieldtype": "Section Break",
+   "label": "Standard Terms",
+   "description": "Printed when the document has no Terms and Conditions of its own."
+  },
+  {
+   "fieldname": "quotation_terms",
+   "fieldtype": "Text Editor",
+   "label": "Quotation Terms",
+   "default": "<ol>\n<li>PAYMENT TERMS : 100% ADVANCE.</li>\n<li>ALL PRICES ARE FINAL AND EXCLUSIVE OF ALL TAXES.</li>\n<li>ALL PRICES ARE ON EX FACTORY BASIS AND NO ADDITIONAL DISCOUNT WILL BE EXTENDED.</li>\n<li>NO ORDERS SHALL BE PROCESSED WITHOUT CONFIRMATION OF PI IN WRITING, EITHER BY MAIL OR BY WHATSAPP.</li>\n<li>NO ORDERS SHALL BE PROCESSED WITHOUT RECEIVING 100% ADVANCE PAYMENT.</li>\n<li>VALIDITY OF QUOTATION IS MAXIMUM 1 MONTH AND PRICES MAY CHANGE WITHOUT ANY PRIOR INTIMATION.</li>\n<li>THE COMPANY SHALL NOT BEAR ANY RESPONSIBILITY FOR ANY DAMAGE OCCURRED TO THE GOODS WHILE IN TRANSIT.</li>\n<li>ANY ISSUE REGARDING QUALITY OF THE PRODUCT OR ANY OTHER COMPLAINTS OR GRIEVANCES SHOULD BE RAISED IN WRITING BY MAIL OR WHATSAPP WITHIN 15 DAYS OF THE BILLING DATE. THE COMPANY WILL NOT ATTEND TO ANY COMPLAINTS AND GRIEVANCES AFTER 15 DAYS OF THE BILL DATE.</li>\n</ol>"
+  },
+  {
+   "fieldname": "proforma_terms",
+   "fieldtype": "Text Editor",
+   "label": "Proforma Invoice Terms",
+   "default": "<ol>\n<li>PAYMENT TERMS : 100% ADVANCE.</li>\n<li>ALL PRICES ARE FINAL AND EXCLUSIVE OF ALL TAXES.</li>\n<li>ALL PRICES ARE ON EX FACTORY BASIS AND NO ADDITIONAL DISCOUNT WILL BE EXTENDED.</li>\n<li>NO ORDERS SHALL BE PROCESSED WITHOUT CONFIRMATION OF PI IN WRITING, EITHER BY MAIL OR BY WHATSAPP.</li>\n<li>NO ORDERS SHALL BE PROCESSED WITHOUT RECEIVING 100% ADVANCE PAYMENT.</li>\n<li>VALIDITY OF QUOTATION IS MAXIMUM 1 MONTH AND PRICES MAY CHANGE WITHOUT ANY PRIOR INTIMATION.</li>\n<li>THE COMPANY SHALL NOT BEAR ANY RESPONSIBILITY FOR ANY DAMAGE OCCURRED TO THE GOODS WHILE IN TRANSIT.</li>\n<li>ANY ISSUE REGARDING QUALITY OF THE PRODUCT OR ANY OTHER COMPLAINTS OR GRIEVANCES SHOULD BE RAISED IN WRITING BY MAIL OR WHATSAPP WITHIN 15 DAYS OF THE BILLING DATE. THE COMPANY WILL NOT ATTEND TO ANY COMPLAINTS AND GRIEVANCES AFTER 15 DAYS OF THE BILL DATE.</li>\n</ol>"
+  },
+  {
+   "fieldname": "sales_order_terms",
+   "fieldtype": "Text Editor",
+   "label": "Order Confirmation Terms",
+   "default": "<ol>\n<li>THIS ORDER IS CONFIRMED AS PER THE QUANTITIES, SPECIFICATIONS AND RATES ABOVE.</li>\n<li>ALL PRICES ARE EXCLUSIVE OF TAXES; GST AS APPLICABLE.</li>\n<li>DISPATCH DATE IS AN ESTIMATE AND DEPENDS ON RECEIPT OF PAYMENT AS AGREED.</li>\n<li>THE COMPANY SHALL NOT BEAR ANY RESPONSIBILITY FOR ANY DAMAGE OCCURRED TO THE GOODS WHILE IN TRANSIT.</li>\n<li>ANY QUALITY ISSUE MUST BE RAISED IN WRITING WITHIN 15 DAYS OF THE BILLING DATE.</li>\n</ol>"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-19 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "IB Sales Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 0,
+   "report": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -37,7 +37,7 @@ frappe.ui.form.on("Sales Order", {
 // Advance-payment approval gate: a Draft SO with an unapproved advance can't
 // be confirmed (blocked server-side in advance_approval.py). Approve/Reject
 // buttons only shown to the designated approver.
-// Approvers come from Instabiz Settings via boot (ib_settings.boot_session).
+// Approvers come from IB Sales Settings via boot (ib_settings.boot_session).
 function ib_advance_approvers() {
 	return (frappe.boot.ib_settings && frappe.boot.ib_settings.advance_approvers) || ["idris@instabizsolutions.com"];
 }

@@ -21,7 +21,7 @@ scheduler_events = {
         # Armed 2026-09-18 (user decision) with a cap of 25 reassignments and
         # 25 notices per sales person per day, most-inactive first — the
         # backlog (631 customers already past 90d) drains over several days.
-        # Days, cap and on/off live in Instabiz Settings.
+        # Days, cap and on/off live in IB Sales Settings.
         "instabiz.overrides.customer_dormant_escalation.run_dormant_reassignment_escalation",
         # Monthly sales target milestone notifications (50%/75% elapsed + end-of-month)
         "instabiz.overrides.sales_target.run_target_notifications",
@@ -49,7 +49,7 @@ scheduler_events = {
         # Flag IB Asset Loans past expected_return_date as Overdue + alert HR/borrower
         "instabiz.overrides.asset_loan_alert.run_asset_loan_alert",
         # Casual/Sick/Privilege leave for the current financial year (new FY on
-        # 1 April, new joiners next day) — days from Instabiz Settings
+        # 1 April, new joiners next day) — days from IB HR Settings
         "instabiz.overrides.leave_allocation.run_yearly_leave_allocation",
         # Monthly payroll draft creation — fires daily but only acts on the 7th
         "instabiz.overrides.payroll.run_monthly_payroll_draft",
@@ -68,7 +68,7 @@ scheduler_events = {
         # Price Recommender: velocity/margin-driven price suggestions per item into IB Price Suggestion
         "instabiz.overrides.price_recommender.run_weekly_price_suggestions",
         # Draft one Purchase Material Request from Replenishment Suggestions for
-        # the buyer to review (Instabiz Settings -> Stock & Buying)
+        # the buyer to review (IB Stock Settings)
         "instabiz.overrides.auto_replenish.run_weekly_material_request",
     ],
     "cron": {
@@ -155,6 +155,7 @@ app_version = "0.0.1"
 after_migrate = [
     "instabiz.overrides.indexes.after_migrate",
     "instabiz.overrides.overtime.after_migrate",
+    "instabiz.overrides.workspace_merge.hide_native",
 ]
 
 fixtures = [
@@ -481,6 +482,7 @@ jinja = {
         "instabiz.overrides.print_helpers.ib_statement",
         "instabiz.overrides.print_helpers.ib_money",
         "instabiz.overrides.print_helpers.ib_date",
+        "instabiz.overrides.print_helpers.ib_gst_label",
         "instabiz.overrides.print_helpers.ib_outstanding_rows",
         "instabiz.overrides.production.get_order_sheet_wo_names",
         "instabiz.overrides.production.get_order_sheet_stage_workflow",
@@ -490,7 +492,10 @@ jinja = {
 }
 
 # ── Frontend assets ───────────────────────────────────────────────────────────
-extend_bootinfo = "instabiz.overrides.ib_settings.boot_session"
+extend_bootinfo = [
+    "instabiz.overrides.ib_settings.boot_session",
+    "instabiz.overrides.financial_year.boot_session",  # selected financial year (navbar switcher)
+]
 
 app_include_css = ["instabiz.bundle.css"]
 app_include_js  = [
@@ -512,6 +517,7 @@ app_include_js  = [
     "/assets/instabiz/js/ib_simple_payment_dialog.js",  # shared simplified Payment Entry dialog for Sales Users
     "/assets/instabiz/js/ib_messaging.js",           # Send ▸ WhatsApp / Email on sales, purchase and customer forms
     "/assets/instabiz/js/ib_quick_actions.js",       # Repeat order + last-price hint on Quotation / Sales Order
+    "/assets/instabiz/js/ib_fiscal_year.js",         # navbar financial-year switcher; reports open in the chosen year
     # ib_stock_dashboard.js is loaded by Frappe's page engine (not global)
     # "/assets/instabiz/js/quotation_list.js",        # Quotation list view
     # "/assets/instabiz/js/sales_order_list.js",      # Sales Order list view

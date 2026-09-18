@@ -1,0 +1,41 @@
+{
+ "content": null,
+ "creation": "2026-09-19 12:00:00",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-09-19 12:00:00",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "ib-financial-year",
+ "owner": "Administrator",
+ "page_name": "ib-financial-year",
+ "roles": [
+  {
+   "role": "Accounts User"
+  },
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Sales Manager"
+  },
+  {
+   "role": "Purchase Manager"
+  },
+  {
+   "role": "Stock Manager"
+  },
+  {
+   "role": "HR Manager"
+  },
+  {
+   "role": "Factory Management"
+  }
+ ],
+ "standard": "Yes",
+ "title": "Financial Year"
+}

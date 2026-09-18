@@ -26,6 +26,7 @@ _DEFAULT_STAMP = "/files/IB_Stamp.jpeg"
 _IFSC = __import__("re").compile(r"[A-Z]{4}0[A-Z0-9]{6}")
 
 _TERMS_SETTING = {
+	"Purchase Order": "purchase_order_terms",
 	"Quotation": "quotation_terms",
 	"Sales Order": "sales_order_terms",
 	"Delivery Note": "challan_terms",
@@ -308,6 +309,8 @@ def items(doc):
 			amount=flt(row.amount),
 			taxable=flt(row.get("net_amount") or row.amount),
 			gst_rate=gst,
+			tax=flt(flt(row.get("net_amount") or row.amount) * gst / 100, 2),
+			total=flt(flt(row.amount) + flt(row.get("net_amount") or row.amount) * gst / 100, 2),
 			weight=flt(row.get("custom_total_weight_kg") or row.get("total_weight")),
 			note=(row.get("custom_qty_adjustment_note") or "").strip(),
 			packages=flt(row.get("total_pkg")),
@@ -457,15 +460,23 @@ def statement(customer, from_date=None, to_date=None):
 
 def ib_print(doc, kind=None):
 	"""Everything a print format needs, as one dict."""
-	accent = get("print_accent_color", "#d97757") or "#d97757"
+	accent = get("print_accent_color", "#c0392b") or "#c0392b"
+	s = seller(doc)
+	note = get("print_footer_note", "")
+	jurisdiction = get("jurisdiction", "")
+	if jurisdiction:
+		note = f"Subject to {jurisdiction} jurisdiction. {note}".strip()
 	return frappe._dict(
-		seller=seller(doc),
+		seller=s,
+		website=get("print_website", s.website or "www.instabizsolutions.com"),
+		phone=get("print_phone", s.phone or ""),
+		email=get("print_email", s.email or ""),
 		bank=bank(doc),
 		party=party(doc),
 		letterhead=get("print_letterhead_image", _DEFAULT_LETTERHEAD),
 		stamp=get("print_stamp_image", _DEFAULT_STAMP),
 		accent=accent,
-		footer_note=get("print_footer_note", ""),
+		footer_note=note,
 		terms=terms(doc, kind) if kind != "none" else "",
 		sales_person=sales_person(doc),
 		is_draft=bool(doc.meta.is_submittable) and doc.docstatus == 0,
@@ -504,3 +515,9 @@ def ib_outstanding_rows(customer):
 	from instabiz.overrides.customer import get_outstanding_statement_rows
 
 	return get_outstanding_statement_rows(customer)
+
+
+def ib_gst_label(lines):
+	"""Heading for the GST column: 'GST (18%)' when every line has one rate."""
+	rates = {round(line.gst_rate, 2) for line in lines if line.gst_rate}
+	return f"GST ({next(iter(rates)):g}%)" if len(rates) == 1 else "GST"

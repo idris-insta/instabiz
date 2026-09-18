@@ -1,6 +1,6 @@
 // Send a document by WhatsApp or email from its form (instabiz.overrides.messaging).
 // WhatsApp: free wa.me link today (user presses Send in WhatsApp); switches to
-// the API automatically once Instabiz Settings -> Messaging is set to API.
+// the API automatically once IB Messaging Settings is set to API.
 // Email: Frappe's own composer, pre-filled from the IB Message Template;
 // sends once an outgoing Email Account exists.
 (function () {

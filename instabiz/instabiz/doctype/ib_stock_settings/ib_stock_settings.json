@@ -1,0 +1,168 @@
+{
+ "actions": [],
+ "creation": "2026-09-19 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "alert_section",
+  "po_followup_days",
+  "batch_expiry_alert_days",
+  "alert_col",
+  "replenishment_lead_days",
+  "replenishment_review_days",
+  "auto_mr_section",
+  "auto_material_request",
+  "auto_mr_col",
+  "auto_mr_warehouse",
+  "terms_section",
+  "purchase_order_terms",
+  "challan_terms"
+ ],
+ "fields": [
+  {
+   "fieldname": "alert_section",
+   "fieldtype": "Section Break",
+   "label": "Alerts"
+  },
+  {
+   "fieldname": "po_followup_days",
+   "fieldtype": "Int",
+   "label": "PO Without GRN Alert After (Days)",
+   "default": "7"
+  },
+  {
+   "fieldname": "batch_expiry_alert_days",
+   "fieldtype": "Int",
+   "label": "Batch Expiry Alert Window (Days)",
+   "default": "30"
+  },
+  {
+   "fieldname": "alert_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "replenishment_lead_days",
+   "fieldtype": "Int",
+   "label": "Default Supplier Lead Time (Days)",
+   "default": "14"
+  },
+  {
+   "fieldname": "replenishment_review_days",
+   "fieldtype": "Int",
+   "label": "Reorder Review Cycle (Days)",
+   "default": "7"
+  },
+  {
+   "fieldname": "auto_mr_section",
+   "fieldtype": "Section Break",
+   "label": "Weekly Reorder Draft"
+  },
+  {
+   "fieldname": "auto_material_request",
+   "fieldtype": "Check",
+   "label": "Draft a Material Request Every Week",
+   "default": "1"
+  },
+  {
+   "fieldname": "auto_mr_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "auto_mr_warehouse",
+   "fieldtype": "Link",
+   "label": "Deliver Reorders To",
+   "options": "Warehouse",
+   "description": "Blank = Stock Settings default warehouse."
+  },
+  {
+   "fieldname": "terms_section",
+   "fieldtype": "Section Break",
+   "label": "Standard Terms"
+  },
+  {
+   "fieldname": "purchase_order_terms",
+   "fieldtype": "Text Editor",
+   "label": "Purchase Order Terms",
+   "default": "<ol>\n<li>PLEASE QUOTE OUR PO NUMBER ON YOUR INVOICE, DELIVERY CHALLAN AND ALL CORRESPONDENCE.</li>\n<li>MATERIAL MUST MATCH THE SPECIFICATIONS ABOVE; REJECTED MATERIAL WILL BE RETURNED AT THE SUPPLIER'S COST.</li>\n<li>INVOICE MUST CARRY OUR GSTIN, HSN CODE AND E-WAY BILL WHERE APPLICABLE.</li>\n<li>PAYMENT AS PER AGREED CREDIT TERMS FROM THE DATE OF RECEIPT OF MATERIAL.</li>\n</ol>"
+  },
+  {
+   "fieldname": "challan_terms",
+   "fieldtype": "Text Editor",
+   "label": "Delivery Challan Terms",
+   "default": "<ol>\n<li>GOODS ONCE DISPATCHED WILL NOT BE TAKEN BACK WITHOUT PRIOR WRITTEN APPROVAL.</li>\n<li>PLEASE CHECK THE MATERIAL ON RECEIPT AND NOTE ANY SHORTAGE OR DAMAGE ON THE LR COPY.</li>\n<li>THE COMPANY SHALL NOT BEAR ANY RESPONSIBILITY FOR ANY DAMAGE OCCURRED TO THE GOODS WHILE IN TRANSIT.</li>\n</ol>"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-19 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "IB Stock Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "Purchase Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "Stock User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "Purchase User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 0,
+   "report": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

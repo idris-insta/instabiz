@@ -1,29 +1,20 @@
 {% import "templates/print/ib_print_macros.html" as ib with context %}
 {% set p = ib_print(doc) %}
-{% set cur = doc.currency or "INR" %}
-{% set t = ib_totals(doc) %}
-{% set ns = namespace(so=[]) %}
+{% set lines = ib_items(doc) %}
+{% set ns = namespace(so=[], wt=0, pkg=0) %}
 {% for row in doc.items %}{% if row.against_sales_order and row.against_sales_order not in ns.so %}{% set _ = ns.so.append(row.against_sales_order) %}{% endif %}{% endfor %}
+{% for l in lines %}{% set ns.wt = ns.wt + l.weight %}{% set ns.pkg = ns.pkg + l.packages %}{% endfor %}
 {{ ib.styles(p) }}
-{{ ib.header(p, "Delivery Challan", [
-	["Challan no.", doc.name],
-	["Date", ib_date(doc.posting_date)],
-	["Against order", ns.so | join(", ")],
-	["Your PO", doc.po_no],
-	["e-Way Bill", doc.get("ewaybill")],
-], "Return delivery" if doc.is_return else "") }}
-{% set transport %}
-<div class="ib-label">Dispatch details</div>
-<table class="ib-kv">
-  {% if doc.get("custom_transport") or doc.transporter_name %}<tr><td class="k">Transporter</td><td class="v">{{ doc.get("custom_transport") or doc.transporter_name }}</td></tr>{% endif %}
-  {% if doc.get("transport_gst") or doc.get("gst_transporter_id") %}<tr><td class="k">Transporter GSTIN</td><td class="v">{{ doc.get("transport_gst") or doc.get("gst_transporter_id") }}</td></tr>{% endif %}
-  {% if doc.get("custom_lr_number") or doc.lr_no %}<tr><td class="k">LR / RR no.</td><td class="v">{{ doc.get("custom_lr_number") or doc.lr_no }}{% if doc.lr_date %} · {{ ib_date(doc.lr_date) }}{% endif %}</td></tr>{% endif %}
-  {% if doc.vehicle_no %}<tr><td class="k">Vehicle no.</td><td class="v">{{ doc.vehicle_no | upper }}</td></tr>{% endif %}
-  {% if doc.get("booking_for") %}<tr><td class="k">Booking for</td><td class="v">{{ doc.booking_for }}</td></tr>{% endif %}
-  <tr><td class="k">Ship to</td><td class="v">{% if p.party.ship %}{{ p.party.ship.lines | join(", ") }}{% else %}Billing address{% endif %}</td></tr>
-</table>
-{% endset %}
-{{ ib.parties(p, "Consignee", "", transport) }}
-{{ ib.item_table(ib_items(doc), cur, show_rate=True, show_gst=True, show_hsn=True, show_weight=True, show_pkg=True) }}
-{{ ib.summary(t, cur) }}
-{{ ib.footer(p, show_bank=False, sign_label="Authorised Signatory", receiver=True) }}
+<div class="ibp">
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head("Delivery Challan" ~ (" (Return)" if doc.is_return else ""),
+	[["Consignee", p.party.name], ["GST no", p.party.gstin], ["Ship to", (p.party.ship.lines | join(", ")) if p.party.ship else ((p.party.bill.lines | join(", ")) if p.party.bill else "")], ["Contact no", p.party.mobile]],
+	[["Challan no", doc.name], ["Date", ib_date(doc.posting_date)], ["Against order", ns.so | join(", ")], ["Your PO", doc.po_no], ["Location", doc.get("custom_location")]],
+	[["#Dispatch details", ""], ["Transporter", doc.get("custom_transport") or doc.transporter_name], ["Transporter GST", doc.get("transport_gst") or doc.get("gst_transporter_id")], ["LR no", doc.get("custom_lr_number") or doc.lr_no], ["Vehicle no", doc.vehicle_no], ["E-way bill", doc.get("ewaybill")], ["Booking for", doc.get("booking_for")]]) }}
+{{ ib.item_grid(lines, show_money=False) }}
+<div class="words"><span class="lbl">Total packages :</span> {{ "%g" | format(ns.pkg) }}{% if ns.wt %} &nbsp;·&nbsp; <span class="lbl">Total weight :</span> {{ "%g" | format(ns.wt) }} KG{% endif %} &nbsp;·&nbsp; <span class="lbl">Value :</span> {{ ib_money(doc.rounded_total or doc.grand_total, doc.currency or "INR") }}</div>
+</div>
+{{ ib.terms_block(p, "Dispatch terms") }}
+{{ ib.sign_block(p, receiver=True) }}
+</div>

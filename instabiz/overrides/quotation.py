@@ -146,6 +146,12 @@ class CustomQuotation(IbStatusMixin, Quotation):
     def validate(self):
         if not self.custom_location or self.custom_location == "Select":
             frappe.throw(_("Please select a Location before saving."))
+        if not self.valid_till and self.is_new():
+            from frappe.utils import add_days, nowdate
+
+            from instabiz.overrides.ib_settings import get_int
+
+            self.valid_till = add_days(self.transaction_date or nowdate(), get_int("quotation_validity_days", 30))
         if self.get("custom_sale_type") == "Export" or (self.currency and self.currency != "INR"):
             self.taxes_and_charges = None
             self.set("taxes", [])

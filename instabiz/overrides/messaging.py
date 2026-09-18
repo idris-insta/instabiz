@@ -3,7 +3,7 @@
 Send a document to its customer / supplier by WhatsApp or email, worded from
 an IB Message Template.
 
-WhatsApp has two modes (Instabiz Settings -> Messaging):
+WhatsApp has two modes (IB Messaging Settings):
   - Free link (wa.me): the browser opens WhatsApp with the text filled in and
     the user presses Send. No account or API needed. This is the default.
   - API: the message is posted to a WhatsApp Business API endpoint. Only the
@@ -199,9 +199,10 @@ def _send_via_api(number, message, doc):
 
 	url = get("wa_api_url")
 	if not url:
-		frappe.throw(_("WhatsApp API is not configured. Fill the API section in Instabiz Settings, or switch Sending Mode to Free link."))
-	settings = frappe.get_single("Instabiz Settings")
-	token = settings.get_password("wa_api_token", raise_exception=False) or ""
+		frappe.throw(_("WhatsApp API is not configured. Fill the API section in IB Messaging Settings, or switch Sending Mode to Free link."))
+	from instabiz.overrides.ib_settings import get_password
+
+	token = get_password("wa_api_token")
 	payload = {"to": number, "from": get("wa_sender_number", ""), "message": message,
 		"reference_doctype": doc.doctype, "reference_name": doc.name}
 	try:
