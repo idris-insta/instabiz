@@ -133,23 +133,66 @@ class TestCreditOverride(FrappeTestCase):
 		self.assertEqual(len(self.comments), 1)
 		self.assertIn("customer paid by cheque", self.comments[0])
 
-	def test_checks_off_by_default(self):
-		called = []
-		self.so._check_credit_limit = lambda doc: called.append(1)
+	def test_credit_limit_on_overdue_off_by_default(self):
+		# Instabiz Settings never saved: credit-limit check runs (it only acts on
+		# customers with a limit), 30-day overdue block stays off.
+		credit, overdue = [], []
+		self.so._check_credit_limit = lambda doc: credit.append(1)
+		self.so._check_overdue_block = lambda doc: overdue.append(1)
 		orig = self.so.check_advance_approval
 		self.so.check_advance_approval = lambda doc: None
+		saved = frappe.db.sql("SELECT field, value FROM `tabSingles` WHERE doctype=%s", "Instabiz Settings")
+		frappe.db.sql("DELETE FROM `tabSingles` WHERE doctype=%s", "Instabiz Settings")
+		conf = frappe.local.conf
+		prev = conf.get("ib_so_credit_checks")
 		try:
-			conf = frappe.local.conf
-			prev = conf.get("ib_so_credit_checks")
 			conf.pop("ib_so_credit_checks", None)
 			self.so.CustomSalesOrder.before_submit(self._doc())
-			self.assertEqual(called, [])
-			conf["ib_so_credit_checks"] = 1
+			self.assertEqual((credit, overdue), ([1], []))
+			conf["ib_so_credit_checks"] = 1  # older switch forces both on
 			self.so.CustomSalesOrder.before_submit(self._doc())
-			self.assertEqual(called, [1])
+			self.assertEqual((credit, overdue), ([1, 1], [1]))
 		finally:
 			self.so.check_advance_approval = orig
+			for field, value in saved:
+				frappe.db.sql("INSERT INTO `tabSingles` (doctype, field, value) VALUES (%s, %s, %s)",
+					("Instabiz Settings", field, value))
 			if prev is None:
 				conf.pop("ib_so_credit_checks", None)
 			else:
 				conf["ib_so_credit_checks"] = prev
+
+
+class TestSettingsAndHelpers(FrappeTestCase):
+	def test_overtime_rates_follow_day_basis(self):
+		from unittest.mock import patch
+
+		from instabiz.overrides import overtime
+
+		with patch.object(overtime, "get", return_value="26 days"), patch.object(overtime, "get_float", return_value=8.0):
+			self.assertEqual(overtime.rates_for(26000, "2026-09-10"), (1000.0, 125.0))
+		with patch.object(overtime, "get", return_value="Days in the month"), patch.object(overtime, "get_float", return_value=8.0):
+			self.assertEqual(overtime.rates_for(30000, "2026-09-10"), (1000.0, 125.0))  # September has 30 days
+
+	def test_whatsapp_number_normalised(self):
+		from instabiz.overrides.messaging import _normalize_phone
+
+		self.assertEqual(_normalize_phone("98765 43210"), "919876543210")
+		self.assertEqual(_normalize_phone("+91-98765-43210"), "919876543210")
+		self.assertEqual(_normalize_phone("098765 43210"), "919876543210")
+		self.assertEqual(_normalize_phone(""), "")
+
+	def test_item_spec_and_repeated_text(self):
+		from instabiz.overrides.print_helpers import _extra_text, item_spec
+
+		row = frappe._dict(item_code="T-48", item_name="Tape 48mm", width_mm=48, length_mtr=65,
+			custom_thickness="40 mic", qty_pkg=36, total_pkg=3)
+		self.assertEqual(item_spec(row), "48 mm × 65 m · 40 mic · 36 per pkg × 3 pkg")
+		self.assertEqual(_extra_text("Tape 48mm", row), "")
+		self.assertEqual(_extra_text("Printed logo", row), "Printed logo")
+
+	def test_setting_falls_back_to_old_constant(self):
+		from instabiz.overrides import ib_settings
+
+		self.assertEqual(ib_settings.get_int("no_such_field_xyz", 48), 48)
+		self.assertTrue(ib_settings.get_check("no_such_field_xyz", True))

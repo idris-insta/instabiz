@@ -43,8 +43,10 @@ def _columns():
 
 def _data(filters):
 	lookback = cint(filters.lookback_days) or 90
-	default_lead = cint(filters.default_lead_days) or 14
-	review = cint(filters.review_days) or 7
+	from instabiz.overrides.ib_settings import get_int
+
+	default_lead = cint(filters.default_lead_days) or get_int("replenishment_lead_days", 14)
+	review = cint(filters.review_days) or get_int("replenishment_review_days", 7)
 	today = nowdate()
 
 	cond = ""

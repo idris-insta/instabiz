@@ -5,7 +5,9 @@
 
 {% macro styles(p) %}
 <style>
-  .print-format { margin: 0mm; padding: 7mm 8mm 6mm; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 9.5px; color: #1f2328; line-height: 1.4; }
+  /* IB Print Theme: Inter (same webfont as the desk), rust accent #d97757 */
+  @font-face { font-family: "Inter"; src: url("/assets/instabiz/fonts/InterVariable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; }
+  .print-format { margin: 0mm; padding: 7mm 8mm 6mm; font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 9.5px; color: #1f2328; line-height: 1.4; }
   .print-format table { width: 100%; border-collapse: collapse; }
   .print-format td, .print-format th { vertical-align: top; }
   .ib-lh img { width: 100%; height: auto; display: block; }
@@ -26,7 +28,7 @@
   .ib-muted { color: #666; }
   .ib-small { font-size: 8.5px; }
   .ib-items { margin-top: 8px; }
-  .ib-items th { background: #f3f1ee; color: #1f2328; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding: 5px 5px; border-bottom: 1.5px solid {{ p.accent }}; text-align: left; }
+  .ib-items th { background: #fdf3ee; color: #b9502f; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding: 5px 5px; border-bottom: 1.5px solid {{ p.accent }}; text-align: left; }
   .ib-items td { padding: 5px 5px; border-bottom: 1px solid #e7e4df; }
   .ib-items tr.alt td { background: #fbfaf8; }
   .ib-items .r { text-align: right; } .ib-items .c { text-align: center; }

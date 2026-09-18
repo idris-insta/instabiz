@@ -116,8 +116,9 @@ def seller(doc):
 	address_name = doc.get("company_address") or LOCATION_COMPANY_ADDRESS.get(loc)
 	# a document whose company_address still points at another location's
 	# address prints the location's own address instead
-	if doc.get("custom_location") and LOCATION_COMPANY_ADDRESS.get(loc):
-		address_name = LOCATION_COMPANY_ADDRESS[loc]
+	location_address = LOCATION_COMPANY_ADDRESS.get(loc)
+	if doc.get("custom_location") and location_address and frappe.db.get_value("Address", location_address, "disabled") == 0:
+		address_name = location_address
 	addr = _address(address_name)
 	gstin = doc.get("company_gstin") or LOCATION_COMPANY_GSTIN.get(loc) or (company.get("gstin") if company else "")
 	return frappe._dict(
@@ -456,7 +457,7 @@ def statement(customer, from_date=None, to_date=None):
 
 def ib_print(doc, kind=None):
 	"""Everything a print format needs, as one dict."""
-	accent = get("print_accent_color", "#c9623f") or "#c9623f"
+	accent = get("print_accent_color", "#d97757") or "#d97757"
 	return frappe._dict(
 		seller=seller(doc),
 		bank=bank(doc),

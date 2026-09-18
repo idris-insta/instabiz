@@ -40,7 +40,9 @@ def _set_company_gstin_from_warehouse(doc):
 	# Seller address follows the order's location (it was left on the
 	# Maharashtra address for most orders, which prints the wrong seller).
 	address = LOCATION_COMPANY_ADDRESS.get(loc)
-	if address and doc.meta.has_field("company_address") and frappe.db.exists("Address", address):
+	# Only an active address: MH/Chennai addresses are disabled on dev today,
+	# and a deliberate disable must not be overridden here.
+	if address and doc.meta.has_field("company_address") and frappe.db.get_value("Address", address, "disabled") == 0:
 		doc.company_address = address
 	warehouse_name = LOCATION_WAREHOUSE.get(loc)
 	if not warehouse_name:

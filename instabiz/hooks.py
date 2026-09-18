@@ -67,6 +67,9 @@ scheduler_events = {
     "weekly": [
         # Price Recommender: velocity/margin-driven price suggestions per item into IB Price Suggestion
         "instabiz.overrides.price_recommender.run_weekly_price_suggestions",
+        # Draft one Purchase Material Request from Replenishment Suggestions for
+        # the buyer to review (Instabiz Settings -> Stock & Buying)
+        "instabiz.overrides.auto_replenish.run_weekly_material_request",
     ],
     "cron": {
         # Poll Active Hikvision terminals (Pull/Both sync_mode) for new
@@ -159,6 +162,11 @@ fixtures = [
     # Default WhatsApp / email wording for the Send buttons (editable in the UI;
     # an edited template is newer than this file, so migrate does not overwrite it)
     "IB Message Template",
+    # Quotation / Sales Order print formats used by the list-view Print buttons.
+    # They were built in the UI and live only in the database; run
+    # "bench --site frontend export-fixtures --app instabiz" once on the dev
+    # server to write fixtures/print_format.json, then commit it.
+    {"dt": "Print Format", "filters": [["name", "in", ["QPF_V2", "OSPF_V2"]]]},
     {
         "dt": "Workflow",
         "filters": [["document_type", "=", "IB Work Order"]]
@@ -503,6 +511,7 @@ app_include_js  = [
     "/assets/instabiz/js/so_production_panel.js",  # SO form: production stage + dispatch status panel
     "/assets/instabiz/js/ib_simple_payment_dialog.js",  # shared simplified Payment Entry dialog for Sales Users
     "/assets/instabiz/js/ib_messaging.js",           # Send ▸ WhatsApp / Email on sales, purchase and customer forms
+    "/assets/instabiz/js/ib_quick_actions.js",       # Repeat order + last-price hint on Quotation / Sales Order
     # ib_stock_dashboard.js is loaded by Frappe's page engine (not global)
     # "/assets/instabiz/js/quotation_list.js",        # Quotation list view
     # "/assets/instabiz/js/sales_order_list.js",      # Sales Order list view

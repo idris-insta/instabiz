@@ -1,0 +1,27 @@
+{# Shelf / bin label: one per item. Select items in the Item list, then
+   Actions > Print > IB Item Label to print many at once. #}
+{% set code = doc.get("custom_barcode") or ((doc.barcodes[0].barcode) if doc.barcodes else doc.item_code) %}
+<style>
+  .print-format { margin: 0mm; padding: 6mm; font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif; color: #111; }
+  .il { width: 95mm; border: 1.2px solid #222; padding: 3mm 4mm; }
+  .il .nm { font-size: 13px; font-weight: 800; line-height: 1.2; }
+  .il .cd { font-size: 10px; letter-spacing: .5px; margin-top: 1px; }
+  .il .sp { font-size: 9px; color: #444; margin-top: 2px; }
+  .il img { height: 13mm; width: auto; display: block; margin: 3mm 0 1mm; }
+  .il .bc { font-size: 9px; font-family: monospace; }
+  .il .meta td { font-size: 8.5px; color: #555; padding: 0 6px 0 0; }
+</style>
+<div class="il">
+  <div class="nm">{{ doc.item_name or doc.item_code }}</div>
+  <div class="cd">{{ doc.item_code }}</div>
+  {% set spec = [] %}
+  {% if doc.get("width_mm") %}{% set _ = spec.append("%g mm" | format(doc.width_mm)) %}{% endif %}
+  {% if doc.get("length_mtr") %}{% set _ = spec.append("%g m" | format(doc.length_mtr)) %}{% endif %}
+  {% if doc.get("gsm") %}{% set _ = spec.append("%g GSM" | format(doc.gsm)) %}{% endif %}
+  {% if spec %}<div class="sp">{{ spec | join(" · ") }}</div>{% endif %}
+  <img src="{{ get_barcode_data_uri(code) }}">
+  <div class="bc">{{ code }}</div>
+  <table class="meta" style="margin-top:2mm"><tr>
+    <td>{{ doc.item_group }}</td><td>UOM {{ doc.stock_uom }}</td>{% if doc.gst_hsn_code %}<td>HSN {{ doc.gst_hsn_code }}</td>{% endif %}
+  </tr></table>
+</div>

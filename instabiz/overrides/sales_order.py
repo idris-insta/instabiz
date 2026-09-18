@@ -165,7 +165,8 @@ def _run_credit_checks(doc, credit_limit=True, overdue=True):
                 "Info",
                 _("Credit block overridden by {0}: {1}").format(frappe.session.user, reason),
             )
-            doc.flags.ib_credit_overridden = True
+            if getattr(doc, "flags", None) is not None:
+                doc.flags.ib_credit_overridden = True
             frappe.msgprint(_("Credit block overridden: {0}").format(reason), indicator="orange", alert=True)
             return
         raise
