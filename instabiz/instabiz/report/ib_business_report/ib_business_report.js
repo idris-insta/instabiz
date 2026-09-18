@@ -19,6 +19,7 @@ frappe.query_reports["IB Business Report"] = {
 		{ fieldname: "customer", label: __("Party"), fieldtype: "Link", options: "Customer" },
 		{ fieldname: "handled_by", label: __("Handled By"), fieldtype: "Data" },
 		{ fieldname: "state", label: __("State"), fieldtype: "Data" },
+		{ fieldname: "exclude_internal", label: __("Exclude branch transfers"), fieldtype: "Check", default: 1 },
 	],
 	onload(report) {
 		const fy = report.get_filter_value("fiscal_year");

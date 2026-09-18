@@ -74,6 +74,9 @@ def _cond(f, alias="si"):
 	if f.handled_by:
 		cond += " AND IFNULL(c.custom_sales_person, '') = %(handled_by)s"
 		args["handled_by"] = f.handled_by
+	if f.get("exclude_internal", 1) not in (0, "0"):
+		# branch-to-branch transfers billed to an own-company customer are not sales
+		cond += " AND IFNULL(c.is_internal_customer, 0) = 0 AND IFNULL(c.customer_name, '') NOT LIKE 'INSTABIZ%%'"
 	return cond, args
 
 
