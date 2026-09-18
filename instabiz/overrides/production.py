@@ -561,7 +561,8 @@ def get_order_sheets(status=None, priority=None, location=None, search=None):
 	sheet_names = [s.name for s in sheets]
 	placeholders = ", ".join(["%s"] * len(sheet_names))
 
-	# Item counts and completed item counts per order sheet
+	# Item counts (for the Items column — a real "how many line items" count,
+	# unrelated to the progress fix below).
 	item_counts = frappe.db.sql(
 		f"""
 		SELECT parent,
@@ -575,6 +576,32 @@ def get_order_sheets(status=None, priority=None, location=None, search=None):
 		as_dict=True,
 	)
 	count_map = {row.parent: row for row in item_counts}
+
+	# Real bug, confirmed live: progress_pct used to be "how many whole
+	# items are fully Completed" (0 of 1 = 0%) instead of "how far along is
+	# the actual production" — a real order with one item 8/10 stages done
+	# (one run finished, a second run 3/5 through) showed 0% on this list,
+	# reading as if nothing had happened, while its own detail view (built
+	# off the exact same run data, see get_order_sheet_detail/
+	# _all_runs_for_osi) correctly showed 80%. Recomputed here on the same
+	# basis as the detail view — stages done / stages total across every
+	# non-cancelled run's route, for every item on the sheet — via one join
+	# instead of walking runs per item per sheet (467 real Order Sheets
+	# exist; an N+1 per-item route walk here would not scale).
+	stage_counts = frappe.db.sql(
+		f"""
+		SELECT w.order_sheet AS parent,
+			COUNT(rt.name) AS total_stages,
+			SUM(CASE WHEN rt.done = 1 THEN 1 ELSE 0 END) AS done_stages
+		FROM `tabIB Work Order` w
+		JOIN `tabIB WO Route Stage` rt ON rt.parent = w.name
+		WHERE w.order_sheet IN ({placeholders}) AND w.status != 'Cancelled'
+		GROUP BY w.order_sheet
+		""",
+		tuple(sheet_names),
+		as_dict=True,
+	)
+	stage_map = {row.parent: row for row in stage_counts}
 
 	# Customer name from Customer master. Uses its OWN placeholder count — the
 	# previous version reused `placeholders` (sized to len(sheet_names)) for a
@@ -600,8 +627,10 @@ def get_order_sheets(status=None, priority=None, location=None, search=None):
 	for s in sheets:
 		counts = count_map.get(s.name)
 		total = counts.total_items if counts else 0
-		completed = counts.completed_items if counts else 0
-		progress_pct = round((flt(completed) / flt(total) * 100), 1) if total else 0.0
+		stages = stage_map.get(s.name)
+		stage_total = stages.total_stages if stages else 0
+		stage_done = stages.done_stages if stages else 0
+		progress_pct = round((flt(stage_done) / flt(stage_total) * 100), 1) if stage_total else 0.0
 		result.append({
 			"name": s.name,
 			"sales_order": s.sales_order,

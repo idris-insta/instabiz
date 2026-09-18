@@ -1042,10 +1042,6 @@ class IBProductionDashboard {
 			return;
 		}
 
-		const stageAbbr = {
-			"Coating": "CT", "Slitting": "SL", "Rewinding": "RW", "Cutting": "CU",
-			"Packing": "PK",
-		};
 		const stageStatusCls = { "Completed": "ib-pd-stg--done", "In Progress": "ib-pd-stg--inprog", "Pending": "ib-pd-stg--pending" };
 
 		const rows = filteredSheets.map(os => {
@@ -1071,9 +1067,10 @@ class IBProductionDashboard {
 				const stagePills = Object.entries(stageMap).map(([stage, info]) => {
 					if (!info.status) return "";
 					const cls = stageStatusCls[info.status] || "ib-pd-stg--pending";
-					const abbr = stageAbbr[stage] || stage.substring(0, 3).toUpperCase();
 					const title = `${stage}: ${info.status} (${info.completed_qty}/${info.target_qty})`;
-					return `<span class="ib-pd-stg-chip ${cls}" title="${title}">${abbr}</span>`;
+					// Full stage name, not an abbreviation — direct ask: "make sure
+					// user knows which stage they are looking at" at a glance.
+					return `<span class="ib-pd-stg-chip ${cls}" title="${title}">${frappe.utils.escape_html(stage)}</span>`;
 				}).join("");
 
 				// route_length/route_completed_count (get_production_plan,
@@ -2288,14 +2285,6 @@ const STAGE_MACHINE_TYPE = {
 	"Cutting": "Cutting", "Packing": "Packing",
 };
 
-// Same abbreviations as the Production Dashboard's stagePills (_render_plan in
-// ib_production_dashboard.js) — kept identical across both pages so a chip
-// means the same thing wherever it's seen.
-const STAGE_ABBR = {
-	"Coating": "CT", "Slitting": "SL", "Rewinding": "RW", "Cutting": "CU",
-	"Packing": "PK",
-};
-
 // Frappe's own indicator-pill color words (frappe/public/scss/common/indicator.scss)
 // — theme-aware via --bg-{color}/--text-on-{color} CSS vars, unlike the hardcoded
 // hex this page used to carry in 3 separate places (JS meta, a dead :root block,
@@ -2803,10 +2792,13 @@ class IBProductionStages {
 		if (expanded) {
 			body = so_groups.map((g) => {
 				const chips = g.wos.map((wo) => {
-					const abbr = STAGE_ABBR[wo.stage] || (wo.stage || "").slice(0, 3).toUpperCase();
+					// Full stage name, not the CT/SL/RW/CU/PK abbreviation — direct
+					// ask: "make sure user knows which stage they are looking at"
+					// without having to hover for the tooltip.
+					const stageLabel = frappe.utils.escape_html(wo.stage || "—");
 					const cancelled_cls = wo.status === "Cancelled" ? " ib-ps-wo-chip--cancelled" : "";
 					const title = `${wo.stage}: ${wo.name} — ${wo.status} (${wo.completed_qty || 0}/${wo.target_qty || 0})`;
-					return `<span class="ib-ps-wo-chip indicator-pill ib-ps-pill-sm ${_ib_status_color(wo.status)}${cancelled_cls}" data-woid="${frappe.utils.escape_html(wo.name)}" title="${frappe.utils.escape_html(title)}">${abbr}</span>`;
+					return `<span class="ib-ps-wo-chip indicator-pill ib-ps-pill-sm ${_ib_status_color(wo.status)}${cancelled_cls}" data-woid="${frappe.utils.escape_html(wo.name)}" title="${frappe.utils.escape_html(title)}">${stageLabel}</span>`;
 				}).join("");
 				const so_link = g.sales_order
 					? `<a href="/app/sales-order/${encodeURIComponent(g.sales_order)}" target="_blank" class="ib-iw-so-link">${frappe.utils.escape_html(g.sales_order)}</a>`
@@ -3362,10 +3354,11 @@ class IBProductionStages {
 			// Compact stage-pill row — same visual language as the Production
 			// Dashboard's per-item stagePills (_render_plan in
 			// ib_production_dashboard.js): one small colored chip per Work
-			// Order, abbreviated + colored by status. Full WO name/qty/date
-			// (previously always-visible as a wall of <li> text) now lives in
-			// the hover tooltip; clicking a chip still opens the same WO side
-			// panel a click on the old list row used to.
+			// Order, full stage name + colored by status (was abbreviated —
+			// see the chip-render code below for why that changed). Full WO
+			// name/qty/date (previously always-visible as a wall of <li> text)
+			// now lives in the hover tooltip; clicking a chip still opens the
+			// same WO side panel a click on the old list row used to.
 			// Every chip within ONE run describes the SAME real Work Order (a
 			// run expanded per route stage just for this pill row) — chips
 			// used to be keyed only by item.current_wo, which is just the
@@ -3380,7 +3373,10 @@ class IBProductionStages {
 				this._wo_data.set(name, { ...wo, delivery_date: wo.delivery_date || (detail.order_sheet || {}).delivery_date });
 			});
 			const chips = wos.map((wo, i) => {
-				const abbr = STAGE_ABBR[wo.stage] || (wo.stage || "").substring(0, 2).toUpperCase();
+				// Full stage name, not the CT/SL/RW/CU/PK abbreviation — direct
+				// ask: "make sure user knows which stage they are looking at"
+				// without having to hover for the tooltip.
+				const stageLabel = frappe.utils.escape_html(wo.stage || "—");
 				const created = wo.creation ? frappe.datetime.str_to_user(wo.creation) : "—";
 				const title = `${wo.stage || ""}: ${wo.name || ""} — ${wo.status || ""} `
 					+ `(${wo.completed_qty || 0}/${wo.target_qty || 0}) — Created: ${created}`;
@@ -3393,7 +3389,7 @@ class IBProductionStages {
 				return `<span class="ib-ps-wo-chip indicator-pill ib-ps-pill-sm ${_ib_status_color(wo.status)}${cancelled_cls}"
 					style="${newRun ? "margin-left:8px" : ""}"
 					data-woid="${frappe.utils.escape_html(wo.name)}"
-					title="${frappe.utils.escape_html(title)}">${abbr}</span>`;
+					title="${frappe.utils.escape_html(title)}">${stageLabel}</span>`;
 			}).join("");
 
 			// JIT stage model (2026-08-13): an item with nothing active/pending
