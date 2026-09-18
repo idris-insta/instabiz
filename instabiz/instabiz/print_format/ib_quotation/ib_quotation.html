@@ -1,0 +1,27 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc) %}
+{% set cur = doc.currency or "INR" %}
+{% set t = ib_totals(doc) %}
+{{ ib.styles(p) }}
+{{ ib.header(p, "Quotation", [
+	["Quotation no.", doc.name],
+	["Date", ib_date(doc.transaction_date)],
+	["Valid till", ib_date(doc.valid_till)],
+	["Your ref.", doc.get("custom_reference_po")],
+	["Prepared by", p.sales_person.name if p.sales_person else ""],
+	["Contact", p.sales_person.phone if p.sales_person else ""],
+], "Price offer" if doc.docstatus != 1 else "") }}
+{{ ib.parties(p, "Quotation For", "Deliver To") }}
+{{ ib.item_table(ib_items(doc), cur) }}
+{{ ib.summary(t, cur) }}
+{% set rows = [] %}
+{% if doc.payment_terms_template %}{% set _ = rows.append(["Payment terms", doc.payment_terms_template]) %}{% endif %}
+{% if doc.get("custom_transport") %}{% set _ = rows.append(["Transport", doc.custom_transport]) %}{% endif %}
+{% if doc.get("booking_for") %}{% set _ = rows.append(["Booking for", doc.booking_for]) %}{% endif %}
+{% if doc.valid_till %}{% set _ = rows.append(["Offer valid till", ib_date(doc.valid_till)]) %}{% endif %}
+{% if rows %}
+<table class="ib-kv" style="margin-top:8px; width:60%">
+  {% for r in rows %}<tr><td class="k">{{ r[0] }}</td><td class="v">{{ r[1] }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+{{ ib.footer(p, show_bank=False) }}

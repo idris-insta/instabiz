@@ -1,10 +1,15 @@
 {# ── Cancelled Watermark ─────────────────────────────────────────────────────── #}
 {% set _is_einv_cancelled = doc.einvoice_status in ('Cancelled', 'Manually Cancelled') %}
 {% set _is_ewb_cancelled  = doc.get('e_waybill_status') in ('Cancelled', 'Manually Cancelled') %}
-{% set _show_cancelled    = _is_einv_cancelled or _is_ewb_cancelled %}
+{% set _show_cancelled    = _is_einv_cancelled or _is_ewb_cancelled or doc.docstatus == 2 %}
 {% if _show_cancelled %}
 <div class="watermark"><span>CANCELLED</span></div>
+{% elif doc.docstatus == 0 %}
+<div class="watermark"><span>DRAFT</span></div>
 {% endif %}
+{# shared helpers: location bank + HSN summary (instabiz.overrides.print_helpers) #}
+{% set _ibp = ib_print(doc, "none") %}
+{% set _hsn = ib_hsn_summary(doc) %}
 
 {# ── Company ──────────────────────────────────────────────────────────────────── #}
 {% set co = frappe.get_doc("Company", doc.company) %}
@@ -213,7 +218,7 @@
 {# ════════════════════════════════════════════════════════════════════════════════ #}
 
 <div class="ib-title-bar">
-  <div class="t">TAX INVOICE{% if _irn %} <span style="font-size:11px">&nbsp;·&nbsp;e-Invoice</span>{% endif %}</div>
+  <div class="t">TAX INVOICE{% if _irn %} <span style="font-size:11px">&nbsp;·&nbsp;e-Invoice</span>{% endif %} <span style="font-size:8px; font-weight:bold; border:1px solid currentColor; padding:1px 4px; margin-left:6px; vertical-align:middle">ORIGINAL FOR RECIPIENT</span></div>
   <div class="s">Date: <strong>{{ fd(doc.posting_date) }}</strong></div>
 </div>
 
@@ -300,24 +305,22 @@
         <tr>
           <td colspan="2" style="border-bottom:1px solid #aaa; border-right:1px solid #aaa; padding:3px 5px">
             <div class="lbl small">Reference No. &amp; Date.</div>
-            {% if doc.po_no %}
-            <div><strong>{{ doc.po_no }}</strong>{% if doc.po_date %} dt. {{ fd(doc.po_date) }}{% endif %}</div>
-            {% endif %}
+            {% if ns_so.v %}<div><strong>{{ ns_so.v | join(", ") }}</strong></div>{% endif %}
           </td>
           <td style="border-bottom:1px solid #aaa; padding:3px 5px">
             <div class="lbl small">Other References</div>
-            {% if ns_so.v %}
-            <div>{{ ns_so.v | join(", ") }}</div>
-            {% endif %}
+            {% if doc.get("custom_sales_person") %}<div>{{ doc.custom_sales_person }}</div>{% endif %}
           </td>
         </tr>
 
         <tr>
           <td colspan="2" style="border-bottom:1px solid #aaa; border-right:1px solid #aaa; padding:3px 5px; height:28px">
             <div class="lbl small">Buyer's Order No.</div>
+            {% if doc.po_no %}<div><strong>{{ doc.po_no }}</strong></div>{% endif %}
           </td>
           <td style="border-bottom:1px solid #aaa; padding:3px 5px">
             <div class="lbl small">Dated</div>
+            {% if doc.po_date %}<div><strong>{{ fd(doc.po_date) }}</strong></div>{% endif %}
           </td>
         </tr>
 
@@ -361,6 +364,8 @@
         <tr>
           <td colspan="3" style="padding:3px 5px; height:30px">
             <div class="lbl small">Terms of Delivery</div>
+            {% if doc.due_date %}<div>Payment due: <strong>{{ fd(doc.due_date) }}</strong></div>{% endif %}
+            {% if doc.get("incoterm") %}<div>{{ doc.incoterm }}</div>{% endif %}
           </td>
         </tr>
 
@@ -562,7 +567,29 @@
   </tr>
 </table>
 
-{% if doc.gst_breakup_table %}
+{# HSN-wise tax summary (GST: mandatory HSN summary on B2B invoices) #}
+{% if _hsn.rows %}
+<table class="it-tbl" style="margin-top:4px; font-size:9px">
+  <thead><tr>
+    <th style="text-align:left">HSN/SAC</th><th>Taxable Value</th>
+    {% if _hsn.interstate %}<th>IGST Rate</th><th>IGST Amount</th>{% else %}<th>CGST Rate</th><th>CGST Amount</th><th>SGST Rate</th><th>SGST Amount</th>{% endif %}
+    <th>Total Tax</th>
+  </tr></thead>
+  <tbody>
+  {% for r in _hsn.rows %}
+  <tr><td>{{ r.hsn }}</td><td class="right">{{ fm(r.taxable) }}</td>
+  {% if _hsn.interstate %}<td class="center">{{ "%g" | format(r.igst_rate) }}%</td><td class="right">{{ fm(r.igst) }}</td>
+  {% else %}<td class="center">{{ "%g" | format(r.cgst_rate) }}%</td><td class="right">{{ fm(r.cgst) }}</td><td class="center">{{ "%g" | format(r.sgst_rate) }}%</td><td class="right">{{ fm(r.sgst) }}</td>{% endif %}
+  <td class="right">{{ fm(r.tax) }}</td></tr>
+  {% endfor %}
+  <tr><td><strong>Total</strong></td><td class="right"><strong>{{ fm(_hsn.total.taxable) }}</strong></td>
+  {% if _hsn.interstate %}<td></td><td class="right"><strong>{{ fm(_hsn.total.igst) }}</strong></td>
+  {% else %}<td></td><td class="right"><strong>{{ fm(_hsn.total.cgst) }}</strong></td><td></td><td class="right"><strong>{{ fm(_hsn.total.sgst) }}</strong></td>{% endif %}
+  <td class="right"><strong>{{ fm(_hsn.total.tax) }}</strong></td></tr>
+  </tbody>
+</table>
+<div style="font-size:9px; padding:2px 0">Tax Amount (in words): <strong>{{ frappe.utils.money_in_words(_hsn.total.tax, doc.currency or "INR") }}</strong></div>
+{% elif doc.gst_breakup_table %}
 <div style="margin-top:4px">{{ doc.gst_breakup_table }}</div>
 {% endif %}
 
@@ -576,13 +603,16 @@
         <tr><td>Net Balance &nbsp;:</td><td><strong>{{ fm(net_bal) }} Dr</strong></td></tr>
       </table>
 
-      {% if ba %}
+      {# location's bank (warehouse Bank Details, else Instabiz Settings); the
+         old block printed "(Mumbai)" for every location #}
+      {% set _bk = _ibp.bank %}
+      {% if _bk %}
       <div><strong>Company's Bank Details</strong></div>
       <table class="kv" style="margin-top:3px">
-        <tr><td>A/c Holder's Name</td><td>: <strong>{{ ba.company or doc.company }}</strong></td></tr>
-        <tr><td>Bank Name</td><td>: <strong>{{ bank_display or ba.bank or "" }} (Mumbai)</strong></td></tr>
-        <tr><td>A/c No.</td><td>: <strong>{{ ba.bank_account_no }}</strong></td></tr>
-        <tr><td>Branch &amp; IFS Code</td><td>: <strong>{{ ba.branch_code }}</strong></td></tr>
+        <tr><td>A/c Holder's Name</td><td>: <strong>{{ _bk.holder or doc.company }}</strong></td></tr>
+        <tr><td>Bank Name</td><td>: <strong>{{ _bk.bank }}{% if _bk.branch %} ({{ _bk.branch }}){% endif %}</strong></td></tr>
+        <tr><td>A/c No.</td><td>: <strong>{{ _bk.account_no }}</strong></td></tr>
+        <tr><td>IFS Code</td><td>: <strong>{{ _bk.ifsc }}</strong></td></tr>
       </table>
       {% endif %}
 

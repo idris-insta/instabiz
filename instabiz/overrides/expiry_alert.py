@@ -7,9 +7,14 @@ _MARKER = "[ib-expiry]"
 _COOLDOWN_DAYS = 7
 
 
+def _alert_days():
+	from instabiz.overrides.ib_settings import get_int
+	return get_int("batch_expiry_alert_days", _ALERT_DAYS)
+
+
 def run_expiry_alert():
 	"""Daily job — sends bell notifications for batches expiring within 30 days."""
-	target_date = add_days(today(), _ALERT_DAYS)
+	target_date = add_days(today(), _alert_days())
 	batches = frappe.db.sql(
 		"""
 		SELECT b.name, b.item, b.expiry_date, i.item_name,

@@ -12,8 +12,13 @@ SLA_HOURS = 48
 _MARKER   = "[ib-sla-alert]"
 
 
+def _sla_hours():
+	from instabiz.overrides.ib_settings import get_int
+	return get_int("fulfillment_sla_hours", SLA_HOURS)
+
+
 def run_fulfillment_sla():
-	cutoff = add_to_date(now_datetime(), hours=-SLA_HOURS)
+	cutoff = add_to_date(now_datetime(), hours=-_sla_hours())
 
 	# SOs submitted before the cutoff with no submitted DN
 	overdue = frappe.db.sql(
@@ -51,7 +56,7 @@ def run_fulfillment_sla():
 
 		subject = (
 			f"{_MARKER} SLA breach: {so.name} ({so.customer}) — "
-			f"no delivery note after {SLA_HOURS}h"
+			f"no delivery note after {_sla_hours()}h"
 		)
 		frappe.get_doc({
 			"doctype":       "Notification Log",

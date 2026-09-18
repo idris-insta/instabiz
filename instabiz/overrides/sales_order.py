@@ -56,7 +56,11 @@ class CustomSalesOrder(IbStatusMixin, SalesOrder):
         # Default ETD = order date + 8 days when not explicitly set — covers
         # API/mapper-created SOs; the form itself defaults this client-side too.
         if not self.delivery_date:
-            self.delivery_date = add_days(self.transaction_date or nowdate(), 8)
+            from instabiz.overrides.ib_settings import get_int
+
+            self.delivery_date = add_days(
+                self.transaction_date or nowdate(), get_int("default_delivery_days", 8)
+            )
 
     def validate(self):
         if not self.custom_location or self.custom_location == "Select":
@@ -72,17 +76,39 @@ class CustomSalesOrder(IbStatusMixin, SalesOrder):
         _guard_document_attachments(self)
         super().validate()
 
+    def check_credit_limit(self):
+        # ERPNext's own check (on_submit): blocks once outstanding crosses the
+        # customer's credit limit. A Sales Manager's override reason lets the
+        # order through here too, not only past the instabiz check.
+        if self.flags.get("ib_credit_overridden") or _credit_override_allowed(self):
+            if not self.flags.get("ib_credit_overridden"):
+                self.add_comment(
+                    "Info",
+                    _("Credit limit overridden by {0}: {1}").format(
+                        frappe.session.user, self.custom_credit_override_reason.strip()
+                    ),
+                )
+            return
+        super().check_credit_limit()
+
     def before_cancel(self):
         if not (self.custom_cancel_reason or "").strip():
             frappe.throw(_("Fill in Cancellation Reason before cancelling this Sales Order."))
         _check_no_active_production(self)
 
     def before_submit(self):
-        # Credit-limit + 30-day-overdue blocks were switched off 2026-09-03 (user
-        # request). They now stay off unless site_config "ib_so_credit_checks" is
-        # truthy, so turning them back on is a config flip, not a code change.
-        if frappe.conf.get("ib_so_credit_checks"):
-            _run_credit_checks(self)
+        # Instabiz Settings decides both checks. The credit-limit check only acts
+        # on customers that have a Credit Limit row, so it is on by default; the
+        # overdue block is off by default. site_config "ib_so_credit_checks"
+        # still forces both on (older switch).
+        from instabiz.overrides.ib_settings import get_check
+
+        forced = bool(frappe.conf.get("ib_so_credit_checks"))
+        _run_credit_checks(
+            self,
+            credit_limit=forced or get_check("enable_credit_limit_check", True),
+            overdue=forced or get_check("enable_overdue_block", False),
+        )
         check_advance_approval(self)
 
 
@@ -122,25 +148,33 @@ def _check_no_active_production(doc):
 
 # ── Credit limit ──────────────────────────────────────────────────────────────
 
-def _run_credit_checks(doc):
+def _run_credit_checks(doc, credit_limit=True, overdue=True):
     """Run the credit-limit and overdue checks. A Sales Manager / System Manager
     can submit past a block by filling custom_credit_override_reason; the
     override is recorded on the order's timeline."""
     try:
-        _check_credit_limit(doc)
-        _check_overdue_block(doc)
+        if credit_limit:
+            _check_credit_limit(doc)
+        if overdue:
+            _check_overdue_block(doc)
     except frappe.ValidationError:
-        from instabiz.overrides.permissions import _is_privileged
         reason = (doc.get("custom_credit_override_reason") or "").strip()
-        if reason and _is_privileged(frappe.session.user):
+        if _credit_override_allowed(doc):
             frappe.clear_messages()  # drop the queued block message from frappe.throw
             doc.add_comment(
                 "Info",
                 _("Credit block overridden by {0}: {1}").format(frappe.session.user, reason),
             )
+            doc.flags.ib_credit_overridden = True
             frappe.msgprint(_("Credit block overridden: {0}").format(reason), indicator="orange", alert=True)
             return
         raise
+
+
+def _credit_override_allowed(doc):
+    from instabiz.overrides.permissions import _is_privileged
+
+    return bool((doc.get("custom_credit_override_reason") or "").strip()) and _is_privileged(frappe.session.user)
 
 
 def _check_credit_limit(doc):
@@ -159,19 +193,27 @@ def _check_credit_limit(doc):
     if row.credit_limit is None or row.custom_days is None:
         return
 
-    result = frappe.db.sql(
+    # Same basis as AR Aging: Sales Orders while billing runs on orders,
+    # Sales Invoices once real invoicing is on (instabiz.overrides.billing_mode).
+    from instabiz.overrides.billing_mode import is_dev_billing_mode, sales_outstanding_expr
+
+    if is_dev_billing_mode():
+        outstanding = sales_outstanding_expr("d")
+        query = f"""
+            SELECT SUM({outstanding}) AS total_outstanding, MIN(d.transaction_date) AS oldest_date
+            FROM `tabSales Order` d
+            WHERE d.customer = %(customer)s AND d.company = %(company)s AND d.docstatus = 1
+              AND d.name != %(current)s AND {outstanding} > 0
         """
-        SELECT
-            SUM(outstanding_amount) AS total_outstanding,
-            MIN(posting_date)       AS oldest_date
-        FROM `tabSales Invoice`
-        WHERE customer    = %(customer)s
-          AND company     = %(company)s
-          AND docstatus   = 1
-          AND outstanding_amount > 0
-        """,
-        {"customer": doc.customer, "company": doc.company},
-        as_dict=True,
+    else:
+        query = """
+            SELECT SUM(d.outstanding_amount) AS total_outstanding, MIN(d.posting_date) AS oldest_date
+            FROM `tabSales Invoice` d
+            WHERE d.customer = %(customer)s AND d.company = %(company)s AND d.docstatus = 1
+              AND d.outstanding_amount > 0
+        """
+    result = frappe.db.sql(
+        query, {"customer": doc.customer, "company": doc.company, "current": doc.name}, as_dict=True
     )
     if not result or not result[0].oldest_date:
         return

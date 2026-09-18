@@ -14,6 +14,37 @@ class IBOvertimeRequest(Document):
 		if not self.overtime_hours or self.overtime_hours <= 0:
 			frappe.throw("Overtime hours must be greater than 0.")
 		self._guard_approval_change()
+		self._guard_paid_edit()
+		if self.status == "Approved" and not self.approved_by:
+			self.approved_by = frappe.session.user
+
+		from instabiz.overrides.overtime import compute_request_pay
+
+		if not self.additional_salary:
+			compute_request_pay(self)
+
+	def on_update(self):
+		from instabiz.overrides.overtime import sync_additional_salary
+
+		sync_additional_salary(self)
+
+	def on_trash(self):
+		if self.additional_salary:
+			frappe.throw(frappe._("Reject this request first; it has already been added to payroll."))
+
+	def _guard_paid_edit(self):
+		# Once the overtime is in payroll, hours/date/employee must not drift
+		# away from the Additional Salary that pays them.
+		if not self.additional_salary:
+			return
+		before = self.get_doc_before_save()
+		if not before:
+			return
+		for field in ("employee", "date", "overtime_hours"):
+			if str(before.get(field)) != str(self.get(field)):
+				frappe.throw(frappe._(
+					"This overtime is already in payroll ({0}). Reject it first, then change {1}."
+				).format(self.additional_salary, self.meta.get_label(field)))
 
 	def _guard_approval_change(self):
 		# The "Employee" role has doc-level write=1 on this doctype (needed for

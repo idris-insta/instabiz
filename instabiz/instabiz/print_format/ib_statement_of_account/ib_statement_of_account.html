@@ -1,0 +1,44 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none") %}
+{% set s = ib_statement(doc.name) %}
+{% macro drcr(v) %}{{ ib_money(v | abs, "INR") }} {{ "Dr" if v >= 0 else "Cr" }}{% endmacro %}
+{{ ib.styles(p) }}
+{{ ib.header(p, "Statement of Account", [
+	["Period", ib_date(s.from_date) ~ " to " ~ ib_date(s.to_date)],
+	["Generated on", ib_date(frappe.utils.today())],
+	["Closing balance", drcr(s.closing)],
+], "Based on confirmed orders and receipts" if s.basis == "orders" else "") }}
+{% set summary_box %}
+<div class="ib-label">Summary</div>
+<table class="ib-kv">
+  <tr><td class="k">Opening balance</td><td class="v">{{ drcr(s.opening) }}</td></tr>
+  <tr><td class="k">{{ "Orders" if s.basis == "orders" else "Debits" }}</td><td class="v">{{ ib_money(s.total_debit, "INR") }}</td></tr>
+  <tr><td class="k">{{ "Receipts" if s.basis == "orders" else "Credits" }}</td><td class="v">{{ ib_money(s.total_credit, "INR") }}</td></tr>
+  <tr><td class="k">Closing balance</td><td class="v" style="color:{{ p.accent }}">{{ drcr(s.closing) }}</td></tr>
+</table>
+{% endset %}
+{{ ib.parties(p, "Customer", "", summary_box) }}
+<table class="ib-items">
+  <thead><tr>
+    <th style="width:13%">Date</th><th>Particulars</th><th class="r" style="width:15%">Debit</th><th class="r" style="width:15%">Credit</th><th class="r" style="width:17%">Balance</th>
+  </tr></thead>
+  <tbody>
+    <tr><td class="num">{{ ib_date(s.from_date) }}</td><td><b>Opening balance</b></td><td></td><td></td><td class="r num"><b>{{ drcr(s.opening) }}</b></td></tr>
+    {% for e in s.lines %}
+    <tr class="{{ 'alt' if loop.index is even else '' }}" style="page-break-inside:avoid">
+      <td class="num">{{ ib_date(e.date) }}</td>
+      <td><b>{{ e.voucher_type }}</b> {{ e.voucher_no }}{% if e.remarks %}<div class="ispec">{{ e.remarks }}</div>{% endif %}</td>
+      <td class="r num">{{ ib_money(e.debit, "INR") if e.debit else "" }}</td>
+      <td class="r num">{{ ib_money(e.credit, "INR") if e.credit else "" }}</td>
+      <td class="r num">{{ drcr(e.balance) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot><tr>
+    <td></td><td class="r">Totals</td>
+    <td class="r num">{{ ib_money(s.total_debit, "INR") }}</td><td class="r num">{{ ib_money(s.total_credit, "INR") }}</td>
+    <td class="r num">{{ drcr(s.closing) }}</td>
+  </tr></tfoot>
+</table>
+<div class="ib-small ib-muted" style="margin-top:6px">Please confirm this balance, or tell us about any difference within 7 days. If we do not hear from you, the balance will be treated as confirmed.</div>
+{{ ib.footer(p, show_bank=True) }}

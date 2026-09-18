@@ -5,10 +5,15 @@ DORMANT_DAYS = 60
 _MARKER = "[ib-dormant-reminder]"
 
 
+def _dormant_days():
+	from instabiz.overrides.ib_settings import get_int
+	return get_int("dormant_days", DORMANT_DAYS)
+
+
 @frappe.whitelist()
 def run_dormant_check():
 	frappe.only_for("System Manager")
-	threshold = add_days(nowdate(), -DORMANT_DAYS)
+	threshold = add_days(nowdate(), -_dormant_days())
 
 	# LEFT JOIN so customers with NO submitted SO ever are included too (they're
 	# the most dormant of all) — matches the same pattern customer_assignment.py's
@@ -59,7 +64,7 @@ def run_dormant_check():
 
 		if row.last_order_date:
 			desc = (
-				f"<b>{row.customer}</b> has not placed an order in over {DORMANT_DAYS} days "
+				f"<b>{row.customer}</b> has not placed an order in over {_dormant_days()} days "
 				f"(last order: {frappe.utils.formatdate(row.last_order_date)}).<br><br>"
 				+ _MARKER
 			)
@@ -82,7 +87,7 @@ def run_dormant_check():
 
 		frappe.get_doc({
 			"doctype":        "Notification Log",
-			"subject":        f"Follow up: {row.customer} — no order in {DORMANT_DAYS}+ days",
+			"subject":        f"Follow up: {row.customer} — no order in {_dormant_days()}+ days",
 			"email_content":  desc,
 			"for_user":       sales_user,
 			"from_user":      "Administrator",

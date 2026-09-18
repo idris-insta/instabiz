@@ -16,7 +16,12 @@
   "details_section",
   "reason",
   "approved_by",
-  "approver_notes"
+  "approver_notes",
+  "pay_section",
+  "hourly_rate",
+  "ot_amount",
+  "pay_col",
+  "additional_salary"
  ],
  "fields": [
   {
@@ -99,12 +104,43 @@
    "fieldtype": "Small Text",
    "label": "Approver Notes",
    "read_only": 1
+  },
+  {
+   "fieldname": "pay_section",
+   "fieldtype": "Section Break",
+   "label": "Overtime Pay"
+  },
+  {
+   "fieldname": "hourly_rate",
+   "fieldtype": "Currency",
+   "label": "Hourly Rate",
+   "read_only": 1,
+   "description": "Regular salary rate per hour (Salary Structure Assignment base, day basis from Instabiz Settings)."
+  },
+  {
+   "fieldname": "ot_amount",
+   "fieldtype": "Currency",
+   "label": "Overtime Amount",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "pay_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "additional_salary",
+   "fieldtype": "Link",
+   "label": "Added to Payroll",
+   "options": "Additional Salary",
+   "read_only": 1,
+   "no_copy": 1
   }
  ],
  "icon": "fa fa-clock-o",
  "is_submittable": 0,
  "links": [],
- "modified": "2026-05-05 00:00:00.000000",
+ "modified": "2026-09-18 20:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB Overtime Request",

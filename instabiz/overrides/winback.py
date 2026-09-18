@@ -17,6 +17,21 @@ _MARKER             = "[ib-winback]"
 _LEAD_STALE_STATUSES = ("Cold Lead", "Contacted", "Warm Lead")
 
 
+def _quote_days():
+	from instabiz.overrides.ib_settings import get_int
+	return get_int("quote_stale_days", QUOTE_STALE_DAYS)
+
+
+def _lead_days():
+	from instabiz.overrides.ib_settings import get_int
+	return get_int("lead_stale_days", LEAD_STALE_DAYS)
+
+
+def _cooldown_days():
+	from instabiz.overrides.ib_settings import get_int
+	return get_int("winback_cooldown_days", WINBACK_COOLDOWN_DAYS)
+
+
 def run_winback():
 	_stale_quotations()
 	_cold_leads()
@@ -26,7 +41,7 @@ def run_winback():
 # ── Stale quotations ──────────────────────────────────────────────────────────
 
 def _stale_quotations():
-	cutoff = add_days(nowdate(), -QUOTE_STALE_DAYS)
+	cutoff = add_days(nowdate(), -_quote_days())
 
 	quotes = frappe.get_all(
 		"Quotation",
@@ -50,7 +65,7 @@ def _stale_quotations():
 
 		subject = (
 			f"{_MARKER} Stale quotation: {q.name} ({escape_html(q.customer_name or '')}) — "
-			f"no activity in {QUOTE_STALE_DAYS}+ days"
+			f"no activity in {_quote_days()}+ days"
 		)
 		frappe.get_doc({
 			"doctype":       "Notification Log",
@@ -69,7 +84,7 @@ def _stale_quotations():
 # ── Cold / stalled leads ──────────────────────────────────────────────────────
 
 def _cold_leads():
-	cutoff = add_days(nowdate(), -LEAD_STALE_DAYS)
+	cutoff = add_days(nowdate(), -_lead_days())
 
 	leads = frappe.get_all(
 		"Lead",
@@ -91,7 +106,7 @@ def _cold_leads():
 
 		subject = (
 			f"{_MARKER} Cold lead: {escape_html(lead.lead_name or lead.name)} — "
-			f"no activity in {LEAD_STALE_DAYS}+ days (status: {lead.custom_status})"
+			f"no activity in {_lead_days()}+ days (status: {lead.custom_status})"
 		)
 		frappe.get_doc({
 			"doctype":       "Notification Log",
@@ -108,7 +123,7 @@ def _cold_leads():
 
 
 def _already_notified(doctype, docname):
-	cutoff = add_days(nowdate(), -WINBACK_COOLDOWN_DAYS)
+	cutoff = add_days(nowdate(), -_cooldown_days())
 	return frappe.db.exists("Notification Log", {
 		"document_type": doctype,
 		"document_name": docname,

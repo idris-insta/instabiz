@@ -17,12 +17,12 @@ scheduler_events = {
         # Flag customers with no SO in 60 days → ToDo + bell notification
         "instabiz.overrides.dormant.run_dormant_check",
         # 3-tier owned-customer inactivity escalation: 30d notify, 60d second
-        # warning, 90d auto-reassign to the next rep on the territory team.
-        # NOT WIRED IN YET (2026-09-04) — a real test run found 631 of ~1,118
-        # currently-owned customers are already 90+ days inactive, meaning the
-        # very first live run would mass-reassign all of them at once. Left
-        # disabled until the user explicitly says go; uncomment to arm it.
-        # "instabiz.overrides.customer_dormant_escalation.run_dormant_reassignment_escalation",
+        # notice, 90d auto-reassign to the next rep on the territory team.
+        # Armed 2026-09-18 (user decision) with a cap of 25 reassignments and
+        # 25 notices per sales person per day, most-inactive first — the
+        # backlog (631 customers already past 90d) drains over several days.
+        # Days, cap and on/off live in Instabiz Settings.
+        "instabiz.overrides.customer_dormant_escalation.run_dormant_reassignment_escalation",
         # Monthly sales target milestone notifications (50%/75% elapsed + end-of-month)
         "instabiz.overrides.sales_target.run_target_notifications",
         # Alert rep when SO has no DN after 48h
@@ -48,6 +48,9 @@ scheduler_events = {
         "instabiz.overrides.pdc_alert.run_pdc_alert",
         # Flag IB Asset Loans past expected_return_date as Overdue + alert HR/borrower
         "instabiz.overrides.asset_loan_alert.run_asset_loan_alert",
+        # Casual/Sick/Privilege leave for the current financial year (new FY on
+        # 1 April, new joiners next day) — days from Instabiz Settings
+        "instabiz.overrides.leave_allocation.run_yearly_leave_allocation",
         # Monthly payroll draft creation — fires daily but only acts on the 7th
         "instabiz.overrides.payroll.run_monthly_payroll_draft",
         # MRP Phase 1 — disabled 2026-08-12 alongside the production data reset,
@@ -146,10 +149,16 @@ app_version = "0.0.1"
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 # Idempotent perf indexes on hot filter columns (overrides/indexes.py)
-after_migrate = ["instabiz.overrides.indexes.after_migrate"]
+after_migrate = [
+    "instabiz.overrides.indexes.after_migrate",
+    "instabiz.overrides.overtime.after_migrate",
+]
 
 fixtures = [
     "Custom Field",
+    # Default WhatsApp / email wording for the Send buttons (editable in the UI;
+    # an edited template is newer than this file, so migrate does not overwrite it)
+    "IB Message Template",
     {
         "dt": "Workflow",
         "filters": [["document_type", "=", "IB Work Order"]]
@@ -361,6 +370,10 @@ doc_events = {
         "on_submit": "instabiz.overrides.stock_events.publish_stock_update",
         "on_cancel": "instabiz.overrides.stock_events.publish_stock_update",
     },
+    "Salary Structure Assignment": {
+        # per-day / per-hour rate beside the monthly base (overtime rate)
+        "validate": "instabiz.overrides.overtime.set_assignment_rates",
+    },
     "IB Work Order": {
         # wo-per-run (feature/wo-per-run): milestone bell + genealogy cleanup on
         # the new run shape. Old per-(item x stage) handlers in production.py are
@@ -452,6 +465,15 @@ override_whitelisted_methods = {
 # hook calls the function directly with no HTTP-request dependency at all.
 jinja = {
     "methods": [
+        # shared data for customer / supplier print formats (print_helpers.py)
+        "instabiz.overrides.print_helpers.ib_print",
+        "instabiz.overrides.print_helpers.ib_items",
+        "instabiz.overrides.print_helpers.ib_hsn_summary",
+        "instabiz.overrides.print_helpers.ib_totals",
+        "instabiz.overrides.print_helpers.ib_statement",
+        "instabiz.overrides.print_helpers.ib_money",
+        "instabiz.overrides.print_helpers.ib_date",
+        "instabiz.overrides.print_helpers.ib_outstanding_rows",
         "instabiz.overrides.production.get_order_sheet_wo_names",
         "instabiz.overrides.production.get_order_sheet_stage_workflow",
         "instabiz.instabiz.doctype.ib_container_import.ib_container_import.get_barcode_data_uri",
@@ -460,6 +482,8 @@ jinja = {
 }
 
 # ── Frontend assets ───────────────────────────────────────────────────────────
+extend_bootinfo = "instabiz.overrides.ib_settings.boot_session"
+
 app_include_css = ["instabiz.bundle.css"]
 app_include_js  = [
     "/assets/instabiz/js/env_badge.js",               # DËV / PRØD environment badge (display-only, hostname-based)
@@ -478,6 +502,7 @@ app_include_js  = [
     "/assets/instabiz/js/ib_dash_utils.js",         # dashboard shared: countUp loader, skeleton helpers, fmt
     "/assets/instabiz/js/so_production_panel.js",  # SO form: production stage + dispatch status panel
     "/assets/instabiz/js/ib_simple_payment_dialog.js",  # shared simplified Payment Entry dialog for Sales Users
+    "/assets/instabiz/js/ib_messaging.js",           # Send ▸ WhatsApp / Email on sales, purchase and customer forms
     # ib_stock_dashboard.js is loaded by Frappe's page engine (not global)
     # "/assets/instabiz/js/quotation_list.js",        # Quotation list view
     # "/assets/instabiz/js/sales_order_list.js",      # Sales Order list view

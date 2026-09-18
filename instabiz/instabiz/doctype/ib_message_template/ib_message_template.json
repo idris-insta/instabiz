@@ -1,0 +1,202 @@
+{
+ "actions": [],
+ "autoname": "field:template_name",
+ "creation": "2026-09-18 20:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "template_name",
+  "channel",
+  "reference_doctype",
+  "col1",
+  "enabled",
+  "is_default",
+  "attach_pdf",
+  "print_format",
+  "message_section",
+  "subject",
+  "message",
+  "help"
+ ],
+ "fields": [
+  {
+   "fieldname": "template_name",
+   "fieldtype": "Data",
+   "label": "Template Name",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "channel",
+   "fieldtype": "Select",
+   "label": "Channel",
+   "options": "WhatsApp\nEmail",
+   "default": "WhatsApp",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Document Type",
+   "options": "DocType",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "col1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled",
+   "default": "1"
+  },
+  {
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "Default for this Document Type and Channel"
+  },
+  {
+   "fieldname": "attach_pdf",
+   "fieldtype": "Check",
+   "label": "Include PDF",
+   "default": "1",
+   "description": "WhatsApp: adds a download link. Email: attaches the PDF."
+  },
+  {
+   "fieldname": "print_format",
+   "fieldtype": "Link",
+   "label": "Print Format",
+   "options": "Print Format",
+   "depends_on": "attach_pdf",
+   "description": "Blank = the document type's default print format."
+  },
+  {
+   "fieldname": "message_section",
+   "fieldtype": "Section Break",
+   "label": "Message"
+  },
+  {
+   "fieldname": "subject",
+   "fieldtype": "Data",
+   "label": "Email Subject",
+   "depends_on": "eval:doc.channel==\"Email\"",
+   "mandatory_depends_on": "eval:doc.channel==\"Email\""
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Code",
+   "label": "Message",
+   "options": "Jinja",
+   "reqd": 1
+  },
+  {
+   "fieldname": "help",
+   "fieldtype": "HTML",
+   "options": "<div class=\"text-muted small\"><b>Placeholders</b>: <code>{{ doc.name }}</code>, any field as <code>{{ doc.fieldname }}</code>, <code>{{ party_name }}</code>, <code>{{ amount(doc.grand_total) }}</code> (rupee format), <code>{{ date(doc.transaction_date) }}</code>, <code>{{ pdf_link }}</code>, <code>{{ company }}</code>, <code>{{ sender }}</code>, <code>{{ sender_phone }}</code>. WhatsApp formatting: <code>*bold*</code>, <code>_italic_</code>. Email accepts HTML.</div>"
+  }
+ ],
+ "links": [],
+ "modified": "2026-09-18 20:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "IB Message Template",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 1,
+   "report": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 1,
+   "report": 1
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 1,
+   "report": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 1,
+   "report": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 1,
+   "report": 1
+  },
+  {
+   "role": "Purchase User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 1,
+   "report": 1
+  },
+  {
+   "role": "Stock User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 1,
+   "report": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "template_name",
+ "track_changes": 1
+}

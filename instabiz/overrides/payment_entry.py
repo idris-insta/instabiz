@@ -66,8 +66,10 @@ def create_simple_customer_receipt(
 	doc.received_amount = flt(amount)
 	doc.source_exchange_rate = 1
 	doc.target_exchange_rate = 1
-	doc.paid_to = paid_to or _DEFAULT_BANK_ACCOUNT
-	doc.cost_center = _DEFAULT_COST_CENTER
+	from instabiz.overrides.ib_settings import get as ib_setting
+
+	doc.paid_to = paid_to or ib_setting("default_receipt_bank_account", _DEFAULT_BANK_ACCOUNT)
+	doc.cost_center = ib_setting("default_receipt_cost_center", _DEFAULT_COST_CENTER)
 	if mode_of_payment:
 		doc.mode_of_payment = mode_of_payment
 	if reference_no:
@@ -397,11 +399,15 @@ def _notify_advance_approver(so_name, customer_name, total_advance, currency):
 	"""Ping the designated approver — without this, a Pending advance sits silent
 	until someone happens to reopen that Draft SO; the approve/reject UI already
 	existed but nothing ever told the approver there was something to act on."""
-	from instabiz.overrides.advance_approval import APPROVER_EMAIL
+	from instabiz.overrides.advance_approval import advance_approvers
 
-	if not frappe.db.exists("User", APPROVER_EMAIL):
-		return
 	marker = f"[ib-advance-pending-{so_name}]"
+	for approver in advance_approvers():
+		if frappe.db.exists("User", approver):
+			_notify_one_approver(approver, so_name, customer_name, total_advance, currency, marker)
+
+
+def _notify_one_approver(approver, so_name, customer_name, total_advance, currency, marker):
 	frappe.get_doc({
 		"doctype":       "Notification Log",
 		"subject":       f"Advance approval needed: {so_name} {marker}"[:140],
@@ -409,7 +415,7 @@ def _notify_advance_approver(so_name, customer_name, total_advance, currency):
 			f"An advance payment of {fmt_money(total_advance, currency=currency)} was collected against "
 			f"Draft Sales Order {so_name} ({customer_name or ''}). It cannot be confirmed until you approve it."
 		),
-		"for_user":      APPROVER_EMAIL,
+		"for_user":      approver,
 		"from_user":     "Administrator",
 		"type":          "Alert",
 		"document_type": "Sales Order",

@@ -6,6 +6,7 @@ from frappe.utils import add_months, getdate
 from erpnext.selling.doctype.quotation.quotation import Quotation  # pyright: ignore[reportMissingImports]
 
 from instabiz.overrides.utils import (
+    LOCATION_COMPANY_ADDRESS,
     IbStatusMixin,
     recalculate_items,
     recalc_item_margins,
@@ -35,7 +36,13 @@ _GST_CATEGORY_NORMALIZE = {v.upper(): v for v in [
 ]}
 
 def _set_company_gstin_from_warehouse(doc):
-	warehouse_name = LOCATION_WAREHOUSE.get((doc.custom_location or "").lower())
+	loc = (doc.custom_location or "").lower()
+	# Seller address follows the order's location (it was left on the
+	# Maharashtra address for most orders, which prints the wrong seller).
+	address = LOCATION_COMPANY_ADDRESS.get(loc)
+	if address and doc.meta.has_field("company_address") and frappe.db.exists("Address", address):
+		doc.company_address = address
+	warehouse_name = LOCATION_WAREHOUSE.get(loc)
 	if not warehouse_name:
 		return
 	gstin = frappe.get_cached_value("Warehouse", warehouse_name, "custom_gstin")

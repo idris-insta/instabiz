@@ -97,6 +97,20 @@ def _notify(customer, customer_name, owner, tier, days):
 
 
 def run_dormant_reassignment_escalation():
+	from instabiz.overrides.ib_settings import get_check, get_int
+
+	if not get_check("enable_dormant_escalation", True):
+		return
+	notice_1 = get_int("dormant_notice_1_days", 30)
+	notice_2 = get_int("dormant_notice_2_days", 60)
+	reassign_after = get_int("dormant_reassign_days", 90)
+	# Per outgoing sales person per day. Rows are processed most-inactive
+	# first, so the longest-dormant customers move first and the rest wait
+	# for the next run (first live run found 631 customers already past 90d).
+	daily_cap = get_int("dormant_reassign_daily_cap", 25)
+	moved_today = {}
+	notices_today = {}  # same cap on reminder bells, so a first run can't flood a rep
+
 	rows = frappe.db.sql(
 		"""
 		SELECT c.name AS customer, c.customer_name, c.territory,
@@ -114,10 +128,14 @@ def run_dormant_reassignment_escalation():
 	)
 
 	for row in rows:
-		days = date_diff(today(), row.last_order_date) if row.last_order_date else _NEVER_ORDERED_DAYS
+		row.days = date_diff(today(), row.last_order_date) if row.last_order_date else _NEVER_ORDERED_DAYS
+	rows.sort(key=lambda r: r.days, reverse=True)
+
+	for row in rows:
+		days = row.days
 		tier = row.tier or ""
 
-		if days < 30:
+		if days < notice_1:
 			if tier:
 				frappe.db.set_value(
 					"Customer", row.customer,
@@ -126,16 +144,22 @@ def run_dormant_reassignment_escalation():
 				)
 			continue
 
-		if days < 60:
+		if days < notice_2:
 			if not tier:
+				if notices_today.get(row.owner, 0) >= daily_cap:
+					continue
+				notices_today[row.owner] = notices_today.get(row.owner, 0) + 1
 				_notify(row.customer, row.customer_name, row.owner, "30", days)
 				frappe.db.set_value(
 					"Customer", row.customer,
 					{"custom_dormant_tier": "30", "custom_dormant_tier_basis_date": row.last_order_date},
 					update_modified=False,
 				)
-		elif days < 90:
+		elif days < reassign_after:
 			if tier in ("", "30"):
+				if notices_today.get(row.owner, 0) >= daily_cap:
+					continue
+				notices_today[row.owner] = notices_today.get(row.owner, 0) + 1
 				_notify(row.customer, row.customer_name, row.owner, "60", days)
 				frappe.db.set_value(
 					"Customer", row.customer,
@@ -145,6 +169,8 @@ def run_dormant_reassignment_escalation():
 		else:
 			if tier == "90":
 				continue
+			if moved_today.get(row.owner, 0) >= daily_cap:
+				continue  # this rep hit today's cap; picked up on a later run
 			team = _team_for_territory(row.territory)
 			if not team:
 				continue  # nowhere to reassign to — leave tier as-is, don't silently drop the customer
@@ -158,6 +184,7 @@ def run_dormant_reassignment_escalation():
 			# run's undo showed exactly 2 "you lost this customer"-shaped
 			# notifications per reassignment before this was removed).
 			_reassign_customer_ownership(row.customer, new_owner)
+			moved_today[row.owner] = moved_today.get(row.owner, 0) + 1
 			frappe.db.set_value(
 				"Customer", row.customer,
 				{"custom_dormant_tier": "90", "custom_dormant_tier_basis_date": row.last_order_date},

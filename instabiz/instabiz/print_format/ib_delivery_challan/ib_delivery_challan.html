@@ -1,0 +1,29 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc) %}
+{% set cur = doc.currency or "INR" %}
+{% set t = ib_totals(doc) %}
+{% set ns = namespace(so=[]) %}
+{% for row in doc.items %}{% if row.against_sales_order and row.against_sales_order not in ns.so %}{% set _ = ns.so.append(row.against_sales_order) %}{% endif %}{% endfor %}
+{{ ib.styles(p) }}
+{{ ib.header(p, "Delivery Challan", [
+	["Challan no.", doc.name],
+	["Date", ib_date(doc.posting_date)],
+	["Against order", ns.so | join(", ")],
+	["Your PO", doc.po_no],
+	["e-Way Bill", doc.get("ewaybill")],
+], "Return delivery" if doc.is_return else "") }}
+{% set transport %}
+<div class="ib-label">Dispatch details</div>
+<table class="ib-kv">
+  {% if doc.get("custom_transport") or doc.transporter_name %}<tr><td class="k">Transporter</td><td class="v">{{ doc.get("custom_transport") or doc.transporter_name }}</td></tr>{% endif %}
+  {% if doc.get("transport_gst") or doc.get("gst_transporter_id") %}<tr><td class="k">Transporter GSTIN</td><td class="v">{{ doc.get("transport_gst") or doc.get("gst_transporter_id") }}</td></tr>{% endif %}
+  {% if doc.get("custom_lr_number") or doc.lr_no %}<tr><td class="k">LR / RR no.</td><td class="v">{{ doc.get("custom_lr_number") or doc.lr_no }}{% if doc.lr_date %} · {{ ib_date(doc.lr_date) }}{% endif %}</td></tr>{% endif %}
+  {% if doc.vehicle_no %}<tr><td class="k">Vehicle no.</td><td class="v">{{ doc.vehicle_no | upper }}</td></tr>{% endif %}
+  {% if doc.get("booking_for") %}<tr><td class="k">Booking for</td><td class="v">{{ doc.booking_for }}</td></tr>{% endif %}
+  <tr><td class="k">Ship to</td><td class="v">{% if p.party.ship %}{{ p.party.ship.lines | join(", ") }}{% else %}Billing address{% endif %}</td></tr>
+</table>
+{% endset %}
+{{ ib.parties(p, "Consignee", "", transport) }}
+{{ ib.item_table(ib_items(doc), cur, show_rate=True, show_gst=True, show_hsn=True, show_weight=True, show_pkg=True) }}
+{{ ib.summary(t, cur) }}
+{{ ib.footer(p, show_bank=False, sign_label="Authorised Signatory", receiver=True) }}

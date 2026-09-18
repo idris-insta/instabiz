@@ -6,7 +6,9 @@
    Sales Order vs Sales Invoice (same basis as ib_ar_aging.py / Customer's own
    outstanding field). Computed server-side via frappe.call() since frappe.conf
    isn't reachable from the sandboxed print-format Jinja context. ────────────────── #}
-{% set _stmt = frappe.call("instabiz.overrides.customer.get_outstanding_statement_rows", customer=doc.name) %}
+{# jinja method (hooks.jinja), not frappe.call: frappe.call needs a live HTTP
+   request, so the statement failed when rendered for email or a shared link #}
+{% set _stmt = ib_outstanding_rows(doc.name) %}
 {% set _rows = _stmt.rows %}
 {% set _total = _stmt.total %}
 {% set _doc_label = _stmt.doc_label %}

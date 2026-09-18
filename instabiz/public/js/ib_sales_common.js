@@ -22,14 +22,14 @@ frappe.ui.form.on("Sales Order", {
 	refresh: (frm) => ib_set_item_query(frm, "customer"),
 	onload(frm) {
 		if (frm.is_new() && !frm.doc.delivery_date) {
-			frm.set_value("delivery_date", frappe.datetime.add_days(frm.doc.transaction_date || frappe.datetime.get_today(), 8));
+			frm.set_value("delivery_date", frappe.datetime.add_days(frm.doc.transaction_date || frappe.datetime.get_today(), ib_default_delivery_days()));
 		}
 	},
 	// Default ETD = order date + 8 days — only while the doc is still new/unsaved,
 	// so editing transaction_date on an existing order never touches a real delivery_date.
 	transaction_date(frm) {
 		if (frm.is_new()) {
-			frm.set_value("delivery_date", frappe.datetime.add_days(frm.doc.transaction_date || frappe.datetime.get_today(), 8));
+			frm.set_value("delivery_date", frappe.datetime.add_days(frm.doc.transaction_date || frappe.datetime.get_today(), ib_default_delivery_days()));
 		}
 	},
 });
@@ -37,14 +37,21 @@ frappe.ui.form.on("Sales Order", {
 // Advance-payment approval gate: a Draft SO with an unapproved advance can't
 // be confirmed (blocked server-side in advance_approval.py). Approve/Reject
 // buttons only shown to the designated approver.
-const IB_ADVANCE_APPROVER = "idris@instabizsolutions.com";
+// Approvers come from Instabiz Settings via boot (ib_settings.boot_session).
+function ib_advance_approvers() {
+	return (frappe.boot.ib_settings && frappe.boot.ib_settings.advance_approvers) || ["idris@instabizsolutions.com"];
+}
+
+function ib_default_delivery_days() {
+	return (frappe.boot.ib_settings && frappe.boot.ib_settings.default_delivery_days) || 8;
+}
 
 frappe.ui.form.on("Sales Order", {
 	refresh(frm) {
 		if (frm.doc.docstatus !== 0) return;
 		if (frm.doc.custom_advance_approval_status !== "Pending") return;
 		const can_approve =
-			frappe.session.user === IB_ADVANCE_APPROVER || frappe.user.has_role("System Manager");
+			ib_advance_approvers().includes(frappe.session.user) || frappe.user.has_role("System Manager");
 		if (!can_approve) return;
 
 		frm.add_custom_button(__("Approve"), () => ib_decide_advance(frm, "Approved"), __("Advance"));

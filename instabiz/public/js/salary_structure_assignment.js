@@ -1,4 +1,22 @@
+// Per-day / per-hour rate beside the monthly base (overtime is paid at this
+// rate). Computed server-side on save (instabiz.overrides.overtime); this keeps
+// the figures live while the base is being typed on a draft.
+function ib_ssa_preview_rates(frm) {
+	if (frm.doc.docstatus !== 0 || !frm.doc.base) return;
+	frappe.call({
+		method: "instabiz.overrides.overtime.preview_rates",
+		args: { monthly: frm.doc.base, on_date: frm.doc.from_date },
+		callback: (r) => {
+			if (!r.message) return;
+			frm.set_value("custom_per_day_rate", r.message.per_day);
+			frm.set_value("custom_per_hour_rate", r.message.per_hour);
+		},
+	});
+}
+
 frappe.ui.form.on("Salary Structure Assignment", {
+	base: ib_ssa_preview_rates,
+	from_date: ib_ssa_preview_rates,
 	refresh(frm) {
 		// Printing a Salary Structure Assignment itself is never useful (it's
 		// just the assignment record, no pay figures) — redirect the toolbar

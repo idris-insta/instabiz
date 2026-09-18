@@ -13,12 +13,25 @@ import frappe
 from frappe import _
 from frappe.utils import flt, fmt_money
 
-APPROVER_EMAIL = "idris@instabizsolutions.com"
+APPROVER_EMAIL = "idris@instabizsolutions.com"  # default when Instabiz Settings has none
+
+
+def advance_approvers():
+	"""Users who can approve advances (Instabiz Settings: main + backup)."""
+	from instabiz.overrides.ib_settings import get
+
+	main = get("advance_approver", APPROVER_EMAIL)
+	backup = get("advance_approver_backup")
+	return [u for u in (main, backup) if u]
+
+
+def approver_label():
+	return " / ".join(advance_approvers())
 
 
 def _is_advance_approver(user=None):
 	user = user or frappe.session.user
-	if user == APPROVER_EMAIL:
+	if user in advance_approvers():
 		return True
 	return "System Manager" in frappe.get_roles(user)
 
@@ -68,14 +81,14 @@ def check_advance_approval(doc):
 	if doc.custom_advance_approval_status == "Rejected":
 		frappe.throw(
 			_("Cannot confirm this Sales Order: its advance payment was rejected by {0}. "
-			  "Resolve that before submitting.").format(APPROVER_EMAIL)
+			  "Resolve that before submitting.").format(approver_label())
 		)
 	if flt(doc.custom_advance_paid) > 0 and doc.custom_advance_approval_status != "Approved":
 		frappe.throw(
 			_("Cannot confirm this Sales Order: an advance payment of {0} was collected "
 			  "but has not been approved yet. {1} must approve it first.").format(
 				fmt_money(doc.custom_advance_paid, currency=doc.currency),
-				APPROVER_EMAIL,
+				approver_label(),
 			)
 		)
 
@@ -86,7 +99,7 @@ def set_advance_approval(sales_order, status, remarks=None):
 	if status not in ("Approved", "Rejected"):
 		frappe.throw(_("Status must be Approved or Rejected."))
 	if not _is_advance_approver():
-		frappe.throw(_("Only {0} can approve advance payments.").format(APPROVER_EMAIL))
+		frappe.throw(_("Only {0} can approve advance payments.").format(approver_label()))
 
 	doc = frappe.get_doc("Sales Order", sales_order)
 	if doc.docstatus != 0:

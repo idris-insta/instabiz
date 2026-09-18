@@ -17,6 +17,11 @@ _MARKER = "[ib-irn-age]"
 _OPEN_STATES = ("Pending", "Failed", "Auto-Retry", "")
 
 
+def _warn_days():
+	from instabiz.overrides.ib_settings import get_int
+	return get_int("irn_warn_from_day", WARN_FROM_DAYS)
+
+
 def run_einvoice_age_alert():
 	if not frappe.db.get_single_value("GST Settings", "enable_e_invoice"):
 		return
@@ -38,7 +43,7 @@ def run_einvoice_age_alert():
 		""",
 		{
 			"open": _OPEN_STATES,
-			"warn_before": add_days(today_date, -WARN_FROM_DAYS),
+			"warn_before": add_days(today_date, -_warn_days()),
 			# keep alerting a few days past the window so an expired one isn't silent
 			"oldest": add_days(today_date, -(IRN_WINDOW_DAYS + 5)),
 		},

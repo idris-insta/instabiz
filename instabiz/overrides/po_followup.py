@@ -13,8 +13,13 @@ _MARKER = "[ib-po-followup]"
 _OVERDUE_DAYS = 7
 
 
+def _overdue_days():
+	from instabiz.overrides.ib_settings import get_int
+	return get_int("po_followup_days", _OVERDUE_DAYS)
+
+
 def run_po_followup():
-	overdue_date = add_days(nowdate(), -_OVERDUE_DAYS)
+	overdue_date = add_days(nowdate(), -_overdue_days())
 
 	# POs submitted > 7 days ago with no linked submitted Purchase Receipt
 	overdue_pos = frappe.db.sql(
@@ -78,7 +83,7 @@ def run_po_followup():
 			continue
 
 		subject = (
-			f"{_MARKER} PO {po.name} — no GRN after {_OVERDUE_DAYS}+ days "
+			f"{_MARKER} PO {po.name} — no GRN after {_overdue_days()}+ days "
 			f"| {escape_html(po.supplier_name or po.supplier)} "
 			f"| {po.currency} {po.grand_total:,.2f}"
 		)

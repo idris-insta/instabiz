@@ -1,0 +1,51 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none") %}
+{% set dest = p.party.ship or p.party.bill %}
+{% set ns = namespace(labels=[]) %}
+{% for row in doc.items %}
+  {% set boxes = (row.total_pkg or 1) | int %}
+  {% for b in range(1, (boxes if boxes < 300 else 300) + 1) %}
+    {% set _ = ns.labels.append({"row": row, "box": b, "boxes": boxes}) %}
+  {% endfor %}
+{% endfor %}
+{% set total = ns.labels | length %}
+{% set barcode = get_barcode_data_uri(doc.name) %}
+<style>
+  .print-format { margin: 0mm; padding: 5mm 5mm; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: #111; }
+  .lbl-grid { width: 100%; border-collapse: separate; border-spacing: 3mm; }
+  .lbl { width: 50%; height: 62mm; border: 1.2px solid #222; padding: 3mm; vertical-align: top; }
+  .lbl .to { font-size: 7.5px; letter-spacing: 1px; text-transform: uppercase; color: #666; }
+  .lbl .cust { font-size: 13px; font-weight: 800; line-height: 1.15; margin: 1px 0 2px; }
+  .lbl .addr { font-size: 9px; line-height: 1.3; }
+  .lbl .item { font-size: 9.5px; margin-top: 4px; border-top: 1px dashed #999; padding-top: 3px; }
+  .lbl .item b { font-size: 10px; }
+  .lbl .row2 td { font-size: 9px; padding: 0; vertical-align: bottom; }
+  .lbl .box { font-size: 16px; font-weight: 800; text-align: right; }
+  .lbl .from { font-size: 7.5px; color: #555; margin-top: 3px; }
+  .lbl img.bc { height: 9mm; width: auto; }
+  .pb { page-break-after: always; }
+</style>
+<table class="lbl-grid">
+{% for l in ns.labels %}
+  {% if loop.index0 % 2 == 0 %}<tr>{% endif %}
+  <td class="lbl">
+    <div class="to">Deliver to</div>
+    <div class="cust">{{ p.party.name }}</div>
+    <div class="addr">{% if dest %}{{ dest.lines | join(", ") }}{% endif %}</div>
+    {% if p.party.mobile %}<div class="addr">Ph {{ p.party.mobile }}</div>{% endif %}
+    <div class="item">
+      <b>{{ l.row.item_name or l.row.item_code }}</b><br>
+      {% if l.row.width_mm %}{{ "%g" | format(l.row.width_mm) }} mm{% if l.row.length_mtr %} × {{ "%g" | format(l.row.length_mtr) }} m{% endif %}{% endif %}{% if l.row.color %} · {{ l.row.color }}{% endif %}
+      {% if l.row.qty_pkg %}<br>Qty in box: <b>{{ "%g" | format(l.row.qty_pkg) }}</b>{% endif %}
+    </div>
+    <table class="row2" style="width:100%; margin-top:3px"><tr>
+      <td style="width:60%"><img class="bc" src="{{ barcode }}"><div style="font-size:8px">{{ doc.name }} · {{ ib_date(doc.posting_date) }}</div></td>
+      <td class="box">Box {{ l.box }}/{{ l.boxes }}<div style="font-size:8px; font-weight:400">label {{ loop.index }} of {{ total }}</div></td>
+    </tr></table>
+    <div class="from">From: {{ p.seller.name }}{% if p.seller.phone %} · {{ p.seller.phone }}{% endif %}</div>
+  </td>
+  {% if loop.last and loop.index0 % 2 == 0 %}<td></td>{% endif %}
+  {% if loop.index0 % 2 == 1 or loop.last %}</tr>{% endif %}
+  {% if loop.index % 8 == 0 and not loop.last %}</table><div class="pb"></div><table class="lbl-grid">{% endif %}
+{% endfor %}
+</table>
