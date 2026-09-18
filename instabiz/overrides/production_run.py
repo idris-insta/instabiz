@@ -195,6 +195,56 @@ def get_osi_context(order_sheet_item):
 
 
 @frappe.whitelist()
+def get_osi_context_batch(order_sheet_items):
+	"""Batched get_osi_context — one query for N rows instead of N round trips.
+
+	Real bug this exists to fix: the Start Run dialog (_ibStartRunDialog in
+	ib_production_dashboard.js) only ever resolved sales_order_item/dims/route
+	for the FIRST selected item via a single get_osi_context call, merging the
+	result onto items[0] only — every other item in a multi-item bulk start
+	(2+ dimension-variants of one SKU, or the Order-wise "Start All Items"
+	button) silently reached create_run with sales_order_item missing.
+	create_run defaults a missing sales_order_item to "" on the IB WO Output
+	row, and _settle_order_sheet's completion check filters out falsy
+	sales_order_item entirely — so those items' Order Sheet Item rows could
+	never flip to Completed no matter how many real stages actually finished,
+	permanently blocking the whole order's Create Delivery Note gate (which
+	requires every item Completed). Confirmed live on real data: IB-WO-2026-25500
+	(7 outputs, all stages genuinely Completed) had sales_order_item set on
+	only 1 of 7 IB WO Output rows — items[0], exactly matching this bug.
+	"""
+	_require_production_role()
+	names = _parse(order_sheet_items) or []
+	if not names:
+		return {}
+	rows = frappe.get_all(
+		"IB Order Sheet Item",
+		filters={"name": ["in", names]},
+		fields=["name", "parent", "item_code", "item_name", "qty", "uom", "sales_order_item"],
+	)
+	out = {}
+	for row in rows:
+		location = _run_location(frappe._dict({"order_sheet": row.parent}))
+		dims = frappe.db.get_value(
+			"Item", row.item_code, ["width_mm", "length_mtr", "gsm"], as_dict=True
+		) or {}
+		out[row.name] = {
+			"order_sheet": row.parent,
+			"order_sheet_item": row.name,
+			"sales_order_item": row.sales_order_item,
+			"item_code": row.item_code,
+			"item_name": row.item_name,
+			"qty": flt(row.qty),
+			"uom": row.uom,
+			"width_mm": flt(dims.get("width_mm")),
+			"length_mtr": flt(dims.get("length_mtr")),
+			"gsm": flt(dims.get("gsm")),
+			"route": _get_stage_route(row.item_code, location),
+		}
+	return out
+
+
+@frappe.whitelist()
 def get_order_sheet_runs_context(order_sheet):
 	"""Everything the Start Production dialog needs for one Order Sheet:
 	its items (grouped by item so an operator can pick which share one RM batch),
@@ -1694,6 +1744,10 @@ def _plan_item_row(osi, os_name, location):
 		"item_name": osi.get("item_name"),
 		"qty": flt(osi.get("qty")),
 		"uom": osi.get("uom"),
+		# Was missing entirely — see get_osi_context_batch's own comment for
+		# why this specific omission is what let the bulk Start Run dialog
+		# silently drop sales_order_item on every item past the first one.
+		"sales_order_item": osi.get("sales_order_item"),
 	}
 	if not run:
 		route = _get_stage_route(osi["item_code"], location)

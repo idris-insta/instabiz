@@ -270,10 +270,48 @@ function ibBulkStartDialog(items, onDone) {
 	});
 }
 
+// Real bug, confirmed on live data (IB-WO-2026-25500 — 7 outputs, every
+// stage genuinely Completed, only 1 of 7 IB WO Output rows had
+// sales_order_item set): every caller of this dialog except the single-
+// item path (_start_production_flow) hands over items whose per-row
+// sales_order_item was never resolved — _plan_item_row/_find_plan_item's
+// source data doesn't carry it. A missing sales_order_item reaches
+// create_run as "", and _settle_order_sheet's completion check filters out
+// falsy sales_order_item entirely, so that item's Order Sheet Item row can
+// never flip to Completed — permanently blocking the whole order's Create
+// Delivery Note gate even after production is genuinely finished. Fixed at
+// this one choke point (every caller funnels through here) rather than
+// patching each call site's own local data shape: resolve whatever's
+// missing via one batched server call before ever building the dialog.
 function _ibStartRunDialog(order_sheet, items, onDone) {
+	const missing = items.filter((it) => !it.sales_order_item).map((it) => it.name);
+	if (missing.length) {
+		frappe.call({
+			method: "instabiz.overrides.production_run.get_osi_context_batch",
+			args: { order_sheet_items: JSON.stringify(missing) },
+			callback: (r) => {
+				const ctx = r.message || {};
+				items = items.map((it) => (ctx[it.name] ? Object.assign({}, ctx[it.name], it, {
+					sales_order_item: it.sales_order_item || ctx[it.name].sales_order_item,
+					width_mm: it.width_mm || ctx[it.name].width_mm,
+					length_mtr: it.length_mtr || ctx[it.name].length_mtr,
+					gsm: it.gsm || ctx[it.name].gsm,
+					route: (it.route && it.route.length) ? it.route : ctx[it.name].route,
+				}) : it));
+				_ibStartRunDialogBuild(order_sheet, items, onDone);
+			},
+		});
+		return;
+	}
+	_ibStartRunDialogBuild(order_sheet, items, onDone);
+}
+
+function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 	const ALL_LABELS = IB_STAGES.map((s) => s.label);
-	// the run's route = the first item's route (all outputs share one route);
-	// fall back to all canonical stages only if the server sent none.
+	// A run's own route = the first item's route (every output of ONE run
+	// shares one physical pass through the machines, so they necessarily
+	// share one route) — fall back to all canonical stages only if the
+	// server sent none.
 	const route = (items[0] && items[0].route && items[0].route.length) ? items[0].route.slice() : ALL_LABELS.slice();
 	const firstSuggestion = items.map((it) => it.next_stage_suggestion).find((s) => route.includes(s)) || route[0];
 	const item_codes = new Set(items.map((it) => it.item_code));
@@ -281,15 +319,34 @@ function _ibStartRunDialog(order_sheet, items, onDone) {
 		? `${items.length} output(s) of ${Array.from(item_codes)[0]}`
 		: `${items.length} outputs across ${item_codes.size} SKUs`;
 
+	// Per-row Stage picker — direct ask: "the user prompt where we choose
+	// the stages with the multi selection, give this ability." A run's
+	// outputs must all share ONE route/start_stage (they're produced
+	// together in one physical pass — see the route comment above), but
+	// selected items in a bulk start are very often NOT all sitting at the
+	// same real point in their own route (one fresh, one already past
+	// Coating/Slitting). Forcing everyone onto one dialog-level Start Stage
+	// field would silently mis-start whichever items don't match it. Each
+	// row defaults to ITS OWN next_stage_suggestion (independently
+	// checkable/changeable); on submit, rows are grouped by their selected
+	// stage and one run is created per group — a genuinely different-stage
+	// selection produces genuinely separate runs, not one run lying about
+	// where some of its outputs actually are.
+	const rowOptions = (it) => {
+		const r = (it.route && it.route.length) ? it.route : route;
+		const def = r.includes(it.next_stage_suggestion) ? it.next_stage_suggestion : r[0];
+		return r.map((s) => `<option value="${s}" ${s === def ? "selected" : ""}>${s}</option>`).join("");
+	};
 	const rows = items.map((it, i) => `
 		<tr data-i="${i}">
 			<td style="white-space:nowrap"><strong>${frappe.utils.escape_html(it.item_code || "")}</strong>
 				<div class="text-muted" style="font-size:11px">${it.uom || ""}</div></td>
-			<td><input type="number" class="form-control input-sm ib-sr-qty" value="${flt(it.qty) || 0}" step="any" style="width:110px"></td>
-			<td><input type="number" class="form-control input-sm ib-sr-pack" placeholder="boxes/rolls" step="1" style="width:110px"></td>
+			<td><select class="form-control input-sm ib-sr-stage" style="width:120px">${rowOptions(it)}</select></td>
+			<td><input type="number" class="form-control input-sm ib-sr-qty" value="${flt(it.qty) || 0}" step="any" style="width:100px"></td>
+			<td><input type="number" class="form-control input-sm ib-sr-pack" placeholder="boxes/rolls" step="1" style="width:100px"></td>
 			<td>
-				<input type="text" class="form-control input-sm ib-sr-brand" placeholder="Brand" style="width:100px;display:inline-block">
-				<input type="text" class="form-control input-sm ib-sr-core" placeholder="Core" style="width:90px;display:inline-block">
+				<input type="text" class="form-control input-sm ib-sr-brand" placeholder="Brand" style="width:90px;display:inline-block">
+				<input type="text" class="form-control input-sm ib-sr-core" placeholder="Core" style="width:80px;display:inline-block">
 			</td>
 		</tr>`).join("");
 
@@ -299,55 +356,86 @@ function _ibStartRunDialog(order_sheet, items, onDone) {
 		fields: [
 			{ fieldname: "source_batch", fieldtype: "Link", options: "IB Batch", label: "Source RM Batch", reqd: 1,
 				get_query: () => ({ filters: { kind: "Raw Material", status: "Active" } }),
-				description: "The one raw-material / jumbo batch this run consumes." },
+				description: "The one raw-material / jumbo batch each run below consumes from." },
 			{ fieldname: "source_qty", fieldtype: "Float", label: "RM Qty Consumed",
-				description: "Leave blank to use the sum of output planned quantities." },
-			{ fieldname: "start_stage", fieldtype: "Select", label: "Start At Stage",
-				options: route.join("\n"), default: firstSuggestion, reqd: 1,
-				description: `This run's route: ${route.join(" → ")}` },
+				description: "Only used when every row below ends up in ONE run (all on the same stage). Leave blank to use each run's own summed output quantity — the only option once rows span more than one stage." },
+			{ fieldname: "set_all_stage", fieldtype: "Select", label: "Set Stage For All Rows",
+				options: [""].concat(route).join("\n"),
+				description: "Quick-fill: applies the picked stage to every row's own selector below. Leave blank to keep each row's own default." },
 			{ fieldname: "grid", fieldtype: "HTML", options: `
 				<div style="overflow-x:auto"><table class="table table-bordered" style="margin-bottom:0">
-					<thead><tr><th>Output Item</th><th>Planned Qty</th><th>Pack Count</th><th>Packing (optional)</th></tr></thead>
+					<thead><tr><th>Output Item</th><th>Stage</th><th>Planned Qty</th><th>Pack Count</th><th>Packing (optional)</th></tr></thead>
 					<tbody>${rows}</tbody>
 				</table></div>` },
 		],
-		primary_action_label: "Start Run",
+		primary_action_label: "Start Run(s)",
 		primary_action: (v) => {
 			if (!v.source_batch) { frappe.show_alert({ message: "Pick a source RM batch.", indicator: "orange" }); return; }
-			const outputs = items.map((it, i) => {
+			const rowData = items.map((it, i) => {
 				const $r = d.$wrapper.find(`tr[data-i="${i}"]`);
 				return {
-					order_sheet_item: it.name,
-					sales_order_item: it.sales_order_item || undefined,
-					item_code: it.item_code,
-					planned_qty: flt($r.find(".ib-sr-qty").val()) || flt(it.qty) || 0,
-					uom: it.uom,
-					pack_count: cint($r.find(".ib-sr-pack").val()) || 0,
-					brand: String($r.find(".ib-sr-brand").val() || "").trim() || undefined,
-					core: String($r.find(".ib-sr-core").val() || "").trim() || undefined,
+					stage: $r.find(".ib-sr-stage").val() || firstSuggestion,
+					output: {
+						order_sheet_item: it.name,
+						sales_order_item: it.sales_order_item || undefined,
+						item_code: it.item_code,
+						planned_qty: flt($r.find(".ib-sr-qty").val()) || flt(it.qty) || 0,
+						uom: it.uom,
+						pack_count: cint($r.find(".ib-sr-pack").val()) || 0,
+						brand: String($r.find(".ib-sr-brand").val() || "").trim() || undefined,
+						core: String($r.find(".ib-sr-core").val() || "").trim() || undefined,
+					},
 				};
 			});
+			const groups = new Map();
+			for (const { stage, output } of rowData) {
+				if (!groups.has(stage)) groups.set(stage, []);
+				groups.get(stage).push(output);
+			}
+			const stages = Array.from(groups.keys());
 			d.get_primary_btn().prop("disabled", true).text("Starting…");
-			frappe.call({
-				method: "instabiz.overrides.production_run.create_run",
-				args: {
-					order_sheet, source_batch: v.source_batch,
-					source_qty: v.source_qty || null,
-					outputs: JSON.stringify(outputs),
-					start_stage: v.start_stage,
-				},
-				callback: (r) => {
+			let created = 0, failed = 0;
+			const runNext = () => {
+				if (!stages.length) {
 					d.hide();
-					if (r.exc || !r.message) {
-						frappe.show_alert({ message: "Failed to start the run.", indicator: "red" });
-						return;
+					if (failed) {
+						frappe.show_alert({ message: `${created} run(s) started, ${failed} failed.`, indicator: created ? "orange" : "red" }, 5);
+					} else {
+						frappe.show_alert({ message: groups.size > 1
+							? `${created} runs started (grouped by stage).` : "Run started.", indicator: "green" }, 4);
 					}
-					frappe.show_alert({ message: `Run ${r.message} started`, indicator: "green" }, 4);
 					if (onDone) onDone();
-				},
-				error: () => { d.get_primary_btn().prop("disabled", false).text("Start Run"); },
-			});
+					return;
+				}
+				const stage = stages.shift();
+				const outputs = groups.get(stage);
+				frappe.call({
+					method: "instabiz.overrides.production_run.create_run",
+					args: {
+						order_sheet, source_batch: v.source_batch,
+						// A shared explicit RM-qty override only makes sense when
+						// everything collapsed into one run — split across several
+						// stage-groups it's ambiguous, so each group falls back to
+						// its own summed output quantity instead of guessing a split.
+						source_qty: (groups.size === 1 && v.source_qty) ? v.source_qty : null,
+						outputs: JSON.stringify(outputs),
+						start_stage: stage,
+					},
+					callback: (r) => {
+						if (r.exc || !r.message) failed += 1; else created += 1;
+						runNext();
+					},
+					error: () => { failed += 1; runNext(); },
+				});
+			};
+			runNext();
 		},
+	});
+	// Quick-fill wiring — applies the picked stage to every row's own select.
+	d.fields_dict.set_all_stage.$input.on("change", () => {
+		const val = d.get_value("set_all_stage");
+		if (!val) return;
+		d.$wrapper.find(".ib-sr-stage").each((_, el) => { if ($(el).find(`option[value="${val}"]`).length) $(el).val(val); });
 	});
 	d.show();
 }
@@ -4214,31 +4302,32 @@ class IBProductionStages {
 		});
 	}
 
-	// Complete the current WO's stage. JIT stage model (2026-08-13): no next
-	// Work Order is auto-created/assigned anymore — instead, if the backend
-	// says another stage is still ahead in this item's route, the Start
-	// Production picker opens immediately (defaulted to that suggestion,
-	// freely overridable) so "complete → start next" stays one continuous
-	// action from the operator's side, not a dead end they have to go find
-	// a different button for. Only the last stage (Packing, via
-	// #ib-wo-complete/_update_wo_status instead) has nothing left to prompt.
+	// Advance the run's CURRENT stage forward. WO-per-run model (2026-09-10
+	// onward): this is the SAME IB Work Order moving to its next
+	// current_stage in place — no new run is created or needed. Real
+	// regression, found live: this function still carried the pre-rewrite
+	// JIT-per-stage-WO behavior (stale comment: "no next Work Order is
+	// auto-created... the Start Production picker opens immediately"),
+	// which under the OLD model was correct (each stage really was its own
+	// separate WO that had to be freshly started) but under the run model
+	// means every single "advance to next stage" click — except the very
+	// last stage — immediately popped open a SECOND "Start Production"
+	// dialog offering to create a brand-new, duplicate run for the item at
+	// the stage the backend had just already advanced the real run to.
+	// Confirmed via advance_run()'s own return shape (production_run.py):
+	// `next_stage` is truthy on every non-final advance, so this fired on
+	// nearly every click. Fixed: a normal advance just refreshes — the run
+	// object updates itself, there's nothing further to prompt for. Only
+	// exception (already correctly handled by advance_with_length_split)
+	// is a length-split response, which returns next_stage: null and
+	// already just refreshes as several new runs replace this one.
 	_advance_wo(wo, stage_key, actual_qty) {
 		_advance_with_split_check(
 			wo.name, actual_qty,
 			(msg) => {
 				frappe.show_alert({ message: msg.message || "Advanced.", indicator: "green" }, 3);
 				this._close_side_panel();
-				const next_stage = msg.next_stage;
-				if (next_stage && wo.order_sheet_item) {
-					// Complete → immediately prompt for the next stage, same
-					// picker as the Dashboard's Start Production button and
-					// Order-wise's "+" cell — one continuous action. A split
-					// (next_stage: null, several new WOs instead of one) just
-					// refreshes — there's no single "next" run to prompt for.
-					_start_production_flow(wo.order_sheet_item, wo.item_code, next_stage, () => this.refresh());
-				} else {
-					this.refresh();
-				}
+				this.refresh();
 			},
 			(err) => {
 				frappe.show_alert({ message: err, indicator: "red" });
