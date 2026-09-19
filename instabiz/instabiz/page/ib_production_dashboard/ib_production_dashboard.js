@@ -4052,10 +4052,20 @@ class IBProductionStages {
 		// set as Hold — a run that's already Completed/Cancelled/Delivered
 		// has nothing left to cancel.
 		const can_cancel = wo.status === "Pending" || wo.status === "In Progress" || wo.status === "On Hold";
+		// Skip Stage — skip_stage() (production_run.py) has always existed,
+		// fully built (real skipped=1 stage_log entry, distinct from Move to
+		// Different Stage's blunt "put it anywhere" — reassigns the next
+		// stage's machine, correctly finishes the run if it was the last
+		// stage), but no UI ever called it. Same bug class as Cancel Run.
+		// Only valid from In Progress — matches skip_stage's own guard.
+		const can_skip = wo.status === "In Progress";
 		const menu_items = [
 			can_hold ? `<a class="dropdown-item" href="#" id="ib-wo-hold"><iconify-icon icon="lucide:pause" width="12" height="12" style="vertical-align:middle;margin-right:6px"></iconify-icon>Put On Hold</a>` : "",
 			(can_adjust_qty && (wo.target_uom === "PCS" || wo.target_uom === "SQMT"))
 				? `<a class="dropdown-item" href="#" id="ib-wo-adjust-qty"><iconify-icon icon="lucide:sliders-horizontal" width="12" height="12" style="vertical-align:middle;margin-right:6px"></iconify-icon>Adjust Qty</a>`
+				: "",
+			can_skip
+				? `<a class="dropdown-item" href="#" id="ib-wo-skip-stage"><iconify-icon icon="lucide:skip-forward" width="12" height="12" style="vertical-align:middle;margin-right:6px"></iconify-icon>Skip This Stage</a>`
 				: "",
 			cint(wo.produced_serials) > 0
 				? `<a class="dropdown-item" href="/printview?doctype=IB Work Order&name=${encodeURIComponent(wo.name)}&format=IB Serial Label" target="_blank" id="ib-wo-serial-labels"><iconify-icon icon="lucide:qr-code" width="12" height="12" style="vertical-align:middle;margin-right:6px"></iconify-icon>Print Serial Labels (${cint(wo.produced_serials)})</a>`
@@ -4187,6 +4197,33 @@ class IBProductionStages {
 		// operator actually confirms, same reasoning as Assign Machine/
 		// Advance/Complete above.
 		$panel.on("click", "#ib-wo-cancel", (e) => { e.preventDefault(); this._cancel_wo(wo, stage_key); });
+		// Not wrapped in guarded() — same reasoning as Cancel Run just above.
+		$panel.on("click", "#ib-wo-skip-stage", (e) => { e.preventDefault(); this._skip_stage(wo, stage_key); });
+	}
+
+	// Marks the current stage skipped (no work done) in the run's real
+	// stage_log, then moves on to the next stage — distinct from Move to
+	// Different Stage's blunt escape hatch, which doesn't record a skip.
+	_skip_stage(wo, stage_key) {
+		const stage = IB_STAGES.find((s) => s.key === stage_key) || { label: stage_key };
+		frappe.confirm(
+			`Skip <strong>${stage.label}</strong> for this run without recording any work done, and move on to the next stage?`,
+			() => {
+				frappe.call({
+					method: "instabiz.overrides.production.skip_work_order_stage",
+					args: { work_order: wo.name },
+					callback: (r) => {
+						if (r.exc) {
+							frappe.show_alert({ message: "Failed to skip stage.", indicator: "red" });
+							return;
+						}
+						frappe.show_alert({ message: (r.message && r.message.message) || "Stage skipped.", indicator: "green" }, 3);
+						this._close_side_panel();
+						this.refresh();
+					},
+				});
+			},
+		);
 	}
 
 	// Destructive — asks for a reason and a real confirmation before calling

@@ -8,9 +8,14 @@ One `IB Work Order` = one production run, cradle to grave: one raw-material
 end — an FG `IB Batch` + `IB FG Serial` per unit for genealogy.
 
 Phase 1 scope: create / advance / skip / hold / resume / finish (FG batch +
-serials) / cancel, plus the read APIs the Production Dashboard needs
-(`get_run_list`, `get_run_detail`, `get_production_kpis`, `get_stage_board`,
-`get_machine_board`, `get_item_wise_board`, `get_dpr` / `get_weekly_dpr`).
+serials) / cancel, plus the read APIs the Production Dashboard consumes via
+production.py's compat shims (`get_production_kpis`, `get_stage_board`,
+`get_item_wise_board`). An earlier native read-API layer meant to be
+called directly (`get_run_list`/`get_run_detail`/`get_run_panel`/
+`get_machine_board`/`get_route_for_item`/`get_order_sheet_runs_context`/
+`get_dpr`/`get_weekly_dpr`) was superseded by the compat-shim approach —
+the frontend was adapted to the old response shape rather than rebuilt —
+and removed as dead code, zero callers anywhere in the app.
 
 NOT in Phase 1: the Repack Stock Entry (ledger movement) — that is Phase 3,
 behind the `ib_production_posts_stock` site_config flag. `_finish_run` here
@@ -150,16 +155,6 @@ def _validate_route(stages, location):
 # route lookup (Start dialog)
 # ---------------------------------------------------------------------------
 
-@frappe.whitelist()
-def get_route_for_item(item_code, location=None):
-	"""Default route for an item — the plan the Start dialog pre-fills, editable."""
-	_require_production_role()
-	stages = _get_stage_route(item_code, location)
-	return [
-		{"stage": s, "sequence": i + 1, "machine_type": _STAGE_MACHINE_TYPE.get(s, "")}
-		for i, s in enumerate(stages)
-	]
-
 
 @frappe.whitelist()
 def get_osi_context(order_sheet_item):
@@ -242,61 +237,6 @@ def get_osi_context_batch(order_sheet_items):
 			"route": _get_stage_route(row.item_code, location),
 		}
 	return out
-
-
-@frappe.whitelist()
-def get_order_sheet_runs_context(order_sheet):
-	"""Everything the Start Production dialog needs for one Order Sheet:
-	its items (grouped by item so an operator can pick which share one RM batch),
-	the RM batches available per item, and each item's default route."""
-	_require_production_role()
-	os_doc = frappe.get_doc("IB Order Sheet", order_sheet)
-	location = _run_location(frappe._dict({"order_sheet": order_sheet}))
-
-	items = []
-	for it in os_doc.items:
-		dims = frappe.db.get_value(
-			"Item", it.item_code, ["width_mm", "length_mtr", "gsm", "stock_uom"], as_dict=True
-		) or {}
-		existing_run = frappe.db.get_value(
-			"IB WO Output",
-			{"sales_order_item": it.sales_order_item, "docstatus": ["<", 2]},
-			"parent",
-		)
-		items.append({
-			"order_sheet_item": it.name,
-			"sales_order_item": it.sales_order_item,
-			"item_code": it.item_code,
-			"item_name": it.item_name,
-			"qty": flt(it.qty),
-			"uom": it.uom or dims.get("stock_uom"),
-			"width_mm": flt(dims.get("width_mm")),
-			"length_mtr": flt(dims.get("length_mtr")),
-			"gsm": flt(dims.get("gsm")),
-			"has_run": bool(existing_run),
-			"run": existing_run,
-			"route": _get_stage_route(it.item_code, location),
-		})
-
-	# RM batches: any active Raw Material IB Batch (operator picks the right one)
-	batches = frappe.get_all(
-		"IB Batch",
-		filters={"kind": "Raw Material", "status": "Active"},
-		fields=["name", "batch_id", "item", "item_name", "qty", "supplier_lot",
-		        "received_date", "container_import", "purchase_receipt"],
-		order_by="received_date asc, creation asc",
-		limit_page_length=500,
-	)
-
-	return {
-		"order_sheet": order_sheet,
-		"sales_order": os_doc.sales_order,
-		"location": location,
-		"priority": os_doc.priority,
-		"items": items,
-		"rm_batches": batches,
-		"stages": list(STAGES),
-	}
 
 
 @frappe.whitelist()
@@ -1308,136 +1248,6 @@ def _run_row(w, os_map=None, so_map=None):
 	}
 
 
-@frappe.whitelist()
-def get_run_list(location=None, status=None, priority=None, search=None, limit=None, start=0):
-	"""Order-wise tab + Dashboard Active Production Plan — one row per run."""
-	_require_production_role()
-	filters = {}
-	if location:
-		filters["location"] = location.lower()
-	if status:
-		filters["status"] = status
-	if priority:
-		filters["priority"] = priority
-
-	rows = frappe.get_all(
-		"IB Work Order", filters=filters, fields=_RUN_LIST_FIELDS,
-		order_by="field(priority,'Urgent','High','Normal','Low'), posting_date desc, creation desc",
-		limit_page_length=cint(limit) or 0, limit_start=cint(start),
-	)
-	so_names = list({r.sales_order for r in rows if r.sales_order})
-	so_map = {}
-	if so_names:
-		for s in frappe.get_all(
-			"Sales Order", filters={"name": ["in", so_names]},
-			fields=["name", "customer", "customer_name", "delivery_date"],
-		):
-			so_map[s.name] = s
-
-	out = [_run_row(r, so_map=so_map) for r in rows]
-	if search:
-		s = search.lower()
-		out = [
-			r for r in out
-			if s in (r["work_order"] or "").lower()
-			or s in (r["sales_order"] or "").lower()
-			or s in (r["customer"] or "").lower()
-			or any(s in (o["item_code"] or "").lower() for o in r["outputs"])
-		]
-	return out
-
-
-@frappe.whitelist()
-def get_run_detail(work_order):
-	"""Run side panel — header + route + outputs + stage_log + serials + genealogy."""
-	w = frappe.db.get_value("IB Work Order", work_order, "*", as_dict=True)
-	if not w:
-		frappe.throw(_("Run {0} not found").format(work_order))
-	if w.sales_order:
-		_check_so_production_access(w.sales_order)
-	else:
-		_require_production_role()
-
-	so = frappe.db.get_value(
-		"Sales Order", w.sales_order,
-		["customer", "customer_name", "delivery_date", "custom_location"], as_dict=True
-	) or {} if w.sales_order else {}
-
-	route = frappe.get_all(
-		"IB WO Route Stage", filters={"parent": work_order},
-		fields=["stage", "sequence", "machine_type", "done"], order_by="sequence asc",
-	)
-	outputs = frappe.get_all(
-		"IB WO Output", filters={"parent": work_order},
-		fields=["name", "item_code", "item_name", "planned_qty", "produced_qty", "uom",
-		        "width_mm", "length_mtr", "gsm", "pack_count", "brand", "core", "ctn",
-		        "shrink_film", "packing_type", "fg_batch", "serial_count", "sales_order_item"],
-	)
-	stage_log = frappe.get_all(
-		"IB WO Stage Event", filters={"parent": work_order},
-		fields=["stage", "machine", "operator", "skipped", "started_at", "completed_at",
-		        "input_qty", "output_qty", "wastage_qty", "wastage_pct", "notes"],
-		order_by="idx asc",
-	)
-	serials = frappe.get_all(
-		"IB FG Serial", filters={"work_order": work_order},
-		fields=["serial_no", "item_code", "status", "box_no", "fg_batch"],
-		order_by="box_no asc", limit_page_length=200,
-	)
-	src_batch = frappe.db.get_value(
-		"IB Batch", w.source_batch,
-		["batch_id", "item", "item_name", "qty", "supplier_lot", "received_date",
-		 "container_import", "purchase_receipt"], as_dict=True
-	) if w.source_batch else None
-
-	next_stage = None
-	seq = [r.stage for r in route]
-	if w.current_stage in seq:
-		i = seq.index(w.current_stage)
-		next_stage = seq[i + 1] if i + 1 < len(seq) else None
-
-	return {
-		"work_order": work_order,
-		"header": {
-			"sales_order": w.sales_order,
-			"order_sheet": w.order_sheet,
-			"customer": so.get("customer_name") or so.get("customer") or "",
-			"priority": w.priority,
-			"status": w.status,
-			"location": w.location,
-			"current_stage": w.current_stage,
-			"next_stage": next_stage,
-			"machine": w.machine,
-			"posting_date": str(w.posting_date) if w.posting_date else None,
-			"delivery_date": str(so.get("delivery_date")) if so.get("delivery_date") else None,
-			"started_at": str(w.started_at) if w.started_at else None,
-			"completed_at": str(w.completed_at) if w.completed_at else None,
-			"source_batch": w.source_batch,
-			"source_item": w.source_item,
-			"source_qty": flt(w.source_qty),
-			"source_warehouse": w.source_warehouse,
-			"fg_batch": w.fg_batch,
-			"stock_entry": w.stock_entry,
-			"total_output_qty": flt(w.total_output_qty),
-			"total_wastage_qty": flt(w.total_wastage_qty),
-			"notes": w.notes,
-		},
-		"route": [{"stage": r.stage, "sequence": r.sequence, "machine_type": r.machine_type,
-		           "done": bool(r.done), "is_current": r.stage == w.current_stage} for r in route],
-		"outputs": [dict(o, planned_qty=flt(o.planned_qty), produced_qty=flt(o.produced_qty)) for o in outputs],
-		"stage_log": [dict(
-			e,
-			started_at=str(e.started_at) if e.started_at else None,
-			completed_at=str(e.completed_at) if e.completed_at else None,
-			input_qty=flt(e.input_qty), output_qty=flt(e.output_qty),
-			wastage_qty=flt(e.wastage_qty), wastage_pct=flt(e.wastage_pct),
-			skipped=bool(e.skipped),
-		) for e in stage_log],
-		"serials": serials,
-		"source_batch_detail": src_batch,
-	}
-
-
 _STAGE_KEY = {s: s.lower().replace(" ", "_") for s in STAGES}
 
 
@@ -1562,62 +1372,6 @@ def get_stage_board(location=None):
 
 
 @frappe.whitelist()
-def get_machine_board(location=None):
-	"""Machine-wise tab — machines with the run currently on them + today's real
-	output/wastage/yield from stage events."""
-	_require_production_role()
-	mfilters = {"status": "Active"}
-	if location:
-		mfilters["location"] = location.lower()
-	machines = frappe.get_all("IB Machine", filters=mfilters,
-	                          fields=["name", "machine_type", "location", "floor", "capacity"],
-	                          order_by="machine_type asc, name asc")
-
-	run_filters = {"status": "In Progress"}
-	if location:
-		run_filters["location"] = location.lower()
-	runs = frappe.get_all("IB Work Order", filters=run_filters, fields=_RUN_LIST_FIELDS)
-	so_map = {}
-	so_names = list({r.sales_order for r in runs if r.sales_order})
-	if so_names:
-		for s in frappe.get_all("Sales Order", filters={"name": ["in", so_names]},
-		                        fields=["name", "customer", "customer_name", "delivery_date"]):
-			so_map[s.name] = s
-	runs_by_machine = {}
-	for r in runs:
-		runs_by_machine.setdefault(r.machine, []).append(_run_row(r, so_map=so_map))
-
-	stats = frappe.db.sql(
-		"""SELECT machine,
-		          COUNT(*) AS events, SUM(output_qty) AS output_qty,
-		          SUM(wastage_qty) AS wastage_qty, AVG(wastage_pct) AS wastage_pct
-		   FROM `tabIB WO Stage Event`
-		   WHERE skipped = 0 AND DATE(completed_at) = %(d)s AND machine IS NOT NULL
-		   GROUP BY machine""",
-		{"d": nowdate()}, as_dict=True,
-	)
-	stat_map = {s.machine: s for s in stats}
-
-	out = []
-	for m in machines:
-		st = stat_map.get(m.name, {})
-		out.append({
-			"machine": m.name,
-			"machine_type": m.machine_type,
-			"location": m.location,
-			"floor": m.floor,
-			"runs": runs_by_machine.get(m.name, []),
-			"today": {
-				"events": cint(st.get("events")),
-				"output_qty": round(flt(st.get("output_qty")), 2),
-				"wastage_qty": round(flt(st.get("wastage_qty")), 2),
-				"yield_pct": round(100 - flt(st.get("wastage_pct")), 2) if st else 100.0,
-			},
-		})
-	return out
-
-
-@frappe.whitelist()
 def get_item_wise_board(location=None, item_code=None):
 	"""Item-wise tab — output SKUs across runs, each with its run's route matrix.
 
@@ -1668,101 +1422,6 @@ def get_item_wise_board(location=None, item_code=None):
 # ---------------------------------------------------------------------------
 # DPR — real per-stage output / wastage / hours from IB WO Stage Event
 # ---------------------------------------------------------------------------
-
-def _dpr_from_events(from_date, to_date, location=None):
-	cond = "WHERE e.skipped = 0 AND DATE(e.completed_at) BETWEEN %(f)s AND %(t)s"
-	params = {"f": from_date, "t": to_date}
-	if location:
-		cond += " AND w.location = %(loc)s"
-		params["loc"] = location.lower()
-	rows = frappe.db.sql(
-		f"""SELECT e.stage, e.machine, e.operator, e.input_qty, e.output_qty,
-		           e.wastage_qty, e.wastage_pct, e.started_at, e.completed_at,
-		           w.name AS work_order, w.sales_order, w.order_sheet
-		    FROM `tabIB WO Stage Event` e
-		    JOIN `tabIB Work Order` w ON w.name = e.parent
-		    {cond}
-		    ORDER BY e.completed_at ASC""",
-		params, as_dict=True,
-	)
-	by_stage, by_machine = {}, {}
-	total_output = total_wastage = 0.0
-	for r in rows:
-		hrs = 0.0
-		if r.started_at and r.completed_at:
-			hrs = max((getdate(r.completed_at) == getdate(r.started_at)) and
-			          (frappe.utils.time_diff_in_hours(r.completed_at, r.started_at)) or
-			          frappe.utils.time_diff_in_hours(r.completed_at, r.started_at), 0.0)
-		s = by_stage.setdefault(r.stage, {"stage": r.stage, "runs": 0, "output_qty": 0.0,
-		                                  "wastage_qty": 0.0, "hours": 0.0})
-		s["runs"] += 1
-		s["output_qty"] += flt(r.output_qty)
-		s["wastage_qty"] += flt(r.wastage_qty)
-		s["hours"] += hrs
-		if r.machine:
-			m = by_machine.setdefault(r.machine, {"machine": r.machine, "runs": 0,
-			                                      "output_qty": 0.0, "wastage_qty": 0.0, "hours": 0.0})
-			m["runs"] += 1
-			m["output_qty"] += flt(r.output_qty)
-			m["wastage_qty"] += flt(r.wastage_qty)
-			m["hours"] += hrs
-		total_output += flt(r.output_qty)
-		total_wastage += flt(r.wastage_qty)
-
-	def _fin(d):
-		d = dict(d)
-		d["output_qty"] = round(d["output_qty"], 2)
-		d["wastage_qty"] = round(d["wastage_qty"], 2)
-		d["hours"] = round(d["hours"], 2)
-		d["hourly_avg"] = round(d["output_qty"] / d["hours"], 2) if d["hours"] else 0.0
-		return d
-
-	return {
-		"from_date": str(from_date), "to_date": str(to_date),
-		"events": len(rows),
-		"total_output_qty": round(total_output, 2),
-		"total_wastage_qty": round(total_wastage, 2),
-		"by_stage": [_fin(v) for v in by_stage.values()],
-		"by_machine": [_fin(v) for v in by_machine.values()],
-	}
-
-
-@frappe.whitelist()
-def get_dpr(date=None, location=None):
-	_require_production_role()
-	d = getdate(date) if date else getdate(today())
-	return _dpr_from_events(d, d, location)
-
-
-@frappe.whitelist()
-def get_weekly_dpr(week_start=None, date=None, location=None):
-	_require_production_role()
-	end = getdate(week_start or date or today())
-	start = add_days(end, -6)
-	base = _dpr_from_events(start, end, location)
-	days = []
-	rows = frappe.db.sql(
-		"""SELECT DATE(e.completed_at) AS d, SUM(e.output_qty) AS output_qty,
-		          SUM(e.wastage_qty) AS wastage_qty, COUNT(*) AS events
-		   FROM `tabIB WO Stage Event` e
-		   JOIN `tabIB Work Order` w ON w.name = e.parent
-		   WHERE e.skipped = 0 AND DATE(e.completed_at) BETWEEN %(f)s AND %(t)s
-		   """ + (" AND w.location = %(loc)s" if location else "") + """
-		   GROUP BY DATE(e.completed_at)""",
-		{"f": start, "t": end, "loc": (location or "").lower()}, as_dict=True,
-	)
-	dmap = {str(r.d): r for r in rows}
-	for i in range(7):
-		day = add_days(start, i)
-		r = dmap.get(str(day))
-		days.append({
-			"date": str(day),
-			"output_qty": round(flt(r.output_qty), 2) if r else 0.0,
-			"wastage_qty": round(flt(r.wastage_qty), 2) if r else 0.0,
-			"events": cint(r.events) if r else 0,
-		})
-	base["days"] = days
-	return base
 
 
 # ---------------------------------------------------------------------------
@@ -2152,64 +1811,3 @@ def get_order_sheet_detail(order_sheet):
 	}
 
 
-@frappe.whitelist()
-def get_run_panel(work_order):
-	"""Flat `wo`-shaped dict the existing _render_wo_panel() expects, from the run.
-	stage_key it should be opened at = the run's current stage."""
-	w = frappe.db.get_value(
-		"IB Work Order", work_order,
-		["name", "status", "current_stage", "machine", "priority", "sales_order",
-		 "order_sheet", "source_batch", "source_item", "source_qty", "source_warehouse",
-		 "posting_date", "started_at", "completed_at", "fg_batch", "location", "notes",
-		 "total_output_qty", "total_wastage_qty"], as_dict=True,
-	)
-	if not w:
-		frappe.throw(_("Run {0} not found").format(work_order))
-	if w.sales_order:
-		_check_so_production_access(w.sales_order)
-	so = frappe.db.get_value(
-		"Sales Order", w.sales_order, ["customer_name", "delivery_date"], as_dict=True
-	) or {} if w.sales_order else {}
-	outs = frappe.get_all(
-		"IB WO Output", filters={"parent": work_order},
-		fields=["item_code", "item_name", "planned_qty", "produced_qty", "uom", "serial_count"],
-	)
-	primary = outs[0] if outs else {}
-	n_serials = sum(cint(o.serial_count) for o in outs)
-	route = frappe.get_all(
-		"IB WO Route Stage", filters={"parent": work_order},
-		fields=["stage", "done"], order_by="sequence asc",
-	)
-	next_stage = None
-	seq = [r.stage for r in route]
-	if w.current_stage in seq:
-		i = seq.index(w.current_stage)
-		next_stage = seq[i + 1] if i + 1 < len(seq) else None
-
-	return {
-		"name": w.name,
-		"status": w.status,
-		"stage": w.current_stage,
-		"current_stage": w.current_stage,
-		"next_stage": next_stage,
-		"machine": w.machine or "",
-		"priority": w.priority or "Normal",
-		"sales_order": w.sales_order,
-		"order_sheet": w.order_sheet,
-		"customer_name": so.get("customer_name") or "",
-		"delivery_date": str(so.get("delivery_date")) if so.get("delivery_date") else None,
-		"creation": str(w.posting_date) if w.posting_date else None,
-		"item_code": primary.get("item_code") or w.source_item or "",
-		"item_name": primary.get("item_name") or "",
-		"target_qty": flt(primary.get("planned_qty")) or flt(w.source_qty),
-		"target_uom": primary.get("uom") or "",
-		"produced_serials": n_serials,
-		"fg_batch": w.fg_batch,
-		"source_batch": w.source_batch,
-		"source_qty": flt(w.source_qty),
-		"total_output_qty": flt(w.total_output_qty),
-		"total_wastage_qty": flt(w.total_wastage_qty),
-		"pcs_to_make": 0, "logs_to_make": 0, "jumbo_roll": "",
-		"route": [{"stage": r.stage, "done": bool(r.done), "is_current": r.stage == w.current_stage} for r in route],
-		"outputs": [dict(o, planned_qty=flt(o.planned_qty), produced_qty=flt(o.produced_qty)) for o in outs],
-	}

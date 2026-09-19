@@ -1458,6 +1458,21 @@ def cancel_work_order(work_order, reason=None):
 
 
 @frappe.whitelist()
+def skip_work_order_stage(work_order, reason=None):
+	"""Compat shim -> run model skip_stage(). Same bug class as cancel_run:
+	fully built (logs a real skipped=1 stage_log row — distinct from
+	move_work_order_stage's blunt "move it anywhere" escape hatch — reassigns
+	machine for the next stage, correctly finishes the run if it was the
+	last one) but had zero UI entry point. Wired here so the WO panel's
+	"More actions" menu can reach it."""
+	from instabiz.overrides.production_run import skip_stage
+	r = skip_stage(work_order, reason=reason)
+	r = dict(r or {})
+	r["status"] = "ok" if r.pop("ok", False) else "error"
+	return r
+
+
+@frappe.whitelist()
 def assign_machine_to_wo(work_order, machine):
 	"""Alias for assign_machine — called by the production stages JS."""
 	return assign_machine(work_order, machine)
