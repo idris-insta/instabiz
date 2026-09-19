@@ -1,0 +1,43 @@
+{
+ "add_total_row": 0,
+ "add_translate_data": 0,
+ "columns": [],
+ "creation": "2026-09-19 12:00:00",
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [],
+ "idx": 0,
+ "is_standard": "Yes",
+ "letter_head": null,
+ "modified": "2026-09-19 12:00:00",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "IB Vendor Price History",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "ref_doctype": "Purchase Order",
+ "report_name": "IB Vendor Price History",
+ "report_type": "Script Report",
+ "roles": [
+  {
+   "role": "Purchase User"
+  },
+  {
+   "role": "Purchase Manager"
+  },
+  {
+   "role": "Accounts User"
+  },
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "Stock Manager"
+  },
+  {
+   "role": "System Manager"
+  }
+ ],
+ "timeout": 0
+}
