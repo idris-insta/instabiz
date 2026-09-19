@@ -1,0 +1,192 @@
+{% extends "templates/web.html" %}
+
+{% block title %}My Account — Instabiz{% endblock %}
+
+{% block page_content %}
+<style>
+	.ibp { max-width: 1040px; margin: 0 auto; padding: 16px 16px 60px; font-size: 14px; }
+	.ibp h2 { margin: 0; font-weight: 700; font-size: 22px; }
+	.ibp-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+	.ibp-rep { color: var(--text-muted, #6b7280); font-size: 13px; }
+	.ibp-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
+	.ibp-card { border: 1px solid var(--border-color, #e5e7eb); border-radius: 10px; padding: 14px 16px; background: var(--card-bg, #fff); }
+	.ibp-card .v { font-size: 22px; font-weight: 700; }
+	.ibp-card .l { font-size: 11px; color: var(--text-muted, #6b7280); text-transform: uppercase; letter-spacing: .04em; }
+	.ibp-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border-color, #e5e7eb); margin-bottom: 14px; }
+	.ibp-tab { padding: 9px 14px; border: none; background: none; font-weight: 600; color: var(--text-muted, #6b7280); border-bottom: 2px solid transparent; white-space: nowrap; cursor: pointer; }
+	.ibp-tab.on { color: #d97757; border-bottom-color: #d97757; }
+	.ibp-tbl { width: 100%; border-collapse: collapse; }
+	.ibp-tbl th, .ibp-tbl td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--border-color, #eee); vertical-align: middle; }
+	.ibp-tbl th { font-size: 11px; text-transform: uppercase; color: var(--text-muted, #6b7280); }
+	.ibp-tbl td.n { text-align: right; white-space: nowrap; }
+	.ibp-wrap-tbl { overflow-x: auto; }
+	.ibp-bar { height: 6px; background: #eee; border-radius: 4px; overflow: hidden; width: 110px; margin-top: 4px; }
+	.ibp-bar > span { display: block; height: 100%; background: #d97757; }
+	.ibp-pill { display: inline-block; padding: 2px 9px; border-radius: 12px; font-size: 11px; font-weight: 600; background: #f1f1f1; color: #57606a; }
+	.ibp-pill.open { background: #fff3e0; color: #b45309; }
+	.ibp-pill.done { background: #e7f6ec; color: #1a7f37; }
+	.ibp-btn { padding: 6px 12px; border: 1px solid #d97757; color: #d97757; background: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px; white-space: nowrap; }
+	.ibp-btn:hover, .ibp-btn.pri { background: #d97757; color: #fff; }
+	.ibp-link { color: #d97757; cursor: pointer; font-weight: 600; }
+	.ibp-empty { color: var(--text-muted, #6b7280); padding: 36px 0; text-align: center; }
+	.ibp-stages { display: flex; gap: 4px; flex-wrap: wrap; }
+	.ibp-stages span { font-size: 11px; padding: 2px 7px; border-radius: 10px; background: #f1f1f1; }
+	.ibp-stages span.Completed { background: #e7f6ec; color: #1a7f37; }
+	.ibp-stages span.In.Progress, .ibp-stages span.act { background: #fff3e0; color: #b45309; }
+</style>
+
+{% if no_customer %}
+<div class="ibp"><div class="ibp-empty">Your login isn't linked to a customer account yet.<br>Please contact your Instabiz sales representative.</div></div>
+{% else %}
+<div class="ibp">
+	<div class="ibp-head">
+		<div><h2>{{ customer_name }}</h2><div class="ibp-rep" id="ibp-rep"></div></div>
+		<div style="display:flex;gap:8px;flex-wrap:wrap">
+			<button class="ibp-btn" id="ibp-statement">Download Statement</button>
+			<button class="ibp-btn pri" id="ibp-new-ticket">Raise a Complaint / Query</button>
+		</div>
+	</div>
+	<div class="ibp-cards" id="ibp-summary"></div>
+	<div class="ibp-tabs" id="ibp-tabs">
+		<button class="ibp-tab on" data-tab="orders">Orders</button>
+		<button class="ibp-tab" data-tab="bills">Invoices &amp; Dues</button>
+		<button class="ibp-tab" data-tab="quotes">Quotations</button>
+		<button class="ibp-tab" data-tab="prices">My Rates</button>
+		<button class="ibp-tab" data-tab="docs">Technical Documents</button>
+		<button class="ibp-tab" data-tab="tickets">Complaints</button>
+	</div>
+	<div id="ibp-body"></div>
+</div>
+
+<script>
+frappe.ready(function () {
+	const body = document.getElementById("ibp-body");
+	const money = (n) => "₹" + Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+	const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+	const date = (d) => d ? frappe.datetime.str_to_user(d) : "";
+	const M = "instabiz.overrides.portal.";
+	const call = (m, args) => new Promise((res) => frappe.call({ method: M + m, args: args || {}, callback: (r) => res(r.message), error: () => res(null) }));
+	const pdf = (doctype, name) => window.open(`/api/method/${M}download_pdf?doctype=${encodeURIComponent(doctype)}&name=${encodeURIComponent(name || "")}`);
+	const table = (heads, rows) => `<div class="ibp-wrap-tbl"><table class="ibp-tbl"><thead><tr>${heads.map((h) => `<th${h.n ? ' class="n"' : ""}>${h.l || h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
+
+	call("portal_summary").then((s) => {
+		if (!s) return;
+		document.getElementById("ibp-summary").innerHTML = `
+			<div class="ibp-card"><div class="v">${s.open_orders}</div><div class="l">Orders in progress</div></div>
+			<div class="ibp-card"><div class="v">${money(s.outstanding)}</div><div class="l">Outstanding</div></div>
+			<div class="ibp-card"><div class="v">${s.open_tickets}</div><div class="l">Open complaints</div></div>`;
+		if (s.rep) document.getElementById("ibp-rep").innerHTML = `Your contact: ${esc(s.rep.full_name)}${s.rep.mobile_no ? " · " + esc(s.rep.mobile_no) : ""}${s.rep.email ? " · " + esc(s.rep.email) : ""}`;
+	});
+
+	const tabs = {
+		async orders() {
+			const rows = await call("get_my_orders");
+			if (!rows || !rows.length) return `<div class="ibp-empty">No orders yet.</div>`;
+			return table(["Order", "Date", "Your PO", { l: "Amount", n: 1 }, "Status", ""], rows.map((o) => `<tr>
+				<td><span class="ibp-link" data-order="${esc(o.name)}">${esc(o.name)}</span></td><td>${date(o.date)}</td><td>${esc(o.po_no)}</td>
+				<td class="n">${money(o.grand_total)}</td>
+				<td>${esc(o.state)}<div class="ibp-bar"><span style="width:${Math.min(o.pct || 0, 100)}%"></span></div></td>
+				<td style="white-space:nowrap"><button class="ibp-btn" data-pdf="Sales Order" data-name="${esc(o.name)}">PDF</button>
+					<button class="ibp-btn" data-reorder="${esc(o.name)}">Reorder</button></td></tr>`));
+		},
+		async bills() {
+			const rows = await call("get_my_invoices");
+			if (!rows || !rows.length) return `<div class="ibp-empty">Nothing billed yet.</div>`;
+			return table(["Document", "Date", { l: "Amount", n: 1 }, { l: "Due", n: 1 }, "", ""], rows.map((i) => `<tr>
+				<td>${esc(i.name)}</td><td>${date(i.date)}</td><td class="n">${money(i.grand_total)}</td>
+				<td class="n">${Number(i.outstanding) > 0 ? money(i.outstanding) : "—"}</td>
+				<td><span class="ibp-pill ${Number(i.outstanding) > 0 ? "open" : "done"}">${Number(i.outstanding) > 0 ? "Due" : "Paid"}</span></td>
+				<td><button class="ibp-btn" data-pdf="${esc(i.doctype)}" data-name="${esc(i.name)}">PDF</button></td></tr>`));
+		},
+		async quotes() {
+			const rows = await call("get_my_quotations");
+			if (!rows || !rows.length) return `<div class="ibp-empty">No quotations.</div>`;
+			return table(["Quotation", "Date", "Valid Till", { l: "Amount", n: 1 }, ""], rows.map((q) => `<tr>
+				<td>${esc(q.name)}</td><td>${date(q.date)}</td><td>${date(q.valid_till)}</td><td class="n">${money(q.grand_total)}</td>
+				<td><button class="ibp-btn" data-pdf="Quotation" data-name="${esc(q.name)}">PDF</button></td></tr>`));
+		},
+		async prices() {
+			const rows = await call("get_my_prices");
+			if (!rows || !rows.length) return `<div class="ibp-empty">No rates yet.</div>`;
+			return table(["Item", { l: "Last Rate", n: 1 }, "UOM", "On", "Order"], rows.map((p) => `<tr>
+				<td>${esc(p.item_name || p.item_code)}</td><td class="n">${money(p.rate)}</td><td>${esc(p.uom)}</td>
+				<td>${date(p.date)}</td><td>${esc(p.document)}</td></tr>`));
+		},
+		async docs() {
+			const rows = await call("get_my_documents");
+			if (!rows || !rows.length) return `<div class="ibp-empty">No technical documents published for your items yet — ask your contact.</div>`;
+			return table(["Item", "Document", "Version", ""], rows.map((d) => `<tr>
+				<td>${esc(d.item_name || d.item_code)}</td><td>${esc(d.document_type)}</td><td>${esc(d.version)}</td>
+				<td><button class="ibp-btn" data-doc="${esc(d.name)}">Download</button></td></tr>`));
+		},
+		async tickets() {
+			const rows = await call("get_my_tickets");
+			if (!rows || !rows.length) return `<div class="ibp-empty">No complaints raised.</div>`;
+			return table(["Ref", "Subject", "Type", "Status", "Resolution"], rows.map((t) => {
+				const open = ["Open", "In Progress", "Waiting on Customer"].includes(t.status);
+				return `<tr><td>${esc(t.name)}</td><td>${esc(t.subject)}</td><td>${esc(t.ticket_type)}</td>
+					<td><span class="ibp-pill ${open ? "open" : "done"}">${esc(t.status)}</span></td><td>${esc(t.resolution)}</td></tr>`;
+			}));
+		},
+	};
+
+	async function show(tab) {
+		document.querySelectorAll(".ibp-tab").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+		body.innerHTML = `<div class="ibp-empty">Loading…</div>`;
+		body.innerHTML = await tabs[tab]();
+	}
+	document.getElementById("ibp-tabs").addEventListener("click", (e) => { const b = e.target.closest(".ibp-tab"); if (b) show(b.dataset.tab); });
+	document.getElementById("ibp-statement").addEventListener("click", () => pdf("Statement", ""));
+
+	body.addEventListener("click", async (e) => {
+		const t = e.target;
+		if (t.closest("[data-order]")) return showOrder(t.closest("[data-order]").dataset.order);
+		if (t.dataset.pdf) return pdf(t.dataset.pdf, t.dataset.name);
+		if (t.dataset.doc) return window.open(`/api/method/${M}download_item_document?name=${encodeURIComponent(t.dataset.doc)}`);
+		if (t.dataset.reorder) {
+			const so = t.dataset.reorder;
+			frappe.prompt({ fieldtype: "Small Text", fieldname: "note", label: "Anything to change (qty, size, date)?" }, async (v) => {
+				const name = await call("request_reorder", { sales_order: so, note: v.note });
+				frappe.msgprint(name ? `Reorder request ${name} sent — your contact will confirm.` : "Could not send the request.");
+			}, `Reorder ${so}`, "Send");
+		}
+	});
+
+	async function showOrder(so) {
+		const d = await call("get_order_detail", { sales_order: so });
+		if (!d) return;
+		const rows = d.lines.map((l) => `<tr><td>${esc(l.item_name || l.item_code)}</td><td class="n">${esc(l.qty)} ${esc(l.uom)}</td>
+			<td class="n">${esc(l.delivered_qty)}</td>
+			<td><div class="ibp-stages">${(l.stages || []).map((s) => `<span class="${s.status === "Completed" ? "Completed" : ["In Progress", "On Hold"].includes(s.status) ? "act" : ""}">${esc(s.stage)}</span>`).join("") || esc(l.stage)}</div></td></tr>`);
+		frappe.msgprint({ title: "Order " + so, wide: true, message:
+			table(["Item", { l: "Qty", n: 1 }, { l: "Delivered", n: 1 }, "Production"], rows) +
+			(d.delivery_notes.length ? `<p style="margin-top:10px">Dispatched: ${d.delivery_notes.map((n) => `<span class="ibp-link" onclick="window.open('/api/method/${M}download_pdf?doctype=Delivery%20Note&name=${encodeURIComponent(n)}')">${esc(n)}</span>`).join(", ")}</p>` : "") });
+	}
+
+	document.getElementById("ibp-new-ticket").addEventListener("click", async () => {
+		const orders = (await call("get_my_orders", { limit: 30 })) || [];
+		const d = new frappe.ui.Dialog({
+			title: "Raise a Complaint / Query",
+			fields: [
+				{ fieldtype: "Select", fieldname: "ticket_type", label: "About", default: "Complaint",
+					options: "Complaint\nQuality Issue\nReturn\nDelivery\nPayment\nQuery" },
+				{ fieldtype: "Select", fieldname: "reference_name", label: "Order (optional)", options: [""].concat(orders.map((o) => o.name)).join("\n") },
+				{ fieldtype: "Data", fieldname: "subject", label: "Subject", reqd: 1 },
+				{ fieldtype: "Small Text", fieldname: "description", label: "Details (batch / roll no. if you have it)" },
+			],
+			primary_action_label: "Submit",
+			primary_action: async (v) => {
+				d.hide();
+				const name = await call("raise_ticket", v);
+				frappe.msgprint(name ? `Registered as ${name}. We will get back to you.` : "Could not register it — please call your contact.");
+				show("tickets");
+			},
+		});
+		d.show();
+	});
+
+	show("orders");
+});
+</script>
+{% endif %}
+{% endblock %}

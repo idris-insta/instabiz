@@ -428,7 +428,8 @@ def backfill_territory_from_billing_state():
 
 @frappe.whitelist()
 def get_outstanding(customer):
-	if not frappe.has_permission("Customer", "read", customer):
+	# /portal: the logged-in customer downloading their own statement (checked in portal.download_pdf)
+	if frappe.flags.get("ib_portal_customer") != customer and not frappe.has_permission("Customer", "read", customer):
 		frappe.throw(frappe._("Not permitted"), frappe.PermissionError)
 	return compute_customer_outstanding(customer)
 

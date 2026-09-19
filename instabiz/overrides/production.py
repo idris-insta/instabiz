@@ -20,6 +20,8 @@ def _check_so_production_access(sales_order):
 	unguarded — any logged-in user could pull any other rep's order detail."""
 	if _PRODUCTION_ROLES & set(frappe.get_roles()):
 		return
+	if frappe.flags.get("ib_portal_so") == sales_order:  # /portal: ownership already checked in portal.get_order_detail
+		return
 	from instabiz.overrides.permissions import _is_privileged
 	if _is_privileged(frappe.session.user):
 		return

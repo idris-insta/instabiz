@@ -1,0 +1,336 @@
+{
+ "actions": [],
+ "creation": "2026-09-20 11:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "autoname": "IB-TKT-.YYYY.-.#####",
+ "naming_rule": "Expression (old style)",
+ "description": "Customer complaint, query or return — owner, deadline, root cause and resolution. Raised by staff or by the customer on /portal.",
+ "field_order": [
+  "customer",
+  "customer_name",
+  "contact_person",
+  "subject",
+  "description",
+  "cb1",
+  "ticket_type",
+  "priority",
+  "status",
+  "source",
+  "assigned_to",
+  "s_ref",
+  "reference_doctype",
+  "reference_name",
+  "item_code",
+  "cb2",
+  "batch",
+  "fg_serial",
+  "qty_affected",
+  "s_sla",
+  "opened_at",
+  "response_due",
+  "resolution_due",
+  "cb3",
+  "first_responded_at",
+  "resolved_at",
+  "sla_breached",
+  "s_res",
+  "root_cause",
+  "corrective_action",
+  "cb4",
+  "resolution",
+  "credit_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "customer_name",
+   "fieldtype": "Data",
+   "label": "Customer Name",
+   "fetch_from": "customer.customer_name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "contact_person",
+   "fieldtype": "Data",
+   "label": "Contact Person"
+  },
+  {
+   "fieldname": "subject",
+   "fieldtype": "Data",
+   "label": "Subject",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Details"
+  },
+  {
+   "fieldname": "cb1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ticket_type",
+   "fieldtype": "Select",
+   "label": "Type",
+   "options": "Complaint\nQuality Issue\nReturn\nDelivery\nPayment\nQuery\nReorder Request\nOther",
+   "default": "Complaint",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "label": "Priority",
+   "options": "Low\nMedium\nHigh\nUrgent",
+   "default": "Medium",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Open\nIn Progress\nWaiting on Customer\nResolved\nClosed",
+   "default": "Open",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "label": "Source",
+   "options": "Phone\nWhatsApp\nEmail\nVisit\nPortal\nOther",
+   "default": "Phone"
+  },
+  {
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "label": "Owner",
+   "options": "User",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "s_ref",
+   "fieldtype": "Section Break",
+   "label": "What it is about"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Select",
+   "label": "Document Type",
+   "options": "\nSales Order\nDelivery Note\nSales Invoice\nQuotation"
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Document",
+   "options": "reference_doctype"
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item"
+  },
+  {
+   "fieldname": "cb2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "batch",
+   "fieldtype": "Link",
+   "label": "Batch",
+   "options": "IB Batch",
+   "description": "Batch or roll the complaint is about — opens its full trace."
+  },
+  {
+   "fieldname": "fg_serial",
+   "fieldtype": "Link",
+   "label": "Roll / Serial",
+   "options": "IB FG Serial"
+  },
+  {
+   "fieldname": "qty_affected",
+   "fieldtype": "Float",
+   "label": "Qty Affected"
+  },
+  {
+   "fieldname": "s_sla",
+   "fieldtype": "Section Break",
+   "label": "Deadlines",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "opened_at",
+   "fieldtype": "Datetime",
+   "label": "Opened At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "response_due",
+   "fieldtype": "Datetime",
+   "label": "Respond By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolution_due",
+   "fieldtype": "Datetime",
+   "label": "Resolve By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "first_responded_at",
+   "fieldtype": "Datetime",
+   "label": "First Response",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolved_at",
+   "fieldtype": "Datetime",
+   "label": "Resolved At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sla_breached",
+   "fieldtype": "Check",
+   "label": "Past Deadline",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "s_res",
+   "fieldtype": "Section Break",
+   "label": "Resolution"
+  },
+  {
+   "fieldname": "root_cause",
+   "fieldtype": "Select",
+   "label": "Root Cause",
+   "options": "\nMaterial\nProcess\nHandling\nTransit\nWrong Item / Spec\nBilling\nCommunication\nCustomer Side\nOther"
+  },
+  {
+   "fieldname": "corrective_action",
+   "fieldtype": "Small Text",
+   "label": "Corrective Action"
+  },
+  {
+   "fieldname": "cb4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "resolution",
+   "fieldtype": "Small Text",
+   "label": "Resolution (shown to customer)"
+  },
+  {
+   "fieldname": "credit_note",
+   "fieldtype": "Link",
+   "label": "Credit Note",
+   "options": "IB Credit Note"
+  }
+ ],
+ "istable": 0,
+ "is_submittable": 0,
+ "links": [],
+ "modified": "2026-09-20 11:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "IB Support Ticket",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 1,
+   "report": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 1,
+   "report": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 1,
+   "report": 1
+  },
+  {
+   "role": "Factory Management",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 1,
+   "report": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 1,
+   "report": 1
+  },
+  {
+   "role": "Stock User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 0,
+   "export": 1,
+   "report": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "title_field": "subject",
+ "show_title_field_in_link": 0,
+ "search_fields": "customer_name,subject"
+}

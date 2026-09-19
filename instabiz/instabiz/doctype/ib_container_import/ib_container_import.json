@@ -11,6 +11,21 @@
   "column_break_basic",
   "warehouse",
   "import_date",
+  "section_landed",
+  "currency",
+  "exchange_rate",
+  "bill_of_entry_no",
+  "allocate_by",
+  "column_break_landed",
+  "customs_duty",
+  "freight",
+  "clearing_charges",
+  "other_charges",
+  "column_break_landed2",
+  "invoice_value",
+  "invoice_value_inr",
+  "total_charges",
+  "landed_value",
   "section_items",
   "items",
   "section_remarks",
@@ -61,6 +76,94 @@
    "reqd": 1
   },
   {
+   "fieldname": "section_landed",
+   "fieldtype": "Section Break",
+   "label": "Import Cost (Landed Cost)",
+   "collapsible": 0
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Invoice Currency",
+   "options": "Currency",
+   "default": "INR"
+  },
+  {
+   "fieldname": "exchange_rate",
+   "fieldtype": "Float",
+   "label": "Exchange Rate (₹ per 1)",
+   "default": "1",
+   "precision": "4",
+   "description": "Rate on the Bill of Entry."
+  },
+  {
+   "fieldname": "bill_of_entry_no",
+   "fieldtype": "Data",
+   "label": "Bill of Entry No"
+  },
+  {
+   "fieldname": "allocate_by",
+   "fieldtype": "Select",
+   "label": "Spread Charges By",
+   "options": "Value\nQty",
+   "default": "Value"
+  },
+  {
+   "fieldname": "column_break_landed",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customs_duty",
+   "fieldtype": "Currency",
+   "label": "Customs Duty (BCD + SWS, ₹)",
+   "description": "IGST paid on import is input credit — leave it out."
+  },
+  {
+   "fieldname": "freight",
+   "fieldtype": "Currency",
+   "label": "Freight / Shipping (₹)"
+  },
+  {
+   "fieldname": "clearing_charges",
+   "fieldtype": "Currency",
+   "label": "Clearing & CHA (₹)"
+  },
+  {
+   "fieldname": "other_charges",
+   "fieldtype": "Currency",
+   "label": "Other (port, local transport, ₹)"
+  },
+  {
+   "fieldname": "column_break_landed2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "invoice_value",
+   "fieldtype": "Currency",
+   "label": "Invoice Value (invoice currency)",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "invoice_value_inr",
+   "fieldtype": "Currency",
+   "label": "Invoice Value (₹)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_charges",
+   "fieldtype": "Currency",
+   "label": "Total Charges (₹)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "landed_value",
+   "fieldtype": "Currency",
+   "label": "Landed Value (₹)",
+   "read_only": 1,
+   "bold": 1
+  },
+  {
    "fieldname": "section_items",
    "fieldtype": "Section Break",
    "label": "Items"
@@ -104,7 +207,7 @@
  ],
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-20 00:00:00.000000",
+ "modified": "2026-09-20 11:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB Container Import",

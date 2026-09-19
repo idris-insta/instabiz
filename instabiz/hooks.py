@@ -3,6 +3,14 @@ scheduler_events = {
     # 1st of month: each sales person gets last month's net sale + incentive (IB Incentive Scale)
     "monthly": ["instabiz.overrides.incentive_scale.run_monthly_notice"],
     "daily": [
+        # Complaints past their deadline → owner + Sales Managers (IB Support Ticket)
+        "instabiz.instabiz.doctype.ib_support_ticket.ib_support_ticket.run_ticket_deadlines",
+        # Returnable / job-work gate passes past their date → stock managers
+        "instabiz.instabiz.doctype.ib_gate_pass.ib_gate_pass.run_overdue_returnables",
+        # Loan instalments marked Deducted once the month's salary slip is submitted
+        "instabiz.instabiz.doctype.ib_employee_loan.ib_employee_loan.run_loan_recovery",
+        # Expense heads past 90 % / 100 % of this month's budget → Accounts Managers
+        "instabiz.overrides.budget_watch.run_budget_alerts",
         # Runs on relieving_date — creates handover doc, notifies HR Managers
         "instabiz.overrides.employee_exit.run_exit_handover_daily",
         # Runs on relieving_date + 1 — disables the ERP user account for any employee
@@ -162,6 +170,8 @@ after_migrate = [
     "instabiz.overrides.incentive_scale.after_migrate",  # incentive scales + User.custom_incentive_scale
     "instabiz.overrides.lead_capture.after_migrate",  # lead sources + Lead capture fields
     "instabiz.overrides.checkin.after_migrate",  # selfie + office distance on Employee Checkin
+    "instabiz.overrides.branch_transfer.after_migrate",  # Stock Entry.custom_final_warehouse
+    "instabiz.instabiz.doctype.ib_employee_loan.ib_employee_loan.after_migrate",  # "Loan Recovery" salary component
     "instabiz.overrides.workspace_merge.merge_modules",  # one tab per module (Instabiz + ERPNext)
 ]
 
@@ -372,8 +382,12 @@ doc_events = {
         "on_cancel": "instabiz.overrides.customer.update_customer_outstanding_on_si",
         "on_trash":  "instabiz.overrides.customer.update_customer_outstanding_on_si",
     },
+    "Purchase Invoice": {
+        "validate": "instabiz.overrides.duplicate_check.warn_purchase_invoice",  # possible duplicate bill (warning only)
+    },
     "Payment Entry": {
-        "validate":      "instabiz.overrides.payment_entry.enforce_sales_user_own_customer",
+        "validate":      ["instabiz.overrides.payment_entry.enforce_sales_user_own_customer",
+                          "instabiz.overrides.duplicate_check.warn_payment_entry"],
         "before_submit": "instabiz.overrides.payment_entry.before_submit",
         "on_submit":     "instabiz.overrides.payment_entry.on_submit",
         "on_cancel":     "instabiz.overrides.payment_entry.on_cancel",
@@ -528,6 +542,8 @@ app_include_js  = [
     "/assets/instabiz/js/ib_messaging.js",           # Send ▸ WhatsApp / Email on sales, purchase and customer forms
     "/assets/instabiz/js/ib_quick_actions.js",       # Repeat order + last-price hint on Quotation / Sales Order
     "/assets/instabiz/js/ib_fiscal_year.js",         # navbar financial-year switcher; reports open in the chosen year
+    "/assets/instabiz/js/ib_gate_pass_links.js",     # Create ▸ Gate Pass on DN / PR / Stock Entry / SI
+    "/assets/instabiz/js/ib_doc_extras.js",          # Quotation: attach item documents; Stock: branch transfer
     # ib_stock_dashboard.js is loaded by Frappe's page engine (not global)
     # "/assets/instabiz/js/quotation_list.js",        # Quotation list view
     # "/assets/instabiz/js/sales_order_list.js",      # Sales Order list view
@@ -545,6 +561,7 @@ doctype_list_js = {
     "Purchase Order":    "public/js/purchase_order_list.js",
     "Purchase Receipt":  "public/js/purchase_receipt_list.js",
     "Purchase Invoice":  "public/js/purchase_invoice_list.js",
+    "Stock Entry":       "public/js/stock_entry_list.js",
     "Customer":          "public/js/customer_list.js",
     "GL Entry":          "public/js/gl_entry_list.js",
     "IB Container Import": "public/js/ib_container_import_list.js",

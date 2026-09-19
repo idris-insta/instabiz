@@ -37,6 +37,7 @@ class IBContainerImport(Document):
 			else:
 				row.total_qty = flt(row.no_of_boxes) * flt(row.qty_per_box)
 			row.barcode = _resolve_barcode(row.item_code)
+		_apply_landed_cost(self)
 
 	def before_submit(self) -> None:
 		for row in self.items:
@@ -167,6 +168,29 @@ def _make_batch(doc: "IBContainerImport", row) -> str:
 	return b.name
 
 
+# ── Landed cost ──────────────────────────────────────────────────────────────
+
+def _apply_landed_cost(doc) -> None:
+	"""Stock value = invoice rate × exchange rate + this line's share of duty,
+	freight, clearing and other charges (spread by value, or by qty when no
+	rates are entered). Without currency / charges the landed rate is the rate."""
+	fx = flt(doc.exchange_rate) or 1.0
+	charges = flt(doc.customs_duty) + flt(doc.freight) + flt(doc.clearing_charges) + flt(doc.other_charges)
+	values = [flt(r.rate) * flt(r.total_qty) for r in doc.items]
+	qtys = [flt(r.total_qty) for r in doc.items]
+	by_value = (doc.allocate_by or "Value") == "Value" and sum(values) > 0
+	base = values if by_value else qtys
+	total_base = sum(base) or 1.0
+	doc.invoice_value = sum(values)
+	doc.invoice_value_inr = doc.invoice_value * fx
+	doc.total_charges = charges
+	for row, b in zip(doc.items, base):
+		share = charges * b / total_base
+		row.landed_amount = flt(row.rate) * flt(row.total_qty) * fx + share
+		row.landed_rate = row.landed_amount / flt(row.total_qty) if flt(row.total_qty) else 0
+	doc.landed_value = sum(flt(r.landed_amount) for r in doc.items)
+
+
 # ── Stock posting ────────────────────────────────────────────────────────────
 
 def _make_stock_entry(doc: "IBContainerImport"):
@@ -182,8 +206,8 @@ def _make_stock_entry(doc: "IBContainerImport"):
 			"t_warehouse": doc.warehouse,
 			"uom": row.stock_uom,
 		}
-		if flt(row.rate) > 0:
-			se_row["basic_rate"] = row.rate
+		if flt(row.landed_rate or row.rate) > 0:
+			se_row["basic_rate"] = flt(row.landed_rate) or flt(row.rate)
 		elif not flt(frappe.get_cached_value("Item", row.item_code, "valuation_rate")):
 			# No rate on the row and none on the item master — let the receipt
 			# post at zero value rather than hard-blocking the whole container.
