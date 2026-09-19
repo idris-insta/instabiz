@@ -33,7 +33,7 @@ def execute(filters=None):
 			continue
 		if f.production_only and not r.production:
 			continue
-		out.append(dict(r, flag=", ".join(r.flags), status=_status(r)))
+		out.append(dict(r, flag=" | ".join(r.flags), status=_status(r)))
 	flagged = [r for r in out if r["flag"]]
 	summary = [
 		{"label": _("Lines"), "value": len(out), "datatype": "Int"},
@@ -45,7 +45,7 @@ def execute(filters=None):
 	]
 	counts = {}
 	for r in flagged:
-		for fl in r["flag"].split(", "):
+		for fl in r["flag"].split(" | "):
 			counts[fl] = counts.get(fl, 0) + 1
 	chart = {"data": {"labels": list(counts), "datasets": [{"name": _("Lines"), "values": list(counts.values())}]},
 		"type": "bar", "colors": ["#d97757"]} if counts else None
