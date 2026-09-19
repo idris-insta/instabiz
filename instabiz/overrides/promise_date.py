@@ -4,7 +4,11 @@ A delivery date the rep can actually promise, worked out line by line while the
 Sales Order is being entered (instead of order date + 8 days for everything):
 
   stock       free stock in the order's location (all floors / sub-warehouses)
-              covers the line → dispatch in `promise_dispatch_days` (1)
+              covers the line → dispatch in `promise_dispatch_days` (1).
+              Free = stock on hand − what other open orders of the last
+              `promise_open_order_days` (30) still need from that location.
+              ERPNext's reserved qty isn't used: orders here are rarely closed
+              with a Delivery Note, so reservations from months ago never clear.
   transit     stock on its way to this location (branch transfer in Goods In
               Transit, not yet received) → dispatch date + `promise_transit_days` (4)
   production  factory location: the delivery simulator's finish date for the
@@ -47,12 +51,27 @@ def _warehouses(location, set_warehouse=None):
 	return frappe.get_all("Warehouse", filters={"lft": [">=", tree[0]], "rgt": ["<=", tree[1]], "is_group": 0}, pluck="name")
 
 
-def _free_stock(item_codes, warehouses):
+def _free_stock(item_codes, warehouses, exclude_so=None):
 	if not item_codes or not warehouses:
 		return {}
-	rows = frappe.db.sql("""SELECT item_code, SUM(actual_qty - reserved_qty) AS free FROM `tabBin`
-		WHERE item_code IN %s AND warehouse IN %s GROUP BY item_code""", (tuple(item_codes), tuple(warehouses)), as_dict=True)
-	return {r.item_code: flt(r.free) for r in rows}
+	stock = {r.item_code: flt(r.qty) for r in frappe.db.sql("""SELECT item_code, SUM(actual_qty) AS qty FROM `tabBin`
+		WHERE item_code IN %s AND warehouse IN %s GROUP BY item_code""", (tuple(item_codes), tuple(warehouses)), as_dict=True)}
+	demand = open_demand(item_codes, warehouses, exclude_so)
+	return {i: stock.get(i, 0) - demand.get(i, 0) for i in item_codes}
+
+
+def open_demand(item_codes, warehouses, exclude_so=None):
+	"""Qty still to deliver on submitted orders of the last promise_open_order_days
+	that ship from these warehouses (line warehouse, else the order's)."""
+	days = ib_settings.get_int("promise_open_order_days", 30)
+	rows = frappe.db.sql("""SELECT c.item_code,
+			SUM(GREATEST(c.stock_qty - IFNULL(c.delivered_qty, 0) * IFNULL(c.conversion_factor, 1), 0)) AS qty
+		FROM `tabSales Order Item` c JOIN `tabSales Order` p ON p.name = c.parent
+		WHERE p.docstatus = 1 AND p.transaction_date >= %s AND IFNULL(p.per_delivered, 0) < 100
+			AND p.status NOT IN ('Closed', 'Cancelled') AND p.name != %s
+			AND COALESCE(NULLIF(c.warehouse, ''), p.set_warehouse) IN %s AND c.item_code IN %s
+		GROUP BY c.item_code""", (add_days(nowdate(), -days), exclude_so or "", tuple(warehouses), tuple(item_codes)), as_dict=True)
+	return {r.item_code: flt(r.qty) for r in rows}
 
 
 def _in_transit(item_codes, warehouses):
@@ -100,7 +119,7 @@ def promise(doc):
 
 	whs = _warehouses(location, doc.get("set_warehouse"))
 	codes = list({i.item_code for i in items})
-	free = _free_stock(codes, whs)
+	free = _free_stock(codes, whs, doc.get("name"))
 	transit = _in_transit(codes, whs)
 	factory = False
 	if location:
@@ -112,10 +131,8 @@ def promise(doc):
 	lines = []
 	for i in items:
 		need = flt(i.stock_qty) or flt(i.qty) * (flt(i.conversion_factor) or 1)
-		if so_name:  # a submitted order has already reserved its own pending qty
-			need_back = max(need - flt(i.delivered_qty) * (flt(i.conversion_factor) or 1), 0)
-			free[i.item_code] = free.get(i.item_code, 0) + need_back
-			need = need_back
+		if so_name:  # only what is still to deliver (this order is left out of open demand)
+			need = max(need - flt(i.delivered_qty) * (flt(i.conversion_factor) or 1), 0)
 		line = {"idx": i.idx, "item_code": i.item_code, "qty": need}
 		have = free.get(i.item_code, 0)
 		if need <= 0:

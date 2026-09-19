@@ -33,7 +33,8 @@
   "promise_section",
   "promise_dispatch_days",
   "promise_col",
-  "promise_transit_days"
+  "promise_transit_days",
+  "promise_open_order_days"
  ],
  "fields": [
   {
@@ -208,6 +209,12 @@
    "fieldtype": "Int",
    "label": "Days for a branch transfer to arrive",
    "description": "Default 4"
+  },
+  {
+   "fieldname": "promise_open_order_days",
+   "fieldtype": "Int",
+   "label": "Open orders count for (days)",
+   "description": "Orders older than this are treated as delivered when working out free stock (orders are rarely closed with a Delivery Note). Default 30."
   }
  ],
  "issingle": 1,

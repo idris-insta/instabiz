@@ -2,10 +2,11 @@
 
 One message a day to the roles in IB Messaging Settings (default System Manager,
 Sales Manager, Accounts Manager, Factory Management) with only what needs action:
-  orders      yesterday's new orders; orders past their delivery date
+  orders      yesterday's new orders; orders due in the last 30 days, not delivered
   production  runs on hold; runs with no movement for 2 days; stages above wastage norm
-  stock       items short for open orders (projected qty below zero)
-  money       yesterday's collections; customers owing above the limit
+  stock       items where the last 30 days' open orders need more than the location holds
+  money       yesterday's collections; customers owing above the limit (orders of the
+              last 90 days while billing runs on orders, else unpaid invoices)
   approvals   everything waiting in IB Pending Approvals
   customers   big customers (last 12 months) with no order for 45+ days
 When there is Claude credit, three lines "act on this first" go on top.
@@ -35,15 +36,20 @@ def collect():
 	new = frappe.db.sql("""SELECT COUNT(*), COALESCE(SUM(base_grand_total), 0) FROM `tabSales Order`
 		WHERE docstatus = 1 AND transaction_date = %s""", yday)[0]
 	closed = stored_statuses("Sales Order", "Completed", "Closed", "Cancelled")
-	late = frappe.db.sql("""SELECT name, customer_name, delivery_date, base_grand_total FROM `tabSales Order`
-		WHERE docstatus = 1 AND delivery_date < %s AND IFNULL(per_delivered, 0) < 100 AND status NOT IN %s
-		ORDER BY delivery_date LIMIT 200""", (today, closed), as_dict=True)
+	window = ib_settings.get_int("promise_open_order_days", 30)
+	since = add_days(today, -window)
+	late_where = """docstatus = 1 AND delivery_date < %(today)s AND delivery_date >= %(since)s
+		AND IFNULL(per_delivered, 0) < 100 AND status NOT IN %(closed)s"""
+	args = {"today": today, "since": since, "closed": closed}
+	late_n = frappe.db.sql(f"SELECT COUNT(*) FROM `tabSales Order` WHERE {late_where}", args)[0][0]
+	late = frappe.db.sql(f"""SELECT name, customer_name, delivery_date FROM `tabSales Order` WHERE {late_where}
+		ORDER BY base_grand_total DESC LIMIT 5""", args, as_dict=True)
 	S.append({"title": _("Orders"), "items": [
 		_("{0} new orders yesterday, {1}").format(int(new[0]), _money(new[1])),
-		_("{0} orders past their delivery date").format(len(late)) + (
-			": " + "; ".join(f"{r.name} {r.customer_name} (due {frappe.utils.formatdate(r.delivery_date)})" for r in late[:5])
+		_("{0} orders due in the last {1} days and not delivered").format(late_n, window) + (
+			" — biggest: " + "; ".join(f"{r.name} {r.customer_name} (due {frappe.utils.formatdate(r.delivery_date)})" for r in late)
 			if late else ""),
-	], "count": len(late)})
+	], "count": late_n})
 
 	# production
 	hold = frappe.get_all("IB Work Order", filters={"status": "On Hold"}, fields=["name", "current_stage"], limit=50)
@@ -66,24 +72,21 @@ def collect():
 	S.append({"title": _("Production"), "items": prod or [_("Nothing stuck.")], "count": len(hold) + len(stuck) + len(over)})
 
 	# stock
-	short = frappe.db.sql("""SELECT item_code, warehouse, projected_qty FROM `tabBin`
-		WHERE projected_qty < 0 ORDER BY projected_qty LIMIT 200""", as_dict=True)
-	S.append({"title": _("Stock"), "items": [_("{0} item-warehouses short for open orders").format(len(short)) + (
-		": " + "; ".join(f"{r.item_code} @ {r.warehouse.split(' - ')[0]} {flt(r.projected_qty):g}" for r in short[:5])
+	short = _stock_short(since)
+	S.append({"title": _("Stock"), "items": [_("{0} items short for orders of the last {1} days").format(len(short), window) + (
+		": " + "; ".join(f"{r['item_code']} @ {r['location']} short {r['short']:,.0f} {r['uom']}" for r in short[:5])
 		if short else "")], "count": len(short)})
 
 	# money
 	coll = frappe.db.sql("""SELECT COALESCE(SUM(base_received_amount), 0) FROM `tabPayment Entry`
 		WHERE docstatus = 1 AND payment_type = 'Receive' AND posting_date = %s""", yday)[0][0]
 	limit = ib_settings.get_float("briefing_min_overdue", 50000)
-	owing = frappe.get_all("Customer", filters={"custom_outstanding_amount": [">", limit], "disabled": 0},
-		fields=["name", "customer_name", "custom_outstanding_amount"], order_by="custom_outstanding_amount desc", limit=200) \
-		if frappe.db.has_column("Customer", "custom_outstanding_amount") else []
+	owing = _owing(limit)
 	S.append({"title": _("Money"), "items": [
 		_("Collected yesterday: {0}").format(_money(coll)),
 		_("{0} customers owe more than {1}, total {2}").format(len(owing), _money(limit),
-			_money(sum(flt(c.custom_outstanding_amount) for c in owing))) + (
-			": " + "; ".join(f"{c.customer_name} {_money(c.custom_outstanding_amount)}" for c in owing[:5]) if owing else ""),
+			_money(sum(c["amount"] for c in owing))) + (
+			" — biggest: " + "; ".join(f"{c['customer_name']} {_money(c['amount'])}" for c in owing[:5]) if owing else ""),
 	], "count": len(owing)})
 
 	# approvals
@@ -108,6 +111,48 @@ def collect():
 			f"{q.customer_name} ({_money(q.value)} in 12 months, last {frappe.utils.formatdate(q.last)})" for q in quiet)],
 			"count": len(quiet)})
 	return S
+
+
+def _stock_short(since):
+	"""Items where open orders since `since` need more than the location holds."""
+	from instabiz.overrides.promise_date import _warehouses, open_demand
+
+	out = []
+	for loc in ("GUJARAT", "MAHARASHTRA", "CHENNAI"):
+		whs = _warehouses(loc)
+		if not whs:
+			continue
+		items = frappe.db.sql_list("""SELECT DISTINCT c.item_code FROM `tabSales Order Item` c
+			JOIN `tabSales Order` p ON p.name = c.parent WHERE p.docstatus = 1 AND p.transaction_date >= %s
+			AND p.custom_location = %s""", (since, loc))
+		if not items:
+			continue
+		demand = open_demand(items, whs)
+		stock = {r[0]: flt(r[1]) for r in frappe.db.sql("""SELECT item_code, SUM(actual_qty) FROM `tabBin`
+			WHERE item_code IN %s AND warehouse IN %s GROUP BY item_code""", (tuple(items), tuple(whs)))}
+		for item, need in demand.items():
+			gap = need - stock.get(item, 0)
+			if gap > 0:
+				out.append({"item_code": item, "location": loc.title(), "short": gap,
+					"uom": frappe.get_cached_value("Item", item, "stock_uom")})
+	return sorted(out, key=lambda r: -r["short"])
+
+
+def _owing(limit):
+	"""Per customer: unpaid invoices (billing live) or undelivered/unpaid orders of the
+	last 90 days (billing on Sales Orders — older orders are rarely closed)."""
+	from instabiz.overrides.billing_mode import is_dev_billing_mode
+
+	if is_dev_billing_mode():
+		rows = frappe.db.sql("""SELECT customer_name, SUM(base_grand_total - IFNULL(custom_advance_paid, 0)) AS amount
+			FROM `tabSales Order` WHERE docstatus = 1 AND transaction_date >= %s AND IFNULL(per_billed, 0) < 100
+				AND status NOT IN ('Closed', 'Cancelled') GROUP BY customer_name HAVING amount > %s ORDER BY amount DESC""",
+			(add_days(nowdate(), -90), limit), as_dict=True)
+	else:
+		rows = frappe.db.sql("""SELECT customer_name, SUM(outstanding_amount) AS amount FROM `tabSales Invoice`
+			WHERE docstatus = 1 AND outstanding_amount > 0 GROUP BY customer_name HAVING amount > %s ORDER BY amount DESC""",
+			limit, as_dict=True)
+	return rows
 
 
 def render(sections, ai=None):

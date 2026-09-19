@@ -87,5 +87,6 @@
  "morning_briefing": "IB Messaging Settings",
  "briefing_roles": "IB Messaging Settings",
  "briefing_min_overdue": "IB Messaging Settings",
- "briefing_use_ai": "IB Messaging Settings"
+ "briefing_use_ai": "IB Messaging Settings",
+ "promise_open_order_days": "IB Sales Settings"
 }

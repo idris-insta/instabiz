@@ -22,10 +22,16 @@ frappe.query_reports["IB Slitting Plan"] = {
 	onload(report) {
 		$(report.page.wrapper).on("click", ".ib-slit-run", function () {
 			const b = $(this);
-			frappe.confirm(__("Start a run on {0} with these widths?", [b.data("batch")]), () =>
+			frappe.confirm(__("Start this pass? One run per order, all on the same jumbo."), () =>
 				frappe.call({ method: "instabiz.overrides.slitting_plan.create_pass", freeze: true,
 					args: { order_sheet: b.data("os"), source_batch: b.data("batch"), order_sheet_items: JSON.stringify(b.data("osi")) },
-				}).then((r) => { frappe.show_alert({ message: __("Run {0} started", [r.message]), indicator: "green" }); report.refresh(); }));
+				}).then((r) => {
+					const m = r.message || {};
+					let msg = __("{0} run(s) started: {1}", [m.runs.length, m.runs.join(", ")]);
+					if (m.waiting && m.waiting.length) msg += "<br>" + __("Jumbo used up before: {0}", [m.waiting.join(", ")]);
+					frappe.msgprint({ title: __("Slitting pass started"), message: msg, indicator: "green" });
+					report.refresh();
+				}));
 		});
 		report.page.add_inner_button(__("Production Recipes"), () => frappe.set_route("List", "IB Production Recipe"));
 	},
