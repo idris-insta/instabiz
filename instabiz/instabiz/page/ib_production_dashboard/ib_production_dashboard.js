@@ -2675,10 +2675,15 @@ class IBProductionStages {
 	_load_item_wise() {
 		const $c = this._content();
 		$c.html('<div class="ib-ps-loading">Loading item view…</div>');
+		// Bumped here, not only in refresh() — this loader is also called
+		// directly (pagination, filter changes) bypassing refresh(), so it
+		// must be able to invalidate its own in-flight predecessor too.
+		const gen = (this._load_gen = (this._load_gen || 0) + 1);
 		frappe.call({
 			method: "instabiz.overrides.production.get_item_wise_view",
 			args: { location: this.location_filter || null },
 			callback: (r) => {
+				if (gen !== this._load_gen) return; // stale — a newer refresh() already superseded this
 				if (r.exc) {
 					$c.html('<div class="ib-ps-empty">Failed to load item view.</div>');
 					return;
@@ -2956,10 +2961,12 @@ class IBProductionStages {
 			if (key) this.stage_wise_pill = key;
 			this._route_stage_filter = null;
 		}
+		const gen = (this._load_gen = (this._load_gen || 0) + 1);
 		frappe.call({
 			method: "instabiz.overrides.production.get_stage_pipeline",
 			args: { location: this.location_filter || null },
 			callback: (r) => {
+				if (gen !== this._load_gen) return; // stale — a newer refresh() already superseded this
 				if (r.exc) {
 					$c.html('<div class="ib-ps-empty">Failed to load stage view.</div>');
 					return;
@@ -3104,6 +3111,10 @@ class IBProductionStages {
 	_load_order_sheets() {
 		const $c = this._content();
 		$c.html('<div class="ib-ps-loading">Loading orders…</div>');
+		// Self-bumped, not just in refresh() — this loader is also called
+		// directly (pagination, search, filter changes), so a rapid second
+		// call here must invalidate its own in-flight predecessor too.
+		const gen = (this._load_gen = (this._load_gen || 0) + 1);
 		frappe.call({
 			method: "instabiz.overrides.production.get_order_sheets",
 			args: {
@@ -3113,6 +3124,7 @@ class IBProductionStages {
 				search: this.os_search || "",
 			},
 			callback: (r) => {
+				if (gen !== this._load_gen) return; // stale — a newer refresh() already superseded this
 				if (r.exc) {
 					$c.html('<div class="ib-ps-empty">Failed to load orders.</div>');
 					return;
@@ -3281,10 +3293,14 @@ class IBProductionStages {
 	_load_os_detail(os_name) {
 		const $c = this._content();
 		$c.html('<div class="ib-ps-loading">Loading order…</div>');
+		// Self-bumped — called directly from many places (click into an
+		// order, bulk-start dialog completion), not only via refresh().
+		const gen = (this._load_gen = (this._load_gen || 0) + 1);
 		frappe.call({
 			method: "instabiz.overrides.production.get_order_sheet_detail",
 			args: { order_sheet: os_name },
 			callback: (r) => {
+				if (gen !== this._load_gen) return; // stale — a newer refresh() already superseded this
 				if (r.exc) {
 					$c.html('<div class="ib-ps-empty">Failed to load order.</div>');
 					return;
@@ -3634,10 +3650,14 @@ class IBProductionStages {
 	_load_machine_wise() {
 		const $c = this._content();
 		$c.html('<div class="ib-ps-loading">Loading machine dashboard…</div>');
+		// Self-bumped — also called directly from the realtime floor-update
+		// handler, not only via refresh().
+		const gen = (this._load_gen = (this._load_gen || 0) + 1);
 		frappe.call({
 			method: "instabiz.overrides.production.get_machine_wise_dashboard",
 			args: { location: this.location_filter || "", floor: this.floor_filter || "" },
 			callback: (r) => {
+				if (gen !== this._load_gen) return; // stale — a newer refresh() already superseded this
 				if (r.exc) {
 					$c.html('<div class="ib-ps-empty">Failed to load machine dashboard.</div>');
 					return;
