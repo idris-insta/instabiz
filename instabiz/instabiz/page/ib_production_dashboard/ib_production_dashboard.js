@@ -2356,6 +2356,13 @@ class IBProductionStages {
 		this.os_priority_filter = "All";
 		this.os_search = "";
 		this.location_filter = localStorage.getItem("ib_prod_location") || "";
+		// Floor only exists on Machine-wise — IB Machine carries `floor`
+		// directly (no join needed), and Gujarat is the only location with
+		// real floors configured today (item 145). Cleared whenever location
+		// isn't gujarat so a stale floor value can't silently scope a tab
+		// that has no floor concept.
+		this.floor_filter = this.location_filter === "gujarat"
+			? (localStorage.getItem("ib_prod_floor") || "") : "";
 		this.current_os = null;
 		this.active_wo = null;
 		this.machines_cache = null;
@@ -2414,6 +2421,7 @@ class IBProductionStages {
 		this.$body.find(".ib-ps-tab").removeClass("active");
 		this.$body.find(`.ib-ps-tab[data-tab="${this.active_tab}"]`).addClass("active");
 		this.$body.find("#ib-ps-location").val(this.location_filter);
+		this._sync_floor_ui();
 	}
 
 	_consume_route_options() {
@@ -2531,6 +2539,12 @@ class IBProductionStages {
 						<option value="chennai">Chennai (Warehouse)</option>
 					</select>
 				</div>
+				<div class="ib-ps-loc-group" id="ib-ps-floor-group" style="display:none">
+					<iconify-icon icon="lucide:layers" width="12" height="12" style="color:var(--text-muted)"></iconify-icon>
+					<select id="ib-ps-floor" class="ib-ps-select form-control">
+						<option value="">All Floors</option>
+					</select>
+				</div>
 				<button class="ib-ps-refresh-btn" id="ib-ps-refresh">
 					<iconify-icon icon="lucide:refresh-cw" width="13" height="13" style="vertical-align:middle;margin-right:4px"></iconify-icon>
 					Refresh
@@ -2543,6 +2557,7 @@ class IBProductionStages {
 		`);
 
 		this.$body.find("#ib-ps-location").val(this.location_filter);
+		this._sync_floor_ui();
 
 		// Tab clicks
 		this.$body.on("click", ".ib-ps-tab", (e) => {
@@ -2553,7 +2568,18 @@ class IBProductionStages {
 		this.$body.on("change", "#ib-ps-location", (e) => {
 			this.location_filter = $(e.target).val();
 			localStorage.setItem("ib_prod_location", this.location_filter);
+			// A floor picked for one location makes no sense once location
+			// changes away from gujarat (the only location with real floors).
+			this.floor_filter = "";
+			localStorage.removeItem("ib_prod_floor");
 			this.current_os = null;
+			this._sync_floor_ui();
+			this.refresh();
+		});
+
+		this.$body.on("change", "#ib-ps-floor", (e) => {
+			this.floor_filter = $(e.target).val();
+			localStorage.setItem("ib_prod_floor", this.floor_filter);
 			this.refresh();
 		});
 
@@ -2584,7 +2610,43 @@ class IBProductionStages {
 		this.$body.find(".ib-ps-tab").removeClass("active");
 		this.$body.find(`.ib-ps-tab[data-tab="${tab}"]`).addClass("active");
 		this._close_side_panel();
+		this._sync_floor_ui();
 		this.refresh();
+	}
+
+	// Floor is only a meaningful filter on Machine-wise (IB Machine carries
+	// `floor` directly, no join needed) at Gujarat (the only location with
+	// real floors configured — item 145). Hidden everywhere else rather than
+	// shown-but-inert, so it never implies scoping a tab it doesn't affect.
+	_sync_floor_ui() {
+		const $group = this.$body.find("#ib-ps-floor-group");
+		const show = this.active_tab === "machine_wise" && this.location_filter === "gujarat";
+		$group.toggle(show);
+		if (!show) return;
+		const $sel = this.$body.find("#ib-ps-floor");
+		if ($sel.data("ib-loaded")) {
+			$sel.val(this.floor_filter);
+			return;
+		}
+		frappe.call({
+			method: "frappe.client.get_list",
+			args: {
+				doctype: "IB Production Floor",
+				filters: { location: "gujarat", is_active: 1 },
+				fields: ["name", "floor_name"],
+				order_by: "floor_name asc",
+				limit_page_length: 0,
+			},
+			callback: (r) => {
+				const floors = r.message || [];
+				$sel.find("option:not(:first)").remove();
+				floors.forEach((f) => {
+					$sel.append(`<option value="${frappe.utils.escape_html(f.name)}">${frappe.utils.escape_html(f.floor_name || f.name)}</option>`);
+				});
+				$sel.data("ib-loaded", true);
+				$sel.val(this.floor_filter);
+			},
+		});
 	}
 
 	refresh() {
@@ -3574,7 +3636,7 @@ class IBProductionStages {
 		$c.html('<div class="ib-ps-loading">Loading machine dashboard…</div>');
 		frappe.call({
 			method: "instabiz.overrides.production.get_machine_wise_dashboard",
-			args: { location: this.location_filter || "" },
+			args: { location: this.location_filter || "", floor: this.floor_filter || "" },
 			callback: (r) => {
 				if (r.exc) {
 					$c.html('<div class="ib-ps-empty">Failed to load machine dashboard.</div>');

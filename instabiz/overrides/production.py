@@ -1702,18 +1702,26 @@ def get_machine_day_stats(machine_names, from_date, to_date=None):
 
 
 @frappe.whitelist()
-def get_machine_wise_dashboard(location=None):
+def get_machine_wise_dashboard(location=None, floor=None):
 	"""Machine-wise dashboard: per machine — current WOs, today stats, load %.
 
 	location: optional (maharashtra/gujarat/chennai) — matches the shared
 	Location filter already honored by Order-wise/Job Bundles on this page;
 	previously ignored here so switching locations silently kept showing
 	every machine regardless of tab.
+
+	floor: optional (Link -> IB Production Floor). Gujarat is the only
+	location with real floors configured today (item 145) — this tab is
+	where floor scoping is cheapest and most correct, since IB Machine
+	carries `floor` directly with no join needed, unlike a WO-grain view
+	where floor only exists via whichever machine (if any) got assigned.
 	"""
 	_require_production_role()
 	machine_filters = {"status": "Active"}
 	if location:
 		machine_filters["location"] = location
+	if floor:
+		machine_filters["floor"] = floor
 	machines = frappe.db.get_all(
 		"IB Machine",
 		filters=machine_filters,
