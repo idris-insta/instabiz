@@ -177,6 +177,7 @@ after_migrate = [
     "instabiz.overrides.dimensions.after_migrate",  # Branch + Department accounting dimensions, branch masters
     "instabiz.overrides.approvals.after_migrate",  # approval fields on Journal Entry / Payment Entry
     "instabiz.overrides.manufacturing_site.after_migrate",  # Warehouse "Manufacturing" tick (factory vs plain warehouse)
+    "instabiz.overrides.stock_dims.after_migrate",  # thickness / colour / width / length on stock + purchase rows
     "instabiz.overrides.workspace_merge.merge_modules",  # one tab per module (Instabiz + ERPNext)
 ]
 
@@ -410,6 +411,7 @@ doc_events = {
         "on_cancel":     "instabiz.overrides.payment_entry.on_cancel",
     },
     "Stock Entry": {
+        "before_validate": "instabiz.overrides.stock_dims.stock_entry_before_validate",  # rolls → m²
         "on_submit": "instabiz.overrides.stock_events.publish_stock_update",
         "on_cancel": "instabiz.overrides.stock_events.publish_stock_update",
     },

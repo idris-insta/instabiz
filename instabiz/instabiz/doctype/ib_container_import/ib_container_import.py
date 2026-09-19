@@ -256,6 +256,10 @@ def _make_stock_entry(doc: "IBContainerImport"):
 			"qty": row.total_qty,
 			"t_warehouse": doc.warehouse,
 			"uom": row.stock_uom,
+			"custom_thickness": row.custom_thickness,
+			"color": row.color,
+			"width_mm": row.width_mm,
+			"length_mtr": row.length_mtr,
 		}
 		if flt(row.landed_rate or row.rate) > 0:
 			se_row["basic_rate"] = flt(row.landed_rate) or flt(row.rate)

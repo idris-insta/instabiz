@@ -85,7 +85,8 @@ def build_entry(doc):
 	consumed = len(se.items)
 	for o in doc.outputs:
 		if flt(o.produced_qty) > 0:
-			row = {"item_code": o.item_code, "qty": flt(o.produced_qty), "t_warehouse": fg_wh, "is_finished_item": 1}
+			row = {"item_code": o.item_code, "qty": flt(o.produced_qty), "t_warehouse": fg_wh, "is_finished_item": 1,
+				"width_mm": o.width_mm, "length_mtr": o.length_mtr}  # cut size, not the jumbo's
 			if o.uom:
 				row["uom"] = o.uom
 				area = roll_area(o.item_code, o.uom, o.width_mm, o.length_mtr)
