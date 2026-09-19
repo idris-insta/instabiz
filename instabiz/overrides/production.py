@@ -178,8 +178,6 @@ def _assign_machine_load_balanced(stage, location=None):
 
 
 # Keep original name as alias for any callers that still reference it
-def _auto_assign_machine(stage, location=None):
-	return _assign_machine_load_balanced(stage, location)
 
 
 # ---------------------------------------------------------------------------
@@ -1112,86 +1110,34 @@ def start_work_order(work_order):
 		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name)
 
 
-def _compute_completion_qty(doc, actual_qty):
-	"""Resolve (qty_done, wastage_qty, wastage_pct) for a WO being completed.
-
-	actual_qty is the operator-entered real output (from the "Complete
-	Stage" dialog's "Actual Output" prompt) — the first real wastage-capture
-	path in the system. wastage = target_qty - actual_qty, clamped at 0
-	(over-target output is not negative wastage). When actual_qty isn't
-	given at all (older/API callers that predate the prompt), falls back to
-	the pre-existing behavior: qty_done = target_qty, wastage stays 0/
-	unmeasured — same as before this existed, not asserted as a real zero.
-	"""
-	if actual_qty is not None:
-		qty_done = flt(actual_qty)
-		target = flt(doc.target_qty)
-		wastage_qty = max(target - qty_done, 0.0)
-		wastage_pct = round((wastage_qty / target) * 100, 2) if target else 0.0
-		return qty_done, wastage_qty, wastage_pct
-	# completed_qty is never otherwise populated (IB Production Entry is
-	# unused by design) — fall back to target_qty so the WO/Order Sheet Item
-	# actually reach "Completed" status.
-	return (flt(doc.completed_qty) or flt(doc.target_qty)), 0.0, 0.0
-
-
 @frappe.whitelist()
 def complete_work_order(work_order, actual_qty=None):
-	"""Set status=Completed, record completed_at + real output/wastage
-	(when actual_qty is given). Also updates Order Sheet Item status."""
-	_require_production_role()
-	if actual_qty is not None and flt(actual_qty) < 0:
-		frappe.throw(_("Actual output cannot be negative."))
-	lock_name = f"IB-WO-{work_order}"
-	locked = frappe.db.sql("SELECT GET_LOCK(%s, 5)", lock_name)[0][0]
-	if not locked:
-		frappe.throw(_("Could not acquire lock for Work Order {0}. Please try again.").format(work_order))
-	try:
-		doc = frappe.get_doc("IB Work Order", work_order)
-		if doc.status == "Completed":
-			frappe.throw(_("Work Order {0} is already Completed.").format(work_order))
-		if doc.status not in ("In Progress",):
-			frappe.throw(
-				_("Work Order {0} cannot be completed from status '{1}'. Expected: In Progress.").format(
-					work_order, doc.status
-				)
-			)
-		completed_at = now()
-		qty_done, wastage_qty, wastage_pct = _compute_completion_qty(doc, actual_qty)
-		doc.completed_at = completed_at
-		doc.completed_qty = qty_done
-		doc.wastage_qty = wastage_qty
-		doc.wastage_pct = wastage_pct
-		# apply_workflow saves the doc via the IB Work Order Workflow, which fires
-		# standard Document events — IB Work Order.on_update (on_work_order_update_notify)
-		# runs automatically, no manual call needed.
-		apply_workflow(doc, "Complete")
-		# apply_workflow() internally does frappe.get_doc(doc).load_from_db() before
-		# applying the transition — load_from_db() re-inits every field from the DB
-		# row, silently discarding the completed_at/completed_qty/wastage_* we just
-		# set above in memory (doc.save() inside apply_workflow then persists the
-		# DISCARDED/stale values, not ours). Confirmed live: real WOs completed
-		# since the apply_workflow migration (2026-07-30) have completed_qty=0/
-		# completed_at=NULL despite this function's own return value claiming
-		# otherwise. Set them explicitly after the transition so they persist.
-		frappe.db.set_value("IB Work Order", doc.name, {
-			"completed_at": completed_at, "completed_qty": qty_done,
-			"wastage_qty": wastage_qty, "wastage_pct": wastage_pct,
-		})
-
-		_generate_fg_serials(doc)
-
-		# Update Order Sheet Item completed_qty and status
-		if doc.order_sheet and doc.item_code:
-			_update_order_sheet_item(doc.order_sheet, doc.item_code, qty_done,
-									 order_sheet_item=doc.order_sheet_item or None)
-			_update_order_sheet_progress(doc.order_sheet)
-
-		frappe.db.commit()
-		_notify_floor_update()
-		return {"status": "ok", "completed_at": completed_at, "wastage_qty": wastage_qty}
-	finally:
-		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name)
+	"""Compat shim -> run model advance_run(). SEVERE bug this replaces,
+	confirmed live: this used to be the pre-rewrite per-stage-WO
+	implementation, still written against doc.item_code/doc.order_sheet_item/
+	doc.completed_qty/doc.wastage_qty/doc.wastage_pct — none of which are
+	real fields on IB Work Order anymore (confirmed against the doctype's
+	own field list: only total_output_qty/total_wastage_qty exist at the
+	parent level now, per-output qty lives on the `outputs` child table).
+	This is the literal function the UI's "Complete" button calls
+	(ib_production_dashboard.js's _update_wo_status method_map) to finish
+	the LAST stage of every run — it returned {"status": "ok", ...} with NO
+	error (doc.item_code is silently None, not a crash), flipped the run's
+	own status to Completed, but current_stage never advanced past its last
+	stage to "Done", the Order Sheet Item never flipped to Completed, no FG
+	batch/serials were generated via the real path, and Create Delivery
+	Note never became available — for every single order completed by
+	clicking this button. Confirmed via a live disposable run: exactly this
+	sequence reproduced. advance_run() already handles "this is the last
+	stage" correctly (calls _finish_run internally) — same delegation
+	pattern already used by advance_to_next_stage() for the non-final-stage
+	case, applied here for the final-stage case too.
+	"""
+	from instabiz.overrides.production_run import advance_run
+	r = advance_run(work_order, output_qty=actual_qty)
+	r = dict(r or {})
+	r["status"] = "ok" if r.pop("ok", False) else "error"
+	return r
 
 
 @frappe.whitelist()
@@ -1213,62 +1159,6 @@ def put_on_hold(work_order):
 		return {"status": "ok"}
 	finally:
 		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name)
-
-
-@frappe.whitelist()
-def create_work_orders_for_item(order_sheet, item_code, stages):
-	"""Create IB Work Order records for specified stages for an item."""
-	_require_production_role()
-	if isinstance(stages, str):
-		stages = json.loads(stages)
-
-	# Look up the Order Sheet Item row by item_code
-	osi_name = frappe.db.get_value(
-		"IB Order Sheet Item",
-		{"parent": order_sheet, "item_code": item_code},
-		"name",
-	)
-	if not osi_name:
-		frappe.throw(_("Item {0} not found in Order Sheet {1}").format(item_code, order_sheet))
-	osi = frappe.get_doc("IB Order Sheet Item", osi_name)
-
-	# Requested stage must be part of THIS item's actual route (route-aware — item
-	# group / warehouse-only location can both drop stages). Without this check, the
-	# manual "+" picker (which lists all canonical stages regardless of route)
-	# could silently create an orphan Work Order for a stage the item never needs.
-	location = _get_os_location(order_sheet)
-	stage_route = _get_stage_route(osi.item_code, location)
-
-	created = []
-	for stage in stages:
-		if stage not in stage_route:
-			frappe.throw(
-				_("{0} is not a valid stage for item {1}'s production route ({2}).").format(
-					stage, osi.item_code, " → ".join(stage_route)
-				)
-			)
-		# Skip if a WO already exists for this order_sheet + item_code + stage
-		existing = frappe.db.exists(
-			"IB Work Order",
-			{"order_sheet": order_sheet, "item_code": osi.item_code, "stage": stage},
-		)
-		if existing:
-			continue
-
-		wo = frappe.new_doc("IB Work Order")
-		wo.order_sheet = order_sheet
-		wo.item_code = osi.item_code
-		wo.stage = stage
-		wo.status = "Pending"
-		wo.target_qty = osi.qty
-		wo.completed_qty = 0.0
-		wo.wastage_qty = 0.0
-		wo.wastage_pct = 0.0
-		wo.insert(ignore_permissions=True)
-		created.append(wo.name)
-
-	frappe.db.commit()
-	return {"created": created}
 
 
 # ---------------------------------------------------------------------------
@@ -1500,86 +1390,6 @@ def get_weekly_dpr(week_start=None, date=None):
 # Helpers (not whitelisted)
 # ---------------------------------------------------------------------------
 
-def _update_order_sheet_item(order_sheet, item_code, completed_qty, order_sheet_item=None):
-	"""Update IB Order Sheet Item completed_qty and flip status.
-
-	Uses order_sheet_item (child row name) as direct key when available — avoids
-	updating all rows when the same item_code appears multiple times in one OS.
-	Falls back to item_code scan for legacy WOs.
-
-	Status is "Completed" only once a Completed Work Order exists for EVERY
-	stage in this item's actual route (_get_stage_route) — not merely once
-	every Work Order that currently *exists* is Completed. Those were
-	equivalent back when auto_create_all_stage_wos() pre-created the whole
-	route's Work Orders upfront (every stage always had a row, so "all
-	existing WOs done" and "all route stages done" meant the same thing).
-	Under the JIT stage model (2026-08-13) most stages have no Work Order at
-	all until a user explicitly starts them — "all existing WOs Completed"
-	would go true after stage 1 of N every single time, the exact bug this
-	function was already fixed for once before (see git history: 8/17
-	Completed items and 2/7 Completed Order Sheets were wrongly flagged
-	before that first fix) — route-awareness is what actually has to hold,
-	not just "no WO is left incomplete".
-	"""
-	if order_sheet_item:
-		row = frappe.db.get_value("IB Order Sheet Item", order_sheet_item, ["name", "qty"], as_dict=True)
-		rows = [row] if row else []
-	else:
-		rows = frappe.db.get_all(
-			"IB Order Sheet Item",
-			filters={"parent": order_sheet, "item_code": item_code},
-			fields=["name", "qty"],
-		)
-	if not rows:
-		return
-	location = _get_os_location(order_sheet)
-	stage_route = set(_get_stage_route(item_code, location))
-	for row in rows:
-		wo_filters = {"order_sheet": order_sheet, "status": ["not in", ["Cancelled"]]}
-		if order_sheet_item:
-			wo_filters["order_sheet_item"] = row.name
-		else:
-			wo_filters["item_code"] = item_code
-		wo_rows = frappe.db.get_all("IB Work Order", filters=wo_filters, fields=["stage", "status"])
-		completed_stages = {w.stage for w in wo_rows if w.status == "Completed"}
-		all_done = bool(stage_route) and stage_route.issubset(completed_stages)
-		new_status = "Completed" if all_done else "In Progress"
-		frappe.db.set_value(
-			"IB Order Sheet Item",
-			row.name,
-			{
-				"completed_qty": completed_qty,
-				"status": new_status,
-			},
-		)
-
-
-def _update_order_sheet_progress(order_sheet_name):
-	"""Check if all items complete → mark OS as Completed.
-
-	Symmetric: also reopens a previously-Completed OS back to "In Progress" if
-	it no longer has every item Completed. Originally one-directional (Completed
-	only ever got set, never unset) — harmless as long as an item's status only
-	ever moves forward, but start_item_stage()'s rework path (reactivating an
-	already-Completed stage's WO for rework) can legitimately un-complete an
-	item. Without this, an Order Sheet reopened that way would stay stuck
-	showing "Completed" indefinitely, since nothing else ever re-evaluates it
-	downward.
-	"""
-	items = frappe.db.get_all(
-		"IB Order Sheet Item",
-		filters={"parent": order_sheet_name},
-		fields=["status"],
-	)
-	if not items:
-		return
-	all_done = all(item.status == "Completed" for item in items)
-	current_status = frappe.db.get_value("IB Order Sheet", order_sheet_name, "status")
-	if all_done and current_status != "Completed":
-		frappe.db.set_value("IB Order Sheet", order_sheet_name, "status", "Completed")
-	elif not all_done and current_status == "Completed":
-		frappe.db.set_value("IB Order Sheet", order_sheet_name, "status", "In Progress")
-
 
 @frappe.whitelist()
 def advance_to_next_stage(work_order, actual_qty=None):
@@ -1610,413 +1420,6 @@ def _next_serial_seq(item_code, stamp):
 		return 1
 
 
-def _generate_fg_serials(doc):
-	"""Final-stage completion → FG Batch + one IB FG Serial per physical unit
-	produced, each stamped with the full genealogy. Phase 2: annotation only,
-	no stock ledger entry (native Serial No + ledger integration is Phase 3).
-	Never raises — a serial failure must not block Work Order completion."""
-	try:
-		from instabiz.overrides.item import _SERIAL_ITEM_GROUPS
-
-		if flt(doc.get("produced_serials")):
-			return
-		if (frappe.db.get_value("Item", doc.item_code, "item_group") or "") not in _SERIAL_ITEM_GROUPS:
-			return
-		route = _get_stage_route(doc.item_code, _get_os_location(doc.order_sheet))
-		if not route or doc.stage != route[-1]:
-			return
-		if frappe.db.exists("IB FG Serial", {"work_order": doc.name}):
-			return
-
-		n_units = min(cint(doc.get("logs_to_make")) or cint(doc.get("pcs_to_make")) or 1, 2000)
-		item = frappe.db.get_value(
-			"Item", doc.item_code, ["width_mm", "length_mtr", "gsm", "item_name"], as_dict=True
-		) or {}
-
-		fg_batch_id = f"FG::{doc.item_code}::{doc.name}"
-		if not frappe.db.exists("IB Batch", fg_batch_id):
-			fb = frappe.new_doc("IB Batch")
-			fb.batch_id = fg_batch_id
-			fb.kind = "Finished Good"
-			fb.item = doc.item_code
-			fb.item_name = item.get("item_name")
-			fb.qty = flt(doc.get("completed_qty")) or flt(doc.get("target_qty"))
-			fb.status = "Active"
-			fb.source_type = "Production"
-			fb.work_order = doc.name
-			fb.received_date = today()
-			fb.parent_batches = json.dumps([doc.source_batch] if doc.get("source_batch") else [])
-			fb.gsm = flt(item.get("gsm"))
-			fb.width_mm = flt(item.get("width_mm"))
-			fb.insert(ignore_permissions=True)
-
-		stamp = _serial_stamp()
-		seq = _next_serial_seq(doc.item_code, stamp)
-		produced_on = now()
-		created = 0
-		for i in range(n_units):
-			sn_name = f"{doc.item_code}::{stamp}::{seq + i:04d}"
-			if frappe.db.exists("IB FG Serial", sn_name):
-				continue
-			sn = frappe.new_doc("IB FG Serial")
-			sn.serial_no = sn_name
-			sn.item_code = doc.item_code
-			sn.item_name = item.get("item_name")
-			sn.status = "In Stock"
-			sn.fg_batch = fg_batch_id
-			sn.source_batch = doc.get("source_batch")
-			sn.work_order = doc.name
-			sn.order_sheet = doc.order_sheet
-			sn.sales_order = doc.sales_order
-			sn.produced_on = produced_on
-			sn.box_no = i + 1
-			sn.width_mm = flt(item.get("width_mm"))
-			sn.length_mtr = flt(item.get("length_mtr"))
-			sn.gsm = flt(item.get("gsm"))
-			sn.insert(ignore_permissions=True)
-			created += 1
-
-		frappe.db.set_value(
-			"IB Work Order", doc.name, {"fg_batch": fg_batch_id, "produced_serials": created}
-		)
-	except Exception:
-		frappe.log_error("IB serial gen", frappe.get_traceback())
-
-
-def _thread_source_batch(order_sheet_item, wo_name, explicit=None):
-	"""Set the RM source batch on this Work Order. An explicit pick wins;
-	otherwise carry forward whatever an earlier stage of the same item row
-	already has, so the batch flows down the stage chain without re-picking."""
-	batch = explicit
-	if not batch:
-		batch = frappe.db.get_value(
-			"IB Work Order",
-			{
-				"order_sheet_item": order_sheet_item,
-				"source_batch": ["is", "set"],
-				"status": ["!=", "Cancelled"],
-			},
-			"source_batch",
-		)
-	if batch and frappe.db.exists("IB Batch", batch):
-		frappe.db.set_value("IB Work Order", wo_name, "source_batch", batch)
-
-
-@frappe.whitelist()
-def set_wo_source_batch(work_order, source_batch):
-	"""Manually set / correct the RM source batch on a Work Order — propagates
-	to every non-cancelled stage WO of the same order sheet item."""
-	_require_production_role()
-	if not frappe.db.exists("IB Batch", source_batch):
-		frappe.throw(_("Batch {0} not found").format(source_batch))
-	osi = frappe.db.get_value("IB Work Order", work_order, "order_sheet_item")
-	targets = (
-		frappe.get_all(
-			"IB Work Order",
-			filters={"order_sheet_item": osi, "status": ["!=", "Cancelled"]},
-			pluck="name",
-		)
-		if osi
-		else [work_order]
-	)
-	for name in targets:
-		frappe.db.set_value("IB Work Order", name, "source_batch", source_batch)
-	frappe.db.commit()
-	return {"status": "ok", "updated": len(targets)}
-
-
-@frappe.whitelist()
-def start_item_stage(order_sheet_item, stage, source_batch=None):
-	"""JIT stage entry point (2026-08-13): create exactly one Work Order for
-	the picked stage and put it straight to work — In Progress, machine
-	auto-assigned. Replaces auto_create_all_stage_wos()'s old "pre-create the
-	whole route upfront" model — an Order Sheet Item now has zero Work Orders
-	until a production user explicitly starts it and picks a stage, every
-	time (the frontend's picker defaults to _get_stage_route()'s next
-	uncompleted stage, but any canonical stage this order's location can
-	physically reach is a valid pick — location-only restriction, not the
-	stricter item-group route check, since a route is a default suggestion
-	here, not a hard ceiling). This is now the ONLY way to start or move a
-	Work Order to a stage — the separate manual "shuffle" stage-move feature
-	(move_work_order_stage) was removed 2026-08-13, same user decision as
-	this JIT model itself.
-	"""
-	_require_production_role()
-	osi = frappe.db.get_value(
-		"IB Order Sheet Item",
-		order_sheet_item,
-		["name", "parent", "item_code", "item_name", "qty", "uom"],
-		as_dict=True,
-	)
-	if not osi:
-		frappe.throw(_("Order Sheet Item {0} not found").format(order_sheet_item))
-
-	location = _get_os_location(osi.parent)
-	allowed_stages = (
-		_WAREHOUSE_STAGE_ROUTE
-		if (location or "").lower() in _WAREHOUSE_ONLY_LOCATIONS
-		else list(STAGES)
-	)
-	if stage not in allowed_stages:
-		frappe.throw(
-			_("{0} is not available at this order's location ({1}).").format(
-				stage, ", ".join(allowed_stages)
-			)
-		)
-
-	# One lock per (item row, stage) — serializes this endpoint's own
-	# existence-check-then-create/reactivate race for this exact target.
-	# Sufficient here because this endpoint is the only path that creates a
-	# Work Order for a not-yet-existing order_sheet_item+stage combination;
-	# once the row exists, the transition below reuses the same doc within
-	# this same locked section.
-	lock_name = f"IB-OSI-{order_sheet_item}-{stage}"
-	locked = frappe.db.sql("SELECT GET_LOCK(%s, 5)", lock_name)[0][0]
-	if not locked:
-		frappe.throw(_("Could not acquire lock. Please try again."))
-	try:
-		existing = frappe.db.get_value(
-			"IB Work Order",
-			{"order_sheet_item": order_sheet_item, "stage": stage, "status": ["!=", "Cancelled"]},
-			["name", "status"],
-			as_dict=True,
-		)
-		sales_order = frappe.db.get_value("IB Order Sheet", osi.parent, "sales_order")
-		is_rework = bool(existing and existing.status == "Completed")
-
-		if existing and existing.status == "Completed":
-			# Rework — "Completed" has no apply_workflow transition back out
-			# (IB Work Order Workflow), so reactivate via a direct db write.
-			frappe.db.set_value(
-				"IB Work Order", existing.name,
-				{"status": "Pending", "started_at": None, "completed_at": None, "completed_qty": 0},
-			)
-			wo_name = existing.name
-		elif existing and existing.status in ("Pending", "On Hold"):
-			wo_name = existing.name
-		elif existing:
-			frappe.throw(_("Work Order {0} for this stage is already {1}.").format(existing.name, existing.status))
-		else:
-			wo = frappe.new_doc("IB Work Order")
-			wo.order_sheet = osi.parent
-			wo.order_sheet_item = osi.name
-			wo.sales_order = sales_order or ""
-			wo.item_code = osi.item_code
-			wo.item_name = osi.item_name
-			wo.stage = stage
-			wo.priority = frappe.db.get_value("IB Order Sheet", osi.parent, "priority") or "Normal"
-			wo.target_qty = flt(osi.qty)
-			wo.target_uom = osi.uom
-			wo.status = "Pending"
-			wo.insert(ignore_permissions=True)
-			wo_name = wo.name
-
-		_thread_source_batch(order_sheet_item, wo_name, source_batch)
-
-		# Also hold the same per-WO lock every other status-mutating function
-		# uses (assign_machine/start_work_order/complete_work_order/put_on_hold/
-		# advance_to_next_stage all lock "IB-WO-{name}") — the OSI-scoped lock
-		# above only serializes this endpoint's own existence-check-then-create
-		# race; without this, a concurrent call on one of those other endpoints
-		# for the same WO has no mutual exclusion against what happens next.
-		wo_lock = f"IB-WO-{wo_name}"
-		wo_locked = frappe.db.sql("SELECT GET_LOCK(%s, 5)", wo_lock)[0][0]
-		if not wo_locked:
-			frappe.throw(_("Could not acquire lock for Work Order {0}. Please try again.").format(wo_name))
-		try:
-			if not frappe.db.get_value("IB Work Order", wo_name, "machine"):
-				machine = _assign_machine_load_balanced(stage, location) or ""
-				if machine:
-					frappe.db.set_value("IB Work Order", wo_name, "machine", machine)
-			else:
-				machine = frappe.db.get_value("IB Work Order", wo_name, "machine")
-
-			doc = frappe.get_doc("IB Work Order", wo_name)
-			started_at = now()
-			doc.started_at = started_at
-			apply_workflow(doc, "Resume" if doc.status == "On Hold" else "Start")
-			# Same apply_workflow load_from_db discard as start_work_order()/
-			# complete_work_order() — persist explicitly or it silently stays NULL.
-			frappe.db.set_value("IB Work Order", wo_name, "started_at", started_at)
-
-			if is_rework:
-				# Reactivating a Completed stage un-completes the item — without
-				# this, IB Order Sheet Item/IB Order Sheet stayed stuck showing
-				# "Completed" while the stage was genuinely back in progress, and
-				# get_order_dn_readiness() (which only checks Order Sheet status)
-				# would still let a Delivery Note be created mid-rework.
-				_update_order_sheet_item(osi.parent, osi.item_code, 0, order_sheet_item=osi.name)
-				_update_order_sheet_progress(osi.parent)
-		finally:
-			frappe.db.sql("SELECT RELEASE_LOCK(%s)", wo_lock)
-
-		if frappe.db.get_value("IB Order Sheet", osi.parent, "status") == "Draft":
-			frappe.db.set_value("IB Order Sheet", osi.parent, "status", "In Progress")
-
-		frappe.db.commit()
-		_notify_floor_update()
-		return {"status": "ok", "work_order": wo_name, "stage": stage, "machine": machine}
-	finally:
-		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name)
-
-
-@frappe.whitelist()
-def bulk_start_item_stages(item_stages, brand=None, core=None, ctn=None,
-	shrink_film=None, no_of_logs=None, packing_type=None, size=None):
-	"""Start stage(s) on several Order Sheet Items in one call — e.g. one SKU
-	sold as several line items at different dimensions (width/color/etc),
-	each its own Order Sheet Item, all needing production kicked off
-	together instead of clicking Start Production once per row.
-
-	item_stages is a list of {order_sheet_item, stages} — deliberately
-	per-item, not one shared stage list for the whole batch: two selected
-	items can each be resting at a genuinely different point in their own
-	route (one brand new needing Coating first, another already past
-	Coating/Slitting and just resting between stages needing Rewinding
-	next) even though both show the same "Start Production" button — a
-	single shared stage picker applied to everyone would silently force the
-	wrong stage onto whichever items don't match it. The frontend defaults
-	each item's own picker to that item's own next_stage_suggestion, but
-	still sends one independent stage list per item so a user who leaves
-	them at their defaults gets each item's own correct next step, not one
-	guess applied to all.
-
-	Pure orchestration: every (item, stage) pair is still run through
-	start_item_stage() one at a time, so it gets that function's own
-	locking, location/route validation, and machine assignment exactly as
-	if started individually — no new write path. This is additive to the
-	JIT model, not a departure from it: start_item_stage stays the one place
-	a Work Order actually gets created/moved (see bulk_wo_action's
-	2026-08-13 removal note just below this function) — the old bulk
-	feature that got removed mass-flipped raw pre-created WO status
-	directly, from before the JIT model existed; this one never touches a
-	Work Order except through that same single entry point.
-
-	Every item's one-time packing-details form (custom_packing_captured) is
-	still required before its first stage — Brand/Core/CTN/Shrink Film/
-	Packing Type are asked here once for the whole batch, since
-	dimension-variants of one SKU almost always share those (real Item/
-	Brand links, not something normally re-picked per line). Size and
-	No. of Logs are different — those describe the physical line itself and
-	genuinely do vary per dimension-variant in practice (a 72-roll line and
-	a 24-roll line of the same base SKU don't share a log count), so each
-	row in item_stages MAY carry its own "size"/"no_of_logs" override; when
-	present it wins over the shared size/no_of_logs argument for that one
-	item, same "per-item beats shared default" reasoning as the stage list
-	above. Only items that don't have custom_packing_captured yet get any of
-	this written; an item that already captured its own (different) details
-	is left alone. If nothing (shared or per-item) is given, items missing
-	capture are skipped rather than saving an empty form silently.
-	"""
-	_require_production_role()
-	if isinstance(item_stages, str):
-		item_stages = json.loads(item_stages)
-	if not item_stages:
-		frappe.throw(_("No items selected."))
-
-	shared_given = any([brand, core, ctn, shrink_film, no_of_logs, packing_type, size])
-
-	results = []
-	started = 0
-	skipped = 0
-	failed = 0
-
-	for row in item_stages:
-		osi = row.get("order_sheet_item")
-		row_stages = row.get("stages") or []
-		# Per-item overrides beat the shared defaults for every packing field —
-		# needed when the selected items are genuinely different SKUs that don't
-		# share a Brand/Core/CTN/Shrink Film/Packing Type/Size/Logs.
-		row_size = row.get("size") or size
-		row_no_of_logs = row.get("no_of_logs") or no_of_logs
-		row_brand = row.get("brand") or brand
-		row_core = row.get("core") or core
-		row_ctn = row.get("ctn") or ctn
-		row_shrink = row.get("shrink_film") or shrink_film
-		row_packing_type = row.get("packing_type") or packing_type
-		row_has_own = any([row.get("size"), row.get("no_of_logs"), row.get("brand"),
-			row.get("core"), row.get("ctn"), row.get("shrink_film"), row.get("packing_type")])
-		item_label = frappe.db.get_value("IB Order Sheet Item", osi, "item_code") or osi
-		if not row_stages:
-			results.append({"order_sheet_item": osi, "item_code": item_label, "status": "skipped",
-				"message": "No stage picked for this item."})
-			skipped += 1
-			continue
-		# Stable stage order (route order, not click order) — same reasoning
-		# _show_start_stage_dialog's frontend counterpart uses for a single item.
-		ordered_stages = [s for s in STAGES if s in row_stages]
-
-		captured = frappe.db.get_value("IB Order Sheet Item", osi, "custom_packing_captured")
-		if not captured:
-			if not shared_given and not row_has_own:
-				results.append({"order_sheet_item": osi, "item_code": item_label, "status": "skipped",
-					"message": "Packing details not captured yet — start this one individually first."})
-				skipped += 1
-				continue
-			save_packing_details(osi, brand=row_brand, core=row_core, ctn=row_ctn,
-				shrink_film=row_shrink, no_of_logs=row_no_of_logs,
-				packing_type=row_packing_type, size=row_size)
-		for stage in ordered_stages:
-			try:
-				r = start_item_stage(osi, stage)
-				results.append({"order_sheet_item": osi, "item_code": item_label, "stage": stage,
-					"status": "ok", "machine": r.get("machine")})
-				started += 1
-			except Exception as e:
-				results.append({"order_sheet_item": osi, "item_code": item_label, "stage": stage,
-					"status": "error", "message": str(e)})
-				failed += 1
-
-	return {
-		"total_items": len(item_stages),
-		"started": started,
-		"skipped": skipped,
-		"failed": failed,
-		"details": results,
-	}
-
-
-@frappe.whitelist()
-def get_packing_capture_status(order_sheet_item):
-	"""Whether the pre-stage-picker packing-details form has already been
-	filled for this Order Sheet Item. Checked fresh from the DB (not from
-	whatever data the calling tab happened to have loaded) so the "ask once
-	per item, before its first stage" rule holds no matter which of the
-	Dashboard's several entry points (Active Plan, Item-wise, Stage-wise,
-	Machine-wise, WO panel post-complete prompt) triggered the stage picker.
-	"""
-	_require_production_role()
-	return bool(frappe.db.get_value("IB Order Sheet Item", order_sheet_item, "custom_packing_captured"))
-
-
-@frappe.whitelist()
-def save_packing_details(order_sheet_item, brand=None, core=None, ctn=None,
-                          shrink_film=None, no_of_logs=None, packing_type=None, size=None):
-	"""Saves the pre-stage packing-details form (Brand/Core/CTN/Shrink Film/
-	No. of Logs/Packing Type/Size) onto the Order Sheet Item and marks it
-	captured so it isn't asked again for this item. Direct db.set_value, not
-	doc.save() — these are plain descriptive/reference fields, no doctype
-	validate() logic depends on them, and every other JIT-picker mutation in
-	this module (start_item_stage, advance_to_next_stage) already writes to
-	IB Order Sheet Item / IB Work Order the same way."""
-	_require_production_role()
-	if not frappe.db.exists("IB Order Sheet Item", order_sheet_item):
-		frappe.throw(_("Order Sheet Item {0} not found").format(order_sheet_item))
-
-	frappe.db.set_value("IB Order Sheet Item", order_sheet_item, {
-		"custom_brand": brand or None,
-		"custom_core": core or None,
-		"custom_ctn": ctn or None,
-		"custom_shrink_film": shrink_film or None,
-		"custom_no_of_logs": cint(no_of_logs) if no_of_logs else 0,
-		"custom_packing_type": packing_type or None,
-		"custom_size": size or None,
-		"custom_packing_captured": 1,
-	})
-	frappe.db.commit()
-	return {"status": "ok"}
-
-
 # bulk_wo_action() (mass Start/Next Stage across a checkbox selection)
 # removed 2026-08-13 along with its frontend UI — the mass-select bulk
 # feature was dropped as part of making the JIT stage picker (start_item_stage)
@@ -2025,64 +1428,7 @@ def save_packing_details(order_sheet_item, brand=None, core=None, ctn=None,
 # existed for it.
 
 
-@frappe.whitelist()
-def auto_create_all_stage_wos(order_sheet):
-	"""Create Work Orders for ALL applicable stages for every item in an Order Sheet.
-
-	Stage route is determined per item_group (e.g. PLASTIC gets Coating→Slitting→…,
-	PVC skips Coating, Aerosol items only get Packing→RTD).
-
-	Only the first stage gets a machine assigned immediately (load-balanced).
-	Subsequent stages are created as Pending with no machine — machine is assigned
-	when advance_to_next_stage() fires after the preceding stage completes.
-	"""
-	_require_production_role()
-	os_doc = frappe.get_doc("IB Order Sheet", order_sheet)
-	location = _get_os_location(order_sheet)
-	created = []
-
-	for item in os_doc.items:
-		stage_route = _get_stage_route(item.item_code, location)
-
-		for idx, stage in enumerate(stage_route):
-			# Per-row key: order_sheet + order_sheet_item (child row name) + stage
-			existing = frappe.db.get_value(
-				"IB Work Order",
-				{"order_sheet": order_sheet, "order_sheet_item": item.name,
-				 "stage": stage, "status": ["not in", ["Cancelled"]]},
-				"name",
-			)
-			if existing:
-				created.append(existing)
-				continue
-
-			wo = frappe.new_doc("IB Work Order")
-			wo.order_sheet       = order_sheet
-			wo.order_sheet_item  = item.name   # per-row key
-			wo.sales_order       = os_doc.sales_order or ""
-			wo.item_code         = item.item_code
-			wo.item_name         = item.item_name
-			wo.stage             = stage
-			wo.priority          = os_doc.priority or "Normal"
-			wo.target_qty        = flt(item.qty)
-			wo.target_uom        = item.uom
-			wo.status            = "Pending"
-			# Assign machine only to first stage — rest assigned when stage activates
-			if idx == 0:
-				wo.machine = _assign_machine_load_balanced(stage, location) or ""
-			wo.insert(ignore_permissions=True)
-			created.append(wo.name)
-
-	frappe.db.set_value("IB Order Sheet", order_sheet, "status", "In Progress")
-	frappe.db.commit()
-	return {"created": created, "route_used": {
-		item.item_code: _get_stage_route(item.item_code, location) for item in os_doc.items
-	}}
-
-
 # Backward-compat alias used by older callers
-def auto_create_first_stage_wos(order_sheet):
-	return auto_create_all_stage_wos(order_sheet)
 
 
 @frappe.whitelist()
@@ -2725,7 +2071,6 @@ def mark_wos_delivered(doc, method=None):
 		)
 
 
-
 # ── Sales Order production panel ──────────────────────────────────────────────
 
 @frappe.whitelist()
@@ -3023,66 +2368,6 @@ def _so_progress_pct(so_name):
 
 
 _PROGRESS_MILESTONES = [25, 50, 75, 100]
-
-
-def on_work_order_update_notify(doc, method=None):
-	"""Notify the sales person as their order's production progresses, at
-	25/50/75/100% milestones — not just the old Ready-to-Deliver-only signal.
-	Each milestone fires once ever per Sales Order (dedup via subject marker,
-	no date bound — unlike the old RTD-only version, a milestone should never
-	repeat, not just never-repeat-same-day)."""
-	if doc.status != "Completed":
-		return
-	if not doc.order_sheet:
-		return
-
-	so_name = frappe.db.get_value("IB Order Sheet", doc.order_sheet, "sales_order")
-	if not so_name:
-		return
-
-	sales_person_user = frappe.db.get_value("Sales Order", so_name, "custom_sales_person_user")
-	if not sales_person_user:
-		return
-
-	pct, current_stage, _os_name = _so_progress_pct(so_name)
-	if pct is None:
-		return
-
-	milestone = max((m for m in _PROGRESS_MILESTONES if pct >= m), default=None)
-	if milestone is None:
-		return
-
-	marker = f"[ib-prod-{so_name}-{milestone}]"
-	if frappe.db.exists("Notification Log", {"for_user": sales_person_user, "subject": ["like", f"%{marker}%"]}):
-		return
-
-	customer = frappe.db.get_value("Sales Order", so_name, "customer_name") or ""
-	if milestone == 100:
-		subject = f"Order Ready for Dispatch: {so_name}"
-		body = (
-			f"<p>Sales Order <strong>{so_name}</strong> for <strong>{customer}</strong> "
-			f"has completed all production stages and is <strong>Ready to Deliver</strong>. "
-			f"Please arrange packaging and dispatch to the customer's delivery address.</p>"
-		)
-	else:
-		stage_txt = f" — now in <strong>{current_stage}</strong>" if current_stage else ""
-		subject = f"Production Update: {so_name} is {milestone}% complete"
-		body = (
-			f"<p>Sales Order <strong>{so_name}</strong> for <strong>{customer}</strong> "
-			f"is now <strong>{milestone}% through production</strong>{stage_txt}.</p>"
-		)
-
-	frappe.get_doc({
-		"doctype": "Notification Log",
-		"subject": f"{subject} {marker}"[:140],
-		"email_content": body,
-		"for_user": sales_person_user,
-		"type": "Alert",
-		"document_type": "Sales Order",
-		"document_name": so_name,
-		"from_user": "Administrator",
-	}).insert(ignore_permissions=True)
-	frappe.db.commit()
 
 
 @frappe.whitelist()
