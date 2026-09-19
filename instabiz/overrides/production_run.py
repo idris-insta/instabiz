@@ -896,55 +896,71 @@ def cancel_run(work_order, reason=None):
 	production that had just been undone. Recompute every affected item
 	(and the Order Sheet's own rollup) after the cancel, same as a finish
 	does — see _recompute_osi_status's own comment for the real rule.
+
+	Second real bug, fixed here: unlike every sibling mutator in this file
+	(create_run/advance_run/skip_stage/hold_run/resume_run), this function
+	had no GET_LOCK at all — a double-click on the UI's Cancel Run button
+	(no double-submit guard on a frappe.ui.Dialog's primary_action by
+	default) or two tabs racing could both read run_row.status !=
+	'Cancelled' before either write landed, and both run the batch-qty
+	restore UPDATE below — silently double-crediting the source batch's
+	remaining qty. Same lock convention as every other mutator here.
 	"""
 	_require_production_role()
-	run_row = frappe.db.get_value(
-		"IB Work Order", work_order,
-		["order_sheet", "status", "source_batch", "source_qty"], as_dict=True,
-	)
-	if not run_row:
-		frappe.throw(_("Run {0} not found").format(work_order))
-	sales_order_items = frappe.get_all(
-		"IB WO Output", filters={"parent": work_order}, pluck="sales_order_item"
-	)
-
-	# Give back what this run had reserved from its source batch (see
-	# create_run's own comment for why that reservation exists) — a
-	# cancelled run's material was never actually consumed. Guarded on the
-	# run's status BEFORE this call, not just "not already restored" —
-	# cancel_run can be called again on an already-Cancelled run (the
-	# workflow-transition fallback below tolerates it) and must not
-	# restore the same qty twice.
-	if run_row.status != "Cancelled" and run_row.source_batch and flt(run_row.source_qty):
-		frappe.db.sql(
-			"UPDATE `tabIB Batch` SET qty = qty + %s WHERE name = %s",
-			(run_row.source_qty, run_row.source_batch),
+	lock_name = f"IB-WO-{work_order}"
+	locked = frappe.db.sql("SELECT GET_LOCK(%s, 5)", lock_name)[0][0]
+	if not locked:
+		frappe.throw(_("Could not acquire lock for run {0}. Please try again.").format(work_order))
+	try:
+		run_row = frappe.db.get_value(
+			"IB Work Order", work_order,
+			["order_sheet", "status", "source_batch", "source_qty"], as_dict=True,
+		)
+		if not run_row:
+			frappe.throw(_("Run {0} not found").format(work_order))
+		sales_order_items = frappe.get_all(
+			"IB WO Output", filters={"parent": work_order}, pluck="sales_order_item"
 		)
 
-	_reverse_run_genealogy(work_order)  # also nulls fg_batch links on the run + outputs
+		# Give back what this run had reserved from its source batch (see
+		# create_run's own comment for why that reservation exists) — a
+		# cancelled run's material was never actually consumed. Guarded on the
+		# run's status BEFORE this call, not just "not already restored" —
+		# cancel_run can be called again on an already-Cancelled run (the
+		# workflow-transition fallback below tolerates it) and must not
+		# restore the same qty twice.
+		if run_row.status != "Cancelled" and run_row.source_batch and flt(run_row.source_qty):
+			frappe.db.sql(
+				"UPDATE `tabIB Batch` SET qty = qty + %s WHERE name = %s",
+				(run_row.source_qty, run_row.source_batch),
+			)
 
-	if reason:
-		note = (frappe.db.get_value("IB Work Order", work_order, "notes") or "")
-		frappe.db.set_value("IB Work Order", work_order, "notes",
-		                    f"{note}\n[Cancelled] {reason}".strip(), update_modified=False)
+		_reverse_run_genealogy(work_order)  # also nulls fg_batch links on the run + outputs
 
-	doc = frappe.get_doc("IB Work Order", work_order)
-	try:
-		_wf(doc, "Cancel", {"current_stage": "Cancelled"})
-	except Exception:
-		# "Completed" has no "Cancel" transition in the workflow — force it.
-		frappe.db.set_value("IB Work Order", work_order,
-		                    {"status": "Cancelled", "current_stage": "Cancelled"})
+		if reason:
+			note = (frappe.db.get_value("IB Work Order", work_order, "notes") or "")
+			frappe.db.set_value("IB Work Order", work_order, "notes",
+			                    f"{note}\n[Cancelled] {reason}".strip(), update_modified=False)
 
-	if run_row.order_sheet:
-		for soi in sales_order_items:
-			if soi:
-				_recompute_osi_status(run_row.order_sheet, soi)
-		_roll_up_order_sheet_status(run_row.order_sheet)
+		doc = frappe.get_doc("IB Work Order", work_order)
+		try:
+			_wf(doc, "Cancel", {"current_stage": "Cancelled"})
+		except Exception:
+			# "Completed" has no "Cancel" transition in the workflow — force it.
+			frappe.db.set_value("IB Work Order", work_order,
+			                    {"status": "Cancelled", "current_stage": "Cancelled"})
 
-	frappe.db.commit()
-	_notify_floor_update()
-	return {"ok": True, "status": "Cancelled"}
+		if run_row.order_sheet:
+			for soi in sales_order_items:
+				if soi:
+					_recompute_osi_status(run_row.order_sheet, soi)
+			_roll_up_order_sheet_status(run_row.order_sheet)
+
+		frappe.db.commit()
+		_notify_floor_update()
+		return {"ok": True, "status": "Cancelled"}
+	finally:
+		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name)
 
 
 def _reverse_run_genealogy(work_order):
