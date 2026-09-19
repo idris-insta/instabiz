@@ -1042,7 +1042,7 @@ class IBProductionDashboard {
 			return;
 		}
 
-		const stageStatusCls = { "Completed": "ib-pd-stg--done", "In Progress": "ib-pd-stg--inprog", "Pending": "ib-pd-stg--pending" };
+		const stageStatusCls = { "Completed": "ib-pd-stg--done", "In Progress": "ib-pd-stg--inprog", "Pending": "ib-pd-stg--pending", "Skipped": "ib-pd-stg--skipped" };
 
 		const rows = filteredSheets.map(os => {
 			const allItems = os.items || [];
@@ -2181,6 +2181,10 @@ class IBProductionDashboard {
 			.ib-pd-stg--done    { background: #dcfce7; color: #15803d; }
 			.ib-pd-stg--inprog  { background: #dbeafe; color: #1d4ed8; }
 			.ib-pd-stg--pending { background: var(--subtle-fg, #f1f5f9); color: #94a3b8; }
+			/* Distinct from Pending — a skipped stage was already passed
+			   through (no work done, real production moved on), not something
+			   still waiting to be reached. */
+			.ib-pd-stg--skipped { background: #f1f0fd; color: #6d28d9; font-style: italic; }
 			/* Genuinely running right now — a soft pulse so "In Progress" reads
 			   as actively moving, not just a static blue label sitting next to
 			   a green "done" one. */
@@ -2327,6 +2331,9 @@ const IB_STATUS_COLOR = {
 	"Completed": "green",
 	"On Hold": "orange",
 	"Cancelled": "red",
+	// A stage skip_stage()'d through — no real work done, distinct from a
+	// genuinely-completed stage (green) or one still waiting (gray).
+	"Skipped": "purple",
 };
 
 function _ib_status_color(text) {

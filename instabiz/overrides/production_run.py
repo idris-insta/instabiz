@@ -1571,19 +1571,34 @@ def _all_runs_for_osi(soi, item_code, os_name):
 
 def _stage_map_for_run(run):
 	"""{StageLabel: {status, wo_name, completed_qty, target_qty, target_uom}} from
-	the run's route + stage_log."""
+	the run's route + stage_log.
+
+	Real gap, fixed here: a `done` stage previously always showed status
+	"Completed" — including one that was actually skip_stage()'d (no real
+	work done, real output_qty always 0 for that stage's own event row).
+	Since skip_stage's UI entry point didn't exist until this same session
+	(see its own docstring/commit), this state was never reachable before
+	and the gap was invisible; now that it is reachable, a skipped stage
+	would render identically to a genuinely-worked, zero-output stage
+	everywhere this feeds (Active Production Plan, Order-wise chip row) —
+	indistinguishable from a real data problem. Kept as its own "Skipped"
+	status instead.
+	"""
 	route = frappe.get_all(
 		"IB WO Route Stage", filters={"parent": run.name},
 		fields=["stage", "sequence", "done"], order_by="sequence asc",
 	)
 	events = {e.stage: e for e in frappe.get_all(
-		"IB WO Stage Event", filters={"parent": run.name, "skipped": 0},
-		fields=["stage", "output_qty"],
+		"IB WO Stage Event", filters={"parent": run.name},
+		fields=["stage", "output_qty", "skipped"],
 	)}
 	tgt_uom = run.get("uom") or ""
 	smap = {}
 	for r in route:
-		if r.done:
+		ev = events.get(r.stage)
+		if r.done and ev and ev.skipped:
+			st = "Skipped"
+		elif r.done:
 			st = "Completed"
 		elif r.stage == run.current_stage:
 			st = run.status if run.status in ("In Progress", "On Hold") else "Pending"
@@ -1592,7 +1607,7 @@ def _stage_map_for_run(run):
 		smap[r.stage] = {
 			"status": st,
 			"wo_name": run.name,
-			"completed_qty": flt(events.get(r.stage, {}).get("output_qty")) if r.done else 0,
+			"completed_qty": flt(ev.output_qty) if (r.done and ev and not ev.skipped) else 0,
 			"target_qty": flt(run.get("source_qty")) or flt(run.get("planned_qty")),
 			"target_uom": tgt_uom,
 			"pcs_to_make": 0, "logs_to_make": 0,

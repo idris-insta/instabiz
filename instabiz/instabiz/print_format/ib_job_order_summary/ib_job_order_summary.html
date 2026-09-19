@@ -64,6 +64,7 @@
   .jos-stage-done { color: #111; }
   .jos-stage-current { font-weight: bold; background: #fdf3ee; color: #b9502f; }
   .jos-stage-hold { font-weight: bold; color: #b3261e; }
+  .jos-stage-skipped { font-style: italic; color: #6b6b6b; }
 
   .jos-empty { text-align: center; padding: 20px; color: #888; font-size: 12px; }
 
@@ -151,6 +152,8 @@
           <div>{{ st.machine or "Done" }}</div>
           {%- if st.operator -%}<div class="jos-subnote">{{ st.operator }}</div>{%- endif -%}
         </td>
+        {%- elif st.status == "Skipped" -%}
+        <td class="jos-stage-cell jos-stage-skipped">skipped</td>
         {%- elif st.status == "On Hold" -%}
         <td class="jos-stage-cell jos-stage-hold">{{ st.machine or "" }} (Hold)</td>
         {%- elif st.is_current -%}
