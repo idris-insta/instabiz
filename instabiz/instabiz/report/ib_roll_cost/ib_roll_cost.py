@@ -77,15 +77,22 @@ def _selling_rates(items):
 	if not items:
 		return {}
 	since = add_days(today(), -180)
+	from instabiz.overrides.utils import ROLL_UOMS
+
+	# rolls of a SQMT item: m² = rolls × width/1000 × length (older lines stored a roll as 1 m²)
+	qty_m2 = """CASE WHEN i.stock_uom = 'SQMT' AND UPPER(c.uom) IN %(rolls)s AND c.width_mm > 0 AND c.length_mtr > 0
+		THEN c.qty * c.width_mm / 1000 * c.length_mtr ELSE c.stock_qty END"""
 	if is_dev_billing_mode():
-		sql = """SELECT c.item_code, SUM(c.base_net_amount) / NULLIF(SUM(c.stock_qty), 0) AS rate
-			FROM `tabSales Order Item` c JOIN `tabSales Order` p ON p.name = c.parent
-			WHERE p.docstatus = 1 AND p.transaction_date >= %s AND c.item_code IN %s GROUP BY c.item_code"""
+		sql = f"""SELECT c.item_code, SUM(c.base_net_amount) / NULLIF(SUM({qty_m2}), 0) AS rate
+			FROM `tabSales Order Item` c JOIN `tabSales Order` p ON p.name = c.parent JOIN `tabItem` i ON i.name = c.item_code
+			WHERE p.docstatus = 1 AND p.transaction_date >= %(since)s AND c.item_code IN %(items)s GROUP BY c.item_code"""
 	else:
-		sql = """SELECT c.item_code, SUM(c.base_net_amount) / NULLIF(SUM(c.stock_qty), 0) AS rate
-			FROM `tabSales Invoice Item` c JOIN `tabSales Invoice` p ON p.name = c.parent
-			WHERE p.docstatus = 1 AND p.is_return = 0 AND p.posting_date >= %s AND c.item_code IN %s GROUP BY c.item_code"""
-	return {r.item_code: flt(r.rate) for r in frappe.db.sql(sql, (since, tuple(items)), as_dict=True) if r.rate}
+		sql = f"""SELECT c.item_code, SUM(c.base_net_amount) / NULLIF(SUM({qty_m2}), 0) AS rate
+			FROM `tabSales Invoice Item` c JOIN `tabSales Invoice` p ON p.name = c.parent JOIN `tabItem` i ON i.name = c.item_code
+			WHERE p.docstatus = 1 AND p.is_return = 0 AND p.posting_date >= %(since)s AND c.item_code IN %(items)s
+			GROUP BY c.item_code"""
+	args = {"since": since, "items": tuple(items), "rolls": tuple(ROLL_UOMS)}
+	return {r.item_code: flt(r.rate) for r in frappe.db.sql(sql, args, as_dict=True) if r.rate}
 
 
 def _cols(view):
