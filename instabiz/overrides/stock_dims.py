@@ -65,6 +65,12 @@ def _ensure_fields(dt):
 				"fetch_from": f"item_code.{fieldname}" if fieldname in ITEM_FIELDS else None,
 				"fetch_if_empty": 1, **values}).insert(ignore_permissions=True)
 		after = fieldname
+	# Purchase rows already had colour / width / length further down: keep thickness with them
+	thickness = frappe.db.get_value("Custom Field", {"dt": dt, "fieldname": "custom_thickness"}, ["name", "insert_after"],
+		as_dict=True)
+	if thickness and thickness.insert_after == "item_name" and frappe.db.get_value(
+			"Custom Field", {"dt": dt, "fieldname": "color"}, "insert_after") not in (None, "custom_thickness"):
+		frappe.db.set_value("Custom Field", thickness.name, "insert_after", "length_mtr")
 
 
 def stock_entry_before_validate(doc, method=None):
