@@ -16,7 +16,7 @@
 <div class="{{ 'pagebreak' if not loop.first else '' }}">
 {{ ib.seller_block(p) }}
 <div class="box">
-{% if copy %}<div style="padding:3px 6px 0"><span class="copytag red">{{ copy }}</span></div>{% endif %}
+{% if copy %}<div class="copyline"><span class="copytag red">{{ copy }}</span></div>{% endif %}
 {{ ib.doc_head(title,
 	[["Bill to", p.party.name], ["GST no", p.party.gstin], ["Address", (p.party.bill.lines | join(", ")) if p.party.bill else ""], ["State", (p.party.state ~ (" (" ~ p.party.state_code ~ ")" if p.party.state_code else "")) if p.party.state else ""], ["Place of supply", p.party.place_of_supply], ["Ship to", (p.party.ship.lines | join(", ")) if p.party.ship else ""]],
 	[["Invoice no", doc.name], ["Date", ib_date(doc.posting_date)], ["Due date", ib_date(doc.due_date)], ["Your PO", doc.po_no], ["PO date", ib_date(doc.po_date)], ["Against order", ns.so | join(", ")], ["Challan", ns.dn | join(", ")]],
