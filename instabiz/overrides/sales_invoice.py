@@ -64,7 +64,15 @@ class CustomSalesInvoice(IbStatusMixin, SalesInvoice):
         # company_gstin and cost_center to company defaults; re-apply location values last.
         self._apply_location_gstin()
         apply_location_cost_center(self)
+        before = (self.taxes_and_charges, len(self.taxes or []))
+        if (self.taxes_and_charges or "").startswith("Output GST") and not any(
+                row.charge_type != "Actual" for row in (self.taxes or [])):
+            self.taxes_and_charges = None  # template named but its GST rows missing — re-apply
         _auto_correct_gst_template(self)
+        if not self.is_return and (self.taxes_and_charges, len(self.taxes or [])) != before:
+            # the template was set after ERPNext totalled the invoice — total again or the
+            # GST rows stay at 0 (177 dev invoices had a template but no tax)
+            self.calculate_taxes_and_totals()
 
     # ── Transport charges helpers ──────────────────────────────────────────────
 

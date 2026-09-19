@@ -342,6 +342,31 @@ def apply_location_cost_center(doc):
 # Field copy helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+ROLL_UOMS = {"PCS", "PC", "NOS", "NO", "ROLL", "ROLLS", "UNIT"}
+
+
+def roll_area(item_code, uom, width_mm, length_mtr):
+    """m² in one roll (width mm × length m) when the item is stocked in SQMT and the
+    line counts rolls; 0 otherwise. Tape items are stocked in SQMT but sold in
+    rolls — without this every roll counted as 1 m²."""
+    if not (flt(width_mm) and flt(length_mtr)) or (uom or "").strip().upper() not in ROLL_UOMS or not item_code:
+        return 0
+    if frappe.get_cached_value("Item", item_code, "stock_uom") != "SQMT":
+        return 0
+    return flt(width_mm) / 1000 * flt(length_mtr)
+
+
+def apply_roll_area(doc):
+    """Rows in rolls with width and length: conversion factor = m² per roll, so
+    stock qty, reservations and stock ledger count real m²."""
+    for item in doc.get("items") or []:
+        area = roll_area(item.get("item_code"), item.get("uom"), item.get("width_mm"), item.get("length_mtr"))
+        if area:
+            item.conversion_factor = area
+            if item.meta.get_field("stock_qty"):
+                item.stock_qty = flt(item.get("qty")) * area
+
+
 def recalculate_items(doc):
     """
     For every item row, derive qty from dimensions then amount from qty * rate.
@@ -349,7 +374,9 @@ def recalculate_items(doc):
     Square Meter:  qty = (width_mm / 1000) * length_mtr * qty_pkg * total_pkg
     Any other UOM: qty = qty_pkg * total_pkg
     Incomplete dims: leave qty as-is (user may have typed it manually)
+    Rolls of an SQMT item: conversion factor = m² per roll (apply_roll_area)
     """
+    apply_roll_area(doc)
     if doc.get("is_return"):
         return
 

@@ -7,7 +7,7 @@ from erpnext.stock.doctype.delivery_note.delivery_note import (
 from frappe.model.mapper import get_mapped_doc  # pyright: ignore[reportMissingImports]
 
 from instabiz.overrides.naming import autoname_delivery_note
-from instabiz.overrides.quotation import _auto_correct_gst_template
+from instabiz.overrides.quotation import _auto_correct_gst_template, drop_gst
 from instabiz.overrides.utils import (
     COMMON_CHILD_FIELD_MAP,
     COMMON_PARENT_FIELD_MAP,
@@ -51,7 +51,7 @@ class CustomDeliveryNote(IbStatusMixin, DeliveryNote):
         gstin = LOCATION_COMPANY_GSTIN.get(loc)
         if gstin:
             self.company_gstin = gstin
-        _auto_correct_gst_template(self)
+        drop_gst(self)  # GST goes on the Sales Invoice only
         set_sales_person(self)
         sync_sales_team(self)
         recalculate_items(self)

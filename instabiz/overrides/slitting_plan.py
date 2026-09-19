@@ -38,7 +38,17 @@ def _line(osi, os_name):
 	return {"order_sheet": os_name, "order_sheet_item": osi.name, "sales_order_item": osi.sales_order_item,
 		"item_code": osi.item_code, "item_name": osi.item_name, "planned_qty": flt(osi.qty),
 		"uom": osi.uom or im.get("stock_uom"), "width_mm": flt(dims.get("width_mm") or im.get("width_mm")),
-		"length_mtr": flt(dims.get("length_mtr") or im.get("length_mtr")), "gsm": flt(gsm)}
+		"length_mtr": flt(dims.get("length_mtr") or im.get("length_mtr")), "gsm": flt(gsm),
+		"m2": _m2(osi.item_code, osi.uom or im.get("stock_uom"), flt(dims.get("width_mm") or im.get("width_mm")),
+			flt(dims.get("length_mtr") or im.get("length_mtr")), flt(osi.qty))}
+
+
+def _m2(item_code, uom, width_mm, length_mtr, qty):
+	"""Line qty in the jumbo's unit: rolls × m² per roll for tape, else the qty."""
+	from instabiz.overrides.utils import roll_area
+
+	area = roll_area(item_code, uom, width_mm, length_mtr)
+	return qty * area if area else qty
 
 
 def _pending_lines(os_name, location):
@@ -185,7 +195,7 @@ def plan(location=None, order_sheet=None, source_batch=None):
 			unplanned.append({**ln, "reason": _("wider than the {0} jumbo").format(b.item)})
 		for i, p in enumerate(passes, 1):
 			used = sum(o["width_mm"] for o in p)
-			need = sum(flt(o["planned_qty"]) for o in p)
+			need = round(sum(flt(o["m2"]) for o in p), 2)
 			sheets = sorted({o["order_sheet"] for o in p})
 			first = heads[sheets[0]]
 			rows.append({"order_sheet": sheets[0] if len(sheets) == 1 else _("{0} orders").format(len(sheets)),
@@ -231,7 +241,7 @@ def create_pass(source_batch, order_sheet_items, order_sheet=None):
 	for sheet, outputs in by_sheet.items():
 		have = flt(frappe.db.get_value("IB Batch", source_batch, "qty"))
 		share = have_total * sum(flt(o["width_mm"]) for o in outputs) / used_width
-		need = sum(flt(o["planned_qty"]) for o in outputs)
+		need = sum(flt(o["m2"]) for o in outputs)
 		take = round(min(need, share, have), 3)
 		if take <= 0:
 			waiting.append(sheet)

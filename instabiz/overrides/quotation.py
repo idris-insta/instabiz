@@ -60,6 +60,20 @@ _GST_INSTATE_TEMPLATES  = {_GST_INSTATE_TEMPLATE,  "Output GST In-state + Transp
 _GST_OUTSTATE_TEMPLATES = {_GST_OUTSTATE_TEMPLATE, "Output GST Out-state + Transport - IB"}
 
 
+def drop_gst(doc):
+	"""Sales Order / Delivery Note are internal: no GST (it goes on the Sales
+	Invoice). Freight rows (charge type Actual) stay."""
+	keep = [row for row in (doc.get("taxes") or []) if row.charge_type == "Actual"]
+	if len(keep) == len(doc.get("taxes") or []) and not (doc.taxes_and_charges or "").startswith("Output GST"):
+		return
+	doc.set("taxes", [])
+	for row in keep:
+		doc.append("taxes", {"charge_type": "Actual", "account_head": row.account_head, "description": row.description,
+			"tax_amount": row.tax_amount, "cost_center": row.get("cost_center")})
+	doc.taxes_and_charges = "Transport Charges Only - IB" if keep and frappe.db.exists(
+		"Sales Taxes and Charges Template", "Transport Charges Only - IB") else None
+
+
 def _auto_correct_gst_template(doc):
 	"""Swap to correct in/out-state template based on GSTIN state codes."""
 	if doc.get("custom_sale_type") == "Export":
@@ -83,6 +97,8 @@ def _auto_correct_gst_template(doc):
 		)
 		if customer_name:
 			customer_gstin = (frappe.db.get_value("Customer", customer_name, "gstin") or "")[:2]
+	if not customer_gstin and doc.get("place_of_supply"):
+		customer_gstin = doc.place_of_supply[:2]  # unregistered buyer: state of supply
 	if not company_gstin or not customer_gstin:
 		return
 	is_instate = company_gstin == customer_gstin

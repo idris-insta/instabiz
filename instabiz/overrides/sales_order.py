@@ -27,6 +27,7 @@ from instabiz.overrides.naming import autoname_sales_order
 from instabiz.overrides.quotation import (
     _set_company_gstin_from_warehouse,
     _auto_correct_gst_template,
+    drop_gst,
 )
 
 
@@ -66,7 +67,7 @@ class CustomSalesOrder(IbStatusMixin, SalesOrder):
         if not self.custom_location or self.custom_location == "Select":
             frappe.throw(_("Please select a Location before saving."))
         _set_company_gstin_from_warehouse(self)
-        _auto_correct_gst_template(self)
+        drop_gst(self)  # GST goes on the Sales Invoice only
         set_sales_person(self)
         sync_sales_team(self)
         recalculate_items(self)

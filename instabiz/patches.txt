@@ -8,3 +8,4 @@ instabiz.patches.wo_per_run_reset
 instabiz.patches.enable_batch_tracking_for_fg_groups
 instabiz.patches.add_sales_manager_payment_entry_perm
 instabiz.patches.set_incentive_slab_commission_pct
+instabiz.patches.roll_area_on_open_orders

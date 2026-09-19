@@ -1062,8 +1062,27 @@ def _finish_run(doc, outputs_qty=None):
 	# them to match would silently overwrite what the operator typed.
 	produced = {}
 	split_rows = [o for o in doc.outputs if not (outputs_qty and (o.name in outputs_qty or o.item_code in outputs_qty))]
+	# tape: the run carries m² (jumbo in SQMT) while the order lines count rolls.
+	# Split the final m² by each line's planned m² and turn each share into rolls.
+	from instabiz.overrides.utils import roll_area
+
+	areas = {o.name: roll_area(o.item_code, o.uom, o.width_mm, o.length_mtr) for o in doc.outputs}
+	src_sqmt = frappe.get_cached_value("Item", doc.source_item, "stock_uom") == "SQMT" if doc.source_item else False
+	if src_sqmt and split_rows and all(areas[o.name] for o in split_rows):
+		left = final_out - sum(flt(outputs_qty.get(o.name, outputs_qty.get(o.item_code))) * areas[o.name]
+			for o in doc.outputs if o not in split_rows) if outputs_qty else final_out
+		weight = {o.name: flt(o.planned_qty) * areas[o.name] for o in split_rows}
+		total_w = sum(weight.values()) or 1
+		for o in doc.outputs:
+			if o in split_rows:
+				produced[o.name] = round(max(left, 0) * weight[o.name] / total_w / areas[o.name], 3)
+			else:
+				produced[o.name] = flt(outputs_qty.get(o.name, outputs_qty.get(o.item_code)))
+		split_rows = []
 	running_total = 0.0
 	for i, o in enumerate(doc.outputs):
+		if o.name in produced:
+			continue
 		if outputs_qty and (o.name in outputs_qty or o.item_code in outputs_qty):
 			produced[o.name] = flt(outputs_qty.get(o.name, outputs_qty.get(o.item_code)))
 		elif len(doc.outputs) == 1:

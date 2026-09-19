@@ -24,6 +24,7 @@ from frappe import _
 from frappe.utils import flt
 
 from instabiz.overrides import ib_settings
+from instabiz.overrides.utils import roll_area
 
 LOC_FIELD = {"maharashtra": "fg_warehouse_maharashtra", "gujarat": "fg_warehouse_gujarat", "chennai": "fg_warehouse_chennai"}
 
@@ -72,7 +73,8 @@ def build_entry(doc):
 	for o in doc.outputs:
 		if flt(o.produced_qty) <= 0:
 			continue
-		stock_out = _stock_qty(o.item_code, o.produced_qty, o.uom)
+		area = roll_area(o.item_code, o.uom, o.width_mm, o.length_mtr)
+		stock_out = flt(o.produced_qty) * area if area else _stock_qty(o.item_code, o.produced_qty, o.uom)
 		for r in frappe.get_all("IB Production Recipe", filters={"finished_item": o.item_code},
 				fields=["recipe_item", "qty_per"]):
 			if r.recipe_item not in used:
@@ -86,6 +88,9 @@ def build_entry(doc):
 			row = {"item_code": o.item_code, "qty": flt(o.produced_qty), "t_warehouse": fg_wh, "is_finished_item": 1}
 			if o.uom:
 				row["uom"] = o.uom
+				area = roll_area(o.item_code, o.uom, o.width_mm, o.length_mtr)
+				if area:  # rolls of an SQMT item → m² per roll
+					row["conversion_factor"] = area
 			se.append("items", row)
 	if consumed:
 		_add_conversion_cost(se, doc, company)
