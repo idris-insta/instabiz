@@ -90,6 +90,8 @@ scheduler_events = {
             # IndiaMART enquiries → Leads (off until IB Lead Capture Settings has the key)
             "instabiz.overrides.lead_capture.pull_indiamart",
         ],
+        # 9 AM morning briefing to managers (IB Messaging Settings)
+        "0 9 * * *": ["instabiz.overrides.briefing.run_morning_briefing"],
     },
 }
 
@@ -425,6 +427,7 @@ doc_events = {
         "on_update": [
             "instabiz.overrides.production_run.on_work_order_update_notify",
             "instabiz.overrides.dpr_auto.sync_from_work_order",  # DPR line per completed stage
+            "instabiz.overrides.wastage_watch.check_run",  # stage above wastage norm → Factory Management
         ],
         "on_trash": "instabiz.overrides.production_run.reverse_run_stock",
     },

@@ -12,7 +12,9 @@ When a production run finishes, post it to stock (IB Stock Settings →
          warehouse for the location (IB Stock Settings) or the source warehouse
 
 ERPNext spreads the cost of what went out over what came in, so finished goods
-carry the real material cost including wastage. If the entry can't be
+carry the real material cost including wastage. Machine time is added on top as
+an additional cost: hours of each stage × the machine's Running Cost per Hour
+(or IB Stock Settings default), booked to Expenses Included In Valuation. If the entry can't be
 submitted (short stock, missing conversion…) it is kept as a draft, the run
 still completes, and stock managers get a bell with the reason. Cancelling the
 run cancels / deletes the entry.
@@ -85,6 +87,8 @@ def build_entry(doc):
 			if o.uom:
 				row["uom"] = o.uom
 			se.append("items", row)
+	if consumed:
+		_add_conversion_cost(se, doc, company)
 	if not consumed:
 		# nothing to take out (no source item, no recipe): receive the goods at their own rate
 		se.stock_entry_type = se.purpose = "Material Receipt"
@@ -93,6 +97,30 @@ def build_entry(doc):
 			if not flt(frappe.get_cached_value("Item", r.item_code, "valuation_rate")):
 				r.allow_zero_valuation_rate = 1
 	return se, consumed
+
+
+def run_conversion_cost(doc):
+	"""[(stage, machine, hours, rate, amount)] for the run's completed stages."""
+	default_rate = ib_settings.get_float("default_machine_cost_per_hour", 0)
+	out = []
+	for ev in doc.get("stage_log") or []:
+		if ev.skipped or not ev.started_at or not ev.completed_at:
+			continue
+		hours = max(frappe.utils.time_diff_in_seconds(ev.completed_at, ev.started_at), 0) / 3600.0
+		rate = flt(ev.machine and frappe.get_cached_value("IB Machine", ev.machine, "cost_per_hour")) or default_rate
+		if hours > 0 and rate > 0:
+			out.append((ev.stage, ev.machine, round(hours, 2), rate, round(hours * rate, 2)))
+	return out
+
+
+def _add_conversion_cost(se, doc, company):
+	lines = run_conversion_cost(doc)
+	account = frappe.get_cached_value("Company", company, "expenses_included_in_valuation")
+	if not lines or not account:
+		return
+	for stage, machine, hours, rate, amount in lines:
+		se.append("additional_costs", {"expense_account": account, "amount": amount,
+			"description": _("{0} on {1}: {2} h × ₹{3}").format(stage, machine or "-", hours, rate)})
 
 
 def post_run_stock(doc):

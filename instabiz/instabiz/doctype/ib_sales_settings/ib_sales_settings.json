@@ -29,7 +29,11 @@
   "terms_section",
   "quotation_terms",
   "proforma_terms",
-  "sales_order_terms"
+  "sales_order_terms",
+  "promise_section",
+  "promise_dispatch_days",
+  "promise_col",
+  "promise_transit_days"
  ],
  "fields": [
   {
@@ -183,11 +187,32 @@
    "fieldtype": "Text Editor",
    "label": "Order Confirmation Terms",
    "default": "<ol>\n<li>THIS ORDER IS CONFIRMED AS PER THE QUANTITIES, SPECIFICATIONS AND RATES ABOVE.</li>\n<li>ALL PRICES ARE EXCLUSIVE OF TAXES; GST AS APPLICABLE.</li>\n<li>DISPATCH DATE IS AN ESTIMATE AND DEPENDS ON RECEIPT OF PAYMENT AS AGREED.</li>\n<li>THE COMPANY SHALL NOT BEAR ANY RESPONSIBILITY FOR ANY DAMAGE OCCURRED TO THE GOODS WHILE IN TRANSIT.</li>\n<li>ANY QUALITY ISSUE MUST BE RAISED IN WRITING WITHIN 15 DAYS OF THE BILLING DATE.</li>\n</ol>"
+  },
+  {
+   "fieldname": "promise_section",
+   "fieldtype": "Section Break",
+   "label": "Promise date"
+  },
+  {
+   "fieldname": "promise_dispatch_days",
+   "fieldtype": "Int",
+   "label": "Days to dispatch from stock",
+   "description": "Default 1"
+  },
+  {
+   "fieldname": "promise_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "promise_transit_days",
+   "fieldtype": "Int",
+   "label": "Days for a branch transfer to arrive",
+   "description": "Default 4"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-19 12:00:00.000000",
+ "modified": "2026-09-20 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB Sales Settings",

@@ -3,6 +3,37 @@
  * Sales Order list view — name formatter, sales person column, print button, auto-collapse sidebar.
  */
 
+// Read Order — paste a WhatsApp / email order or attach the customer's PO: the
+// intake reads it (Claude when there is credit, else line rules), matches the
+// customer and each item by size / colour, and opens for review → Create Draft.
+function ib_read_order_dialog() {
+    const d = new frappe.ui.Dialog({
+        title: __("Read an order"),
+        fields: [
+            { fieldname: "raw_text", fieldtype: "Small Text", label: __("Paste the order (WhatsApp / email)"),
+              description: __("e.g. 48mm x 65m brown - 500 rolls @ 32") },
+            { fieldname: "file_url", fieldtype: "Attach", label: __("…or attach the PO (PDF / photo)") },
+            { fieldname: "location", fieldtype: "Select", label: __("Location"), reqd: 1,
+              options: "\nMAHARASHTRA\nGUJARAT\nCHENNAI" },
+        ],
+        primary_action_label: __("Read"),
+        primary_action(v) {
+            if (!v.raw_text && !v.file_url) {
+                frappe.msgprint(__("Paste the order or attach a file."));
+                return;
+            }
+            frappe.call({
+                method: "instabiz.instabiz.doctype.ib_document_intake.ib_document_intake.quick_read",
+                args: v, freeze: true, freeze_message: __("Reading the order…"),
+            }).then((r) => {
+                d.hide();
+                frappe.set_route("Form", "IB Document Intake", r.message);
+            });
+        },
+    });
+    d.show();
+}
+
 frappe.listview_settings["Sales Order"] = {
 
     add_fields: ["custom_sales_person", "rounded_total"],
@@ -46,6 +77,7 @@ frappe.listview_settings["Sales Order"] = {
     onload(listview) {
         ib_setup_list_print(listview, "Sales Order");
         ib_hide_sidebar();
+        listview.page.add_inner_button(__("Read Order"), () => ib_read_order_dialog());
         // Filter row order = column order. Live columns: Customer, Amount, Sales
         // Person, Status, Delivery Date, ID (Amount has no filter). Customer is
         // a plain-text customer_name box natively — now an autocomplete

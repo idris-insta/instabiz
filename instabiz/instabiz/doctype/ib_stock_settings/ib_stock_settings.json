@@ -23,7 +23,20 @@
   "production_stock_col",
   "fg_warehouse_gujarat",
   "fg_warehouse_maharashtra",
-  "fg_warehouse_chennai"
+  "fg_warehouse_chennai",
+  "costing_section",
+  "default_machine_cost_per_hour",
+  "wastage_norm_default_pct",
+  "costing_col",
+  "slitting_trim_mm",
+  "import_defaults_section",
+  "import_default_freight",
+  "import_default_duty_pct",
+  "import_default_bank_margin",
+  "import_defaults_col",
+  "import_default_cha",
+  "import_default_extra",
+  "import_prefill_defaults"
  ],
  "fields": [
   {
@@ -140,11 +153,84 @@
    "fieldtype": "Link",
    "options": "Warehouse",
    "label": "Finished goods warehouse — Chennai"
+  },
+  {
+   "fieldname": "costing_section",
+   "fieldtype": "Section Break",
+   "label": "Production costing & wastage"
+  },
+  {
+   "fieldname": "default_machine_cost_per_hour",
+   "fieldtype": "Currency",
+   "label": "Default machine cost per hour (₹)",
+   "description": "Used when a machine has no Running Cost per Hour. 0 = don't add conversion cost."
+  },
+  {
+   "fieldname": "wastage_norm_default_pct",
+   "fieldtype": "Percent",
+   "label": "Default wastage norm %",
+   "description": "A stage above its machine's norm (or this) alerts Factory Management. Default 3 %."
+  },
+  {
+   "fieldname": "costing_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "slitting_trim_mm",
+   "fieldtype": "Float",
+   "label": "Slitting edge trim (mm)",
+   "description": "Trim lost on each jumbo pass in the Slitting Plan. Default 20."
+  },
+  {
+   "fieldname": "import_defaults_section",
+   "fieldtype": "Section Break",
+   "label": "Container import defaults (same as ICMS)",
+   "description": "Pre-filled on a new container when nothing is entered; change them on the container."
+  },
+  {
+   "fieldname": "import_default_freight",
+   "fieldtype": "Currency",
+   "label": "Freight per container (invoice currency)",
+   "description": "ICMS default 2000"
+  },
+  {
+   "fieldname": "import_default_duty_pct",
+   "fieldtype": "Percent",
+   "label": "Duty % on CIF",
+   "description": "ICMS default 11"
+  },
+  {
+   "fieldname": "import_default_bank_margin",
+   "fieldtype": "Float",
+   "label": "Bank margin ₹ per 1",
+   "description": "ICMS default 0.5"
+  },
+  {
+   "fieldname": "import_defaults_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "import_default_cha",
+   "fieldtype": "Currency",
+   "label": "CHA per container (₹)",
+   "description": "ICMS default 1,50,000"
+  },
+  {
+   "fieldname": "import_default_extra",
+   "fieldtype": "Currency",
+   "label": "Extra charges per container (₹)",
+   "description": "ICMS default 25,000"
+  },
+  {
+   "fieldname": "import_prefill_defaults",
+   "fieldtype": "Check",
+   "label": "Pre-fill these on new containers",
+   "default": "1"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-20 13:00:00.000000",
+ "modified": "2026-09-20 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB Stock Settings",

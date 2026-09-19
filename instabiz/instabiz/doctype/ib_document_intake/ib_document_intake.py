@@ -97,8 +97,10 @@ class IBDocumentIntake(Document):
 			"manufacturer. Extract structured order details from the raw text below "
 			"(an email body or an OCR'd PO/SO scan). Reply with ONLY a JSON object, "
 			"no prose, no markdown fences, in exactly this shape:\n"
-			'{"party_name": "...", "delivery_date": "YYYY-MM-DD or null", '
+			'{"party_name": "...", "party_gstin": "buyer GSTIN or null", "delivery_date": "YYYY-MM-DD or null", '
 			'"items": [{"description": "...", "qty": <number or null>, "rate": <number or null>}]}\n'
+			"Keep each item description with its sizes as written (width mm, length m, micron, colour, "
+			"material), e.g. '48mm x 65m brown BOPP 40 mic'.\n"
 			"If a field is not present in the text, use null. Never invent data that "
 			"is not present in the text."
 		)
@@ -116,6 +118,14 @@ class IBDocumentIntake(Document):
 
 		if not raw and self.intake_type == "Purchase Invoice":
 			return self._extract_bill_header()
+
+		rule_note = ""
+		if not raw and self.intake_type in ("Sales Order", "Purchase Order"):
+			# no Claude: read the lines ourselves (qty / rate / sizes / party by GSTIN or first line)
+			ruled = rule_extract(self.raw_text or "", "Customer" if self.intake_type == "Sales Order" else "Supplier")
+			if ruled.get("items"):
+				raw = json.dumps(ruled)
+				rule_note = _("Read without AI (Claude key has no credit) — check every line.")
 
 		if not raw:
 			self.extracted_json = json.dumps({"error": "extraction_unavailable"}, indent=2)
@@ -148,12 +158,25 @@ class IBDocumentIntake(Document):
 		if not party_match or party_match["status"] == "Not Matched":
 			party_match = match_party(party_guess, doctype)
 
+		if parsed.get("party_gstin") and doctype == "Customer" and party_match["status"] not in ("Exact Match",):
+			by_gstin = match_customer_gstin(parsed["party_gstin"])
+			if by_gstin:
+				party_match = {"status": "Exact Match", "matches": [by_gstin]}
+		customer = party_match["matches"][0] if doctype == "Customer" and party_match["status"] in (
+			"Exact Match", "Fuzzy Match") and party_match["matches"] else None
+
 		items = parsed.get("items") or []
 		if not isinstance(items, list):
 			items = []
 		for it in items:
 			if isinstance(it, dict):
-				it["match"] = match_item(it.get("description") or "")
+				m = match_item(it.get("description") or "")
+				if m["status"] != "Exact Match":
+					spec = spec_match_item(it.get("description") or "", customer)
+					if spec["status"] in ("Exact Match", "Fuzzy Match") or (
+							m["status"] == "Not Matched" and spec["matches"]):
+						m = spec
+				it["match"] = m
 		parsed["items"] = items
 
 		self.customer_or_supplier = party_guess
@@ -170,7 +193,7 @@ class IBDocumentIntake(Document):
 			if party_match["status"] in ("Exact Match", "Fuzzy Match") and party_match["matches"]
 			else ""
 		)
-		self.extraction_error = ""
+		self.extraction_error = rule_note
 		self.status = "Extracted"
 		self.save()
 		return {"ok": True, "extracted": parsed, "party_match": party_match}
@@ -368,6 +391,105 @@ def match_supplier_gstin(gstin):
 	return {"status": "Not Matched", "matches": []}
 
 
+# ── Order reading without AI + size-aware item matching ─────────────────────
+
+_QTY_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(rolls?|pcs|nos|no\.?|boxes|box|ctns?|cartons?|pkts?|packets?|kgs?|sqm|sqmt)\b", re.I)
+_RATE_RE = re.compile(r"(?:@|rs\.?|₹|rate[:\s]*)\s*(\d+(?:\.\d+)?)", re.I)
+_W_RE = re.compile(r"(\d{1,4}(?:\.\d+)?)\s*mm\b", re.I)
+_L_RE = re.compile(r"(\d{1,5}(?:\.\d+)?)\s*(?:m|mtr|mtrs|meter|metre|meters|metres|yds?)\b", re.I)
+_MIC_RE = re.compile(r"(\d{2,3})\s*(?:mic|micron|microns|µ|um)\b", re.I)
+
+
+def rule_extract(text, party_doctype="Customer"):
+	"""Plain-text order → {party_name, party_gstin, delivery_date, items[]}.
+	A line is an item when it has a quantity with a unit (500 rolls, 20 ctn…)."""
+	lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+	gstins = [g for g in GSTIN_RE.findall((text or "").upper()) if not frappe.db.exists("Address", {"gstin": g, "is_your_company_address": 1})]
+	items = []
+	for ln in lines:
+		q = _QTY_RE.search(ln)
+		if not q or GSTIN_RE.search(ln.upper()):
+			continue
+		r = _RATE_RE.search(ln)
+		desc = ln
+		for pat in (q, r):
+			if pat:
+				desc = desc.replace(pat.group(0), " ")
+		desc = re.sub(r"^\s*\d+[.)]\s*", "", desc)
+		desc = re.sub(r"[-–:|,]+\s*$", "", re.sub(r"\s{2,}", " ", desc)).strip(" -–:|,")
+		if len(desc) < 3:
+			continue
+		items.append({"description": desc, "qty": flt(q.group(1)), "rate": flt(r.group(1)) if r else None})
+	party = ""
+	for ln in lines[:6]:
+		if not _QTY_RE.search(ln) and not re.match(r"^(to|date|po|order|dear|hi|hello|subject)\b", ln, re.I) and len(ln) > 3:
+			party = re.sub(r"^(from|m/s\.?|ms\.?)\s*[:\-]?\s*", "", ln, flags=re.I)
+			break
+	return {"party_name": party, "party_gstin": gstins[0] if gstins else None, "delivery_date": None, "items": items}
+
+
+def match_customer_gstin(gstin):
+	gstin = (gstin or "").strip().upper()
+	if not gstin:
+		return None
+	cust = frappe.db.get_value("Customer", {"gstin": gstin}, "name") if frappe.db.has_column("Customer", "gstin") else None
+	if cust:
+		return cust
+	row = frappe.db.sql("""SELECT dl.link_name FROM `tabAddress` a JOIN `tabDynamic Link` dl ON dl.parent = a.name
+		WHERE a.gstin = %s AND dl.link_doctype = 'Customer' LIMIT 1""", gstin)
+	return row[0][0] if row else None
+
+
+def _spec_of(text):
+	t = (text or "").lower()
+	w = _W_RE.search(t)
+	ln = _L_RE.search(re.sub(r"\d+(?:\.\d+)?\s*mm\b", " ", t))
+	mic = _MIC_RE.search(t)
+	return {"width": flt(w.group(1)) if w else 0, "length": flt(ln.group(1)) if ln else 0,
+		"micron": mic.group(1) if mic else "", "tokens": _tokenize(re.sub(r"\d+(?:\.\d+)?\s*[a-zµ]*", " ", t))}
+
+
+def spec_match_item(description, customer=None, limit=5):
+	"""Size-aware match: width mm, length m, micron and colour/material words
+	against the Item master, with a boost for items this customer bought before."""
+	s = _spec_of(description)
+	if not (s["width"] or s["length"] or s["micron"] or s["tokens"]):
+		return {"status": "Not Matched", "matches": []}
+	fields = ["name", "item_name", "width_mm", "length_mtr", "custom_thickness", "color"]
+	fields = [f for f in fields if f in ("name", "item_name") or frappe.db.has_column("Item", f)]
+	rows = frappe.get_all("Item", filters={"disabled": 0, "is_sales_item": 1}, fields=fields)
+	bought = set()
+	if customer:
+		bought = set(frappe.db.sql_list("""SELECT DISTINCT c.item_code FROM `tabSales Order Item` c
+			JOIN `tabSales Order` p ON p.name = c.parent WHERE p.customer = %s AND p.docstatus = 1""", customer))
+	colours = {c.lower() for c in frappe.get_all("Color", pluck="name")} if frappe.db.table_exists("Color") else set()
+	scored = []
+	for r in rows:
+		score = 0.0
+		if s["width"] and flt(r.get("width_mm")):
+			score += 3 if abs(flt(r.width_mm) - s["width"]) < 0.5 else -2
+		if s["length"] and flt(r.get("length_mtr")):
+			score += 2 if abs(flt(r.length_mtr) - s["length"]) < 0.5 else -1
+		if s["micron"]:
+			score += 2 if s["micron"] in (str(r.get("custom_thickness") or "") + " " + (r.item_name or "")).lower() else 0
+		name_tokens = _tokenize(r.item_name) | _tokenize(r.get("color"))
+		for tok in s["tokens"]:
+			if len(tok) < 3:
+				continue
+			if tok in name_tokens:
+				score += 2 if tok in colours else 1
+		if r.name in bought:
+			score += 2
+		if score >= 4:
+			scored.append((score, r.name))
+	scored.sort(key=lambda x: x[0], reverse=True)
+	if not scored:
+		return {"status": "Not Matched", "matches": []}
+	if len(scored) == 1 or scored[0][0] - scored[1][0] >= 2:
+		return {"status": "Fuzzy Match", "matches": [scored[0][1]], "how": "size / colour match"}
+	return {"status": "Ambiguous", "matches": [x[1] for x in scored[:limit]], "how": "size / colour match"}
+
+
 def _parse_llm_json(raw):
 	raw = (raw or "").strip()
 	if raw.startswith("```"):
@@ -499,3 +621,18 @@ def match_item(description, limit=5):
 	if len(scored) == 1 or (scored[0][0] - scored[1][0]) > 0.2:
 		return {"status": "Fuzzy Match", "matches": [scored[0][1]]}
 	return {"status": "Ambiguous", "matches": [s[1] for s in scored[:limit]]}
+
+
+@frappe.whitelist()
+def quick_read(raw_text=None, file_url=None, location=None, intake_type="Sales Order"):
+	"""Sales Order list → Read Order: one intake from pasted text (WhatsApp / email)
+	or an attached PO, OCR if needed, then extract. Returns the intake name."""
+	doc = frappe.get_doc({"doctype": "IB Document Intake", "intake_type": intake_type,
+		"location": location or "", "raw_text": raw_text or "", "scanned_document": file_url or None})
+	doc.insert()
+	if file_url and not (raw_text or "").strip():
+		doc.run_ocr()
+		doc.reload()
+	if (doc.raw_text or "").strip():
+		doc.extract()
+	return doc.name

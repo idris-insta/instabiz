@@ -26,6 +26,9 @@ def _is_sqmt(uom: str) -> bool:
 class IBContainerImport(Document):
 	# ── Lifecycle ─────────────────────────────────────────────────────────────
 
+	def before_insert(self) -> None:
+		_prefill_import_defaults(self)
+
 	def validate(self) -> None:
 		for row in self.items:
 			if _is_sqmt(row.stock_uom):
@@ -171,12 +174,32 @@ def _make_batch(doc: "IBContainerImport", row) -> str:
 
 # ── Landed cost ──────────────────────────────────────────────────────────────
 
+def _prefill_import_defaults(doc) -> None:
+	"""New container with no costs entered → the ICMS costing defaults (IB Stock
+	Settings), shown on the form so they can be corrected before submit."""
+	from instabiz.overrides import ib_settings
+
+	if not ib_settings.get_check("import_prefill_defaults", True):
+		return
+	if any(flt(doc.get(f)) for f in ("freight_usd", "insurance_usd", "duty_rate_pct", "bank_margin", "customs_duty",
+			"freight", "clearing_charges", "other_charges")):
+		return
+	doc.freight_usd = ib_settings.get_float("import_default_freight", 2000)
+	doc.duty_rate_pct = ib_settings.get_float("import_default_duty_pct", 11)
+	doc.bank_margin = ib_settings.get_float("import_default_bank_margin", 0.5)
+	doc.clearing_charges = ib_settings.get_float("import_default_cha", 150000)
+	doc.other_charges = ib_settings.get_float("import_default_extra", 25000)
+
+
 def _apply_landed_cost(doc) -> None:
-	"""Stock value = invoice rate × exchange rate + this line's share of duty,
-	freight, clearing and other charges (spread by value, or by qty when no
-	rates are entered). Without currency / charges the landed rate is the rate."""
+	"""Same formula as ICMS:
+	  CIF          = invoice value + freight + insurance (invoice currency)
+	  landed (₹)   = CIF × exchange rate + duty + bank charge + CHA + other
+	  duty         = Customs Duty (₹) if entered, else CIF (₹) × Duty %
+	  bank charge  = CIF × bank margin (₹ per 1 — the bank sells at rate + margin)
+	Freight (₹) is kept for local freight entered in rupees. Everything past the
+	invoice value is spread over the lines by value (or qty when no rates)."""
 	fx = flt(doc.exchange_rate) or 1.0
-	charges = flt(doc.customs_duty) + flt(doc.freight) + flt(doc.clearing_charges) + flt(doc.other_charges)
 	values = [flt(r.rate) * flt(r.total_qty) for r in doc.items]
 	qtys = [flt(r.total_qty) for r in doc.items]
 	by_value = (doc.allocate_by or "Value") == "Value" and sum(values) > 0
@@ -184,6 +207,13 @@ def _apply_landed_cost(doc) -> None:
 	total_base = sum(base) or 1.0
 	doc.invoice_value = sum(values)
 	doc.invoice_value_inr = doc.invoice_value * fx
+	cif = doc.invoice_value + flt(doc.get("freight_usd")) + flt(doc.get("insurance_usd"))
+	doc.cif_inr = cif * fx
+	duty = flt(doc.customs_duty) or doc.cif_inr * flt(doc.get("duty_rate_pct")) / 100
+	doc.bank_charge = cif * flt(doc.get("bank_margin"))
+	# freight / insurance in the invoice currency are part of CIF, spread with the other charges
+	charges = (doc.cif_inr - doc.invoice_value_inr) + duty + doc.bank_charge + flt(doc.freight) \
+		+ flt(doc.clearing_charges) + flt(doc.other_charges)
 	doc.total_charges = charges
 	for row, b in zip(doc.items, base):
 		share = charges * b / total_base

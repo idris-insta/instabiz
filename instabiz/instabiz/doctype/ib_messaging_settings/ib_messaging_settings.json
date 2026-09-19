@@ -15,7 +15,13 @@
   "wa_api_col",
   "wa_api_token",
   "email_section",
-  "email_help"
+  "email_help",
+  "briefing_section",
+  "morning_briefing",
+  "briefing_roles",
+  "briefing_col",
+  "briefing_min_overdue",
+  "briefing_use_ai"
  ],
  "fields": [
   {
@@ -81,11 +87,45 @@
    "fieldname": "email_help",
    "fieldtype": "HTML",
    "options": "<p class='text-muted small'>Email uses the default outgoing <a href='/app/email-account'>Email Account</a>. Wording lives in <a href='/app/ib-message-template'>IB Message Template</a>.</p>"
+  },
+  {
+   "fieldname": "briefing_section",
+   "fieldtype": "Section Break",
+   "label": "Morning briefing"
+  },
+  {
+   "fieldname": "morning_briefing",
+   "fieldtype": "Check",
+   "label": "Send the morning briefing",
+   "default": "1",
+   "description": "9 AM every day: only the things that need action today, as a bell (and email when an outgoing account is set up)."
+  },
+  {
+   "fieldname": "briefing_roles",
+   "fieldtype": "Small Text",
+   "label": "Send to roles",
+   "description": "One per line. Default: System Manager, Sales Manager, Accounts Manager, Factory Management."
+  },
+  {
+   "fieldname": "briefing_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "briefing_min_overdue",
+   "fieldtype": "Currency",
+   "label": "List overdue customers above (₹)",
+   "description": "Default 50,000"
+  },
+  {
+   "fieldname": "briefing_use_ai",
+   "fieldtype": "Check",
+   "label": "Add an AI summary on top (needs Claude credit)",
+   "default": "1"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-19 12:00:00.000000",
+ "modified": "2026-09-20 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB Messaging Settings",

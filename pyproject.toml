@@ -14,6 +14,7 @@ dependencies = [
     "python-barcode",  # Code128 barcode PNGs for IB Container Import labels (imports as `barcode`)
     "pyqrcode",        # QR PNGs for IB Container Import labels
     "pypng",           # pyqrcode's PNG backend (png_as_base64_str needs it, not auto-pulled)
+    "anthropic",       # Claude API for llm.py (order reader, briefing summary); features fall back without a key
 ]
 
 [build-system]

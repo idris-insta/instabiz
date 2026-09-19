@@ -15,6 +15,10 @@
   "currency",
   "exchange_rate",
   "bill_of_entry_no",
+  "freight_usd",
+  "insurance_usd",
+  "duty_rate_pct",
+  "bank_margin",
   "allocate_by",
   "column_break_landed",
   "customs_duty",
@@ -24,6 +28,8 @@
   "column_break_landed2",
   "invoice_value",
   "invoice_value_inr",
+  "cif_inr",
+  "bank_charge",
   "total_charges",
   "landed_value",
   "expected_sale_value",
@@ -105,6 +111,29 @@
    "label": "Bill of Entry No"
   },
   {
+   "fieldname": "freight_usd",
+   "fieldtype": "Currency",
+   "label": "Freight (invoice currency)",
+   "description": "Ocean freight in the invoice currency — part of CIF, same as ICMS."
+  },
+  {
+   "fieldname": "insurance_usd",
+   "fieldtype": "Currency",
+   "label": "Insurance (invoice currency)"
+  },
+  {
+   "fieldname": "duty_rate_pct",
+   "fieldtype": "Percent",
+   "label": "Duty % on CIF",
+   "description": "Duty = CIF in ₹ × this %. Leave Customs Duty (₹) blank to use it."
+  },
+  {
+   "fieldname": "bank_margin",
+   "fieldtype": "Float",
+   "label": "Bank margin (₹ per 1)",
+   "description": "The bank sells at rate + margin: charge = CIF × margin."
+  },
+  {
    "fieldname": "allocate_by",
    "fieldtype": "Select",
    "label": "Spread Charges By",
@@ -151,6 +180,18 @@
    "fieldname": "invoice_value_inr",
    "fieldtype": "Currency",
    "label": "Invoice Value (₹)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cif_inr",
+   "fieldtype": "Currency",
+   "label": "CIF (₹)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_charge",
+   "fieldtype": "Currency",
+   "label": "Bank Charge (₹)",
    "read_only": 1
   },
   {
@@ -229,7 +270,7 @@
  ],
  "is_submittable": 1,
  "links": [],
- "modified": "2026-09-20 16:00:00.000000",
+ "modified": "2026-09-20 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB Container Import",

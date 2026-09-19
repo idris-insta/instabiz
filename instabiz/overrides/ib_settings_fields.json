@@ -72,5 +72,20 @@
  "fg_warehouse_chennai": "IB Stock Settings",
  "je_needs_approval": "IB Accounts Settings",
  "payment_needs_approval": "IB Accounts Settings",
- "approval_limit": "IB Accounts Settings"
+ "approval_limit": "IB Accounts Settings",
+ "default_machine_cost_per_hour": "IB Stock Settings",
+ "wastage_norm_default_pct": "IB Stock Settings",
+ "slitting_trim_mm": "IB Stock Settings",
+ "import_default_freight": "IB Stock Settings",
+ "import_default_duty_pct": "IB Stock Settings",
+ "import_default_bank_margin": "IB Stock Settings",
+ "import_default_cha": "IB Stock Settings",
+ "import_default_extra": "IB Stock Settings",
+ "import_prefill_defaults": "IB Stock Settings",
+ "promise_dispatch_days": "IB Sales Settings",
+ "promise_transit_days": "IB Sales Settings",
+ "morning_briefing": "IB Messaging Settings",
+ "briefing_roles": "IB Messaging Settings",
+ "briefing_min_overdue": "IB Messaging Settings",
+ "briefing_use_ai": "IB Messaging Settings"
 }

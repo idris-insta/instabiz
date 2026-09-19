@@ -190,3 +190,72 @@ function ib_render_twin_result(result) {
 		indicator: result.feasible ? "green" : "red",
 	});
 }
+
+// Promise date — the date the rep can actually commit, line by line: stock in the
+// location → transit from another branch → factory backlog → purchase lead time
+// (instabiz.overrides.promise_date). Shown as a headline; "Use" sets Delivery Date.
+frappe.ui.form.on("Sales Order", {
+	refresh(frm) {
+		ib_promise_refresh(frm);
+	},
+	custom_location(frm) {
+		ib_promise_refresh(frm);
+	},
+	set_warehouse(frm) {
+		ib_promise_refresh(frm);
+	},
+});
+frappe.ui.form.on("Sales Order Item", {
+	item_code(frm) {
+		ib_promise_refresh(frm);
+	},
+	qty(frm) {
+		ib_promise_refresh(frm);
+	},
+	items_remove(frm) {
+		ib_promise_refresh(frm);
+	},
+});
+
+function ib_promise_refresh(frm) {
+	if (frm.doc.docstatus === 2 || !(frm.doc.items || []).some((r) => r.item_code)) return;
+	if (frm.doc.docstatus === 1 && ["Completed", "Closed", "Confirmed"].includes(frm.doc.status) && frm.doc.per_delivered >= 100) return;
+	clearTimeout(frm._ib_promise_t);
+	frm._ib_promise_t = setTimeout(() => {
+		const args = frm.doc.docstatus === 1 ? { sales_order: frm.doc.name } : { doc: JSON.stringify(frm.doc) };
+		frappe.call({ method: "instabiz.overrides.promise_date.get_promise", args, quiet: true }).then((r) => {
+			const p = r.message;
+			if (!p) return;
+			if (Object.keys(p.counts).every((k) => k === "Delivered")) return;
+			const labels = { Stock: __("from stock"), Transit: __("in transit"), Production: __("to make"),
+				Purchase: __("to buy / transfer"), Delivered: __("delivered") };
+			const parts = Object.entries(p.counts).map(([k, n]) => `${n} ${labels[k] || k}`).join(" · ");
+			const late = frm.doc.delivery_date && frm.doc.delivery_date < p.promise_date;
+			const colour = late ? "var(--red-600)" : "var(--green-700)";
+			let html = `<span style="color:${colour};font-weight:600">${__("Can deliver by {0}", [frappe.datetime.str_to_user(p.promise_date)])}</span>
+				<span class="text-muted"> — ${parts}</span>
+				<a class="ib-promise-detail" style="margin-left:8px">${__("Details")}</a>`;
+			if (frm.doc.docstatus === 0 && frm.doc.delivery_date !== p.promise_date) {
+				html += ` <a class="ib-promise-use" style="margin-left:8px">${__("Use this date")}</a>`;
+			}
+			if (late) html += `<div class="text-muted small">${__("Delivery Date on the order is earlier than this.")}</div>`;
+			frm.dashboard.set_headline(html);
+			const $h = frm.dashboard.$headline || $(frm.dashboard.wrapper).find(".form-headline");
+			$h.find(".ib-promise-use").on("click", () => frm.set_value("delivery_date", p.promise_date));
+			$h.find(".ib-promise-detail").on("click", () => ib_promise_dialog(p));
+		});
+	}, 600);
+}
+
+function ib_promise_dialog(p) {
+	const e = frappe.utils.escape_html;
+	const rows = p.lines.map((l) => `<tr><td>${l.idx || ""}</td><td>${e(l.item_code)}</td><td>${e(String(l.qty))}</td>
+		<td>${e(l.source)}</td><td>${frappe.datetime.str_to_user(l.date)}</td><td class="text-muted">${e(l.note || "")}</td></tr>`).join("");
+	frappe.msgprint({
+		title: __("Promise date {0}", [frappe.datetime.str_to_user(p.promise_date)]),
+		wide: true,
+		message: `<table class="table table-bordered table-sm"><thead><tr><th>#</th><th>${__("Item")}</th><th>${__("Qty")}</th>
+			<th>${__("From")}</th><th>${__("Ready by")}</th><th>${__("Note")}</th></tr></thead><tbody>${rows}</tbody></table>
+			<div class="text-muted small">${__("Days used are in Sales Settings (dispatch, transit) and Stock Settings (replenishment lead time).")}</div>`,
+	});
+}
