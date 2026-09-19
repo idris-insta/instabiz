@@ -123,10 +123,14 @@ def _mark_route_done(doc, stage):
 
 
 def _batch_source_warehouse(batch_name):
-	"""Where the RM sits — from the container / GRN the batch came from."""
+	"""Where the RM sits — the batch's own `warehouse` field (snapshotted at
+	receipt time, Phase 3) when set, else derived from the container / GRN
+	it came from (batches created before that field existed)."""
 	b = frappe.db.get_value(
-		"IB Batch", batch_name, ["container_import", "purchase_receipt"], as_dict=True
+		"IB Batch", batch_name, ["warehouse", "container_import", "purchase_receipt"], as_dict=True
 	) or {}
+	if b.get("warehouse"):
+		return b.warehouse
 	if b.get("container_import"):
 		return frappe.db.get_value("IB Container Import", b.container_import, "warehouse")
 	if b.get("purchase_receipt"):
@@ -519,9 +523,21 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 		doc.machine = machine
 		doc.insert(ignore_permissions=True)
 
+		# Phase 3 (real stock-ledger integration, gated behind
+		# ib_production_posts_stock) — RM warehouse -> WIP for this run's
+		# full source_qty. A no-op returning None when the flag is off, so
+		# every existing create_run caller/test is unaffected until someone
+		# explicitly turns it on. Persisted the same way as started_at/
+		# machine below (apply_workflow's reload would otherwise discard it).
+		from instabiz.overrides.production_stock import post_run_start_transfer
+		start_se = post_run_start_transfer(doc)
+
 		# start it (Pending -> In Progress). apply_workflow reloads from DB, so
 		# every field above is already persisted by insert() — safe.
-		_wf(doc, "Start", {"started_at": ts, "machine": machine, "current_stage": start_stage})
+		_wf(doc, "Start", {
+			"started_at": ts, "machine": machine, "current_stage": start_stage,
+			"start_stock_entry": start_se,
+		})
 
 		# reflect on the Order Sheet + its items
 		if os_row.status == "Draft":
@@ -943,6 +959,14 @@ def cancel_run(work_order, reason=None):
 			                    f"{note}\n[Cancelled] {reason}".strip(), update_modified=False)
 
 		doc = frappe.get_doc("IB Work Order", work_order)
+
+		# Phase 3 (real stock-ledger integration) — reverse whichever real
+		# Stock Entries this run posted (Start transfer, and Finish repack
+		# if it got that far). No-op when ib_production_posts_stock is off
+		# or this run never posted any (both fields blank).
+		from instabiz.overrides.production_stock import reverse_run_stock
+		reverse_run_stock(doc)
+
 		try:
 			_wf(doc, "Cancel", {"current_stage": "Cancelled"})
 		except Exception:
@@ -1037,6 +1061,14 @@ def _finish_run(doc, outputs_qty=None):
 		o.produced_qty = produced.get(o.name, 0.0)
 	doc.save(ignore_permissions=True)
 
+	# Phase 3 (real stock-ledger integration) — WIP -> FG/Scrap, now that
+	# every output's produced_qty is final. No-op when
+	# ib_production_posts_stock isn't set, or this particular run never had
+	# a Start-time transfer posted (e.g. created before the flag was turned
+	# on, or a non-Gujarat location).
+	from instabiz.overrides.production_stock import post_run_finish_transfer
+	finish_se = post_run_finish_transfer(doc)
+
 	# FG batch (genealogy root for this run's output) — one per distinct
 	# output item_code, not one batch blended across all outputs. A run's
 	# outputs can be genuine different SKUs (not just dimension-variants of
@@ -1118,7 +1150,8 @@ def _finish_run(doc, outputs_qty=None):
 	except Exception:
 		frappe.log_error("IB run serial gen", frappe.get_traceback())
 
-	frappe.db.set_value("IB Work Order", doc.name, {"fg_batch": fg_batch_id}, update_modified=False)
+	frappe.db.set_value("IB Work Order", doc.name,
+	                    {"fg_batch": fg_batch_id, "stock_entry": finish_se}, update_modified=False)
 	_wf(doc, "Complete", {"current_stage": "Done", "completed_at": ts})
 
 	# roll the Order Sheet / its items up

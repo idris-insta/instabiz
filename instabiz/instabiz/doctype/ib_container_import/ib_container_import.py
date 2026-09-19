@@ -157,6 +157,7 @@ def _make_batch(doc: "IBContainerImport", row) -> str:
 	b.supplier = doc.supplier
 	b.supplier_lot = row.get("custom_supplier_lot") or ""
 	b.received_date = doc.import_date
+	b.warehouse = doc.warehouse
 	# For SQMT rows the operator entered the real imported-roll dimensions —
 	# these can differ from the Item master and are what downstream slitting
 	# feasibility keys on. Fall back to the Item master otherwise.

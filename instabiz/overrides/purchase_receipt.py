@@ -66,6 +66,7 @@ def _make_grn_batches(doc):
 			b.supplier = doc.supplier
 			b.supplier_lot = row.get("custom_supplier_lot") or ""
 			b.received_date = doc.posting_date
+			b.warehouse = row.warehouse or doc.set_warehouse
 			b.gsm = frappe.utils.flt(item.get("gsm"))
 			b.width_mm = frappe.utils.flt(item.get("width_mm"))
 			b.insert(ignore_permissions=True)
