@@ -177,6 +177,13 @@ class IbProductionTracker {
 
 	refresh() {
 		this.$list.html(`<div class="ib-pt-spinner"><span></span><span></span><span></span></div>`);
+		// Self-bumped request-generation token — refresh() is wired to two
+		// filter change handlers plus the toolbar Refresh button, so a slower
+		// response from a filter state the user has already changed away
+		// from could otherwise land after a faster, newer response and
+		// silently overwrite the list with the wrong filter's results (same
+		// bug class fixed on the Production Stages page's loaders).
+		const gen = (this._load_gen = (this._load_gen || 0) + 1);
 		frappe.call({
 			method: "instabiz.overrides.production.get_my_production_orders",
 			args: {
@@ -184,6 +191,7 @@ class IbProductionTracker {
 				show_completed: this._is_privileged ? (this.f_show_completed.get_value() ? 1 : 0) : 0,
 			},
 			callback: (r) => {
+				if (gen !== this._load_gen) return; // stale — a newer refresh() already superseded this
 				this._orders = r.message || [];
 				this._page = 0;
 				this._render_cards();
