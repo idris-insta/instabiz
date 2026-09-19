@@ -168,6 +168,103 @@ def merge_modules():
 
 			frappe.db.set_value("Workspace", ib_name, "is_hidden", 1, update_modified=False)
 			frappe.db.sql("UPDATE `tabUser` SET default_workspace = %s WHERE default_workspace = %s", (target, ib_name))
+		show_tabs()
 	finally:
 		frappe.conf.developer_mode = dev_mode
 	frappe.clear_cache()
+
+
+# ── sidebar tabs ──────────────────────────────────────────────────────────────
+# top-level tab -> children shown under it
+SHOW_TABS = {
+	"Selling": [],
+	"CRM": [],
+	"Accounting": ["Payables", "Receivables", "Financial Reports"],
+}
+SIDEBAR_ORDER = ["Selling", "CRM", "Buying", "Stock", "Manufacturing", "Accounting", "Instabiz Finance", "HR",
+	"Reports", "GST India"]
+
+NATIVE_REPORTS = {
+	"Selling": ["Sales Analytics", "Sales Order Analysis", "Sales Register", "Item-wise Sales Register",
+		"Gross Profit", "Customer Acquisition and Loyalty", "Inactive Customers"],
+	"Buying": ["Purchase Analytics", "Purchase Order Analysis", "Purchase Register", "Item-wise Purchase Register",
+		"Supplier-Wise Sales Analytics"],
+	"Stock": ["Stock Balance", "Stock Ledger", "Stock Projected Qty", "Stock Ageing", "Warehouse wise Item Balance Age and Value",
+		"Batch-Wise Balance History"],
+	"Accounts": ["General Ledger", "Trial Balance", "Balance Sheet", "Profit and Loss Statement", "Cash Flow",
+		"Accounts Receivable", "Accounts Payable", "Customer Ledger Summary", "Supplier Ledger Summary",
+		"Bank Reconciliation Statement"],
+	"HR & Payroll": ["Monthly Attendance Sheet", "Employee Leave Balance", "Salary Register", "Employee Birthday"],
+	"CRM": ["Lead Details", "Lead Conversion Time", "Campaign Efficiency", "Opportunity Summary by Sales Stage"],
+	"GST": ["GSTR-1", "GSTR-3B Details", "GST Itemised Sales Register", "GST Itemised Purchase Register"],
+}
+# Instabiz reports go to the group of the doctype they report on
+MODULE_GROUP = {"Selling": "Selling", "Buying": "Buying", "Stock": "Stock", "Accounts": "Accounts", "HR": "HR & Payroll",
+	"Payroll": "HR & Payroll", "CRM": "CRM", "GST India": "GST", "Manufacturing": "Production", "Setup": "Selling"}
+GROUP_ORDER = ["Selling", "CRM", "Buying", "Stock", "Production", "Accounts", "HR & Payroll", "GST", "Other"]
+
+
+def _report_group(report):
+	ref = frappe.db.get_value("Report", report, "ref_doctype")
+	module = frappe.db.get_value("DocType", ref, "module") if ref else None
+	if module == "Instabiz":
+		name = (ref or "").lower()
+		if any(k in name for k in ("work order", "order sheet", "dpr", "machine", "batch", "production")):
+			return "Production"
+		if any(k in name for k in ("employee", "salary", "loan", "attendance", "overtime", "leave")):
+			return "HR & Payroll"
+		if any(k in name for k in ("container", "gate pass", "stock")):
+			return "Stock"
+		if any(k in name for k in ("credit note", "debit note", "expense", "pdc", "journal", "payment")):
+			return "Accounts"
+		return "Selling"
+	return MODULE_GROUP.get(module, "Other")
+
+
+def build_reports_workspace():
+	"""One "Reports" tab: every enabled Instabiz report + the key ERPNext / HRMS / GST ones."""
+	groups = {g: [] for g in GROUP_ORDER}
+	for r in frappe.get_all("Report", filters={"module": "Instabiz", "disabled": 0}, pluck="name", order_by="name"):
+		groups[_report_group(r)].append(r)
+	for g, names in NATIVE_REPORTS.items():
+		for r in names:
+			if frappe.db.exists("Report", {"name": r, "disabled": 0}) and r not in groups[g]:
+				groups[g].append(r)
+	links, content = [], [{"id": "ibrep0", "type": "header", "data": {"text": "<span class=\"h4\"><b>Reports</b></span>", "col": 12}}]
+	for g in GROUP_ORDER:
+		names = groups[g]
+		if not names:
+			continue
+		links.append({"type": "Card Break", "label": g, "link_count": len(names), "hidden": 0, "onboard": 0})
+		for r in names:
+			rtype = frappe.db.get_value("Report", r, "report_type")
+			links.append({"type": "Link", "label": r.replace("IB ", "", 1), "link_type": "Report", "link_to": r,
+				"is_query_report": 1 if rtype in ("Script Report", "Query Report") else 0, "hidden": 0, "onboard": 0,
+				"link_count": 0})
+		content.append({"id": "ibrep" + frappe.scrub(g)[:8], "type": "card", "data": {"card_name": g, "col": 4}})
+	ws = frappe.get_doc("Workspace", "Reports") if frappe.db.exists("Workspace", "Reports") else frappe.new_doc("Workspace")
+	ws.update({"label": "Reports", "title": "Reports", "module": "Instabiz", "public": 1, "is_hidden": 0,
+		"icon": "file", "parent_page": "", "content": json.dumps(content)})
+	if ws.is_new():
+		ws.name = "Reports"
+	ws.set("links", [])
+	for row in links:
+		ws.append("links", row)
+	ws.flags.ignore_links = True
+	ws.save(ignore_permissions=True) if not ws.is_new() else ws.insert(ignore_permissions=True)
+
+
+def show_tabs():
+	"""Selling / CRM / Accounting (+ its sub-tabs) visible, Reports built, sidebar in a fixed order."""
+	for tab, children in SHOW_TABS.items():
+		if not frappe.db.exists("Workspace", tab):
+			continue
+		frappe.db.set_value("Workspace", tab, {"is_hidden": 0, "parent_page": "", "public": 1}, update_modified=False)
+		for child in children:
+			if frappe.db.exists("Workspace", child):
+				frappe.db.set_value("Workspace", child, {"is_hidden": 0, "parent_page": tab, "public": 1},
+					update_modified=False)
+	build_reports_workspace()
+	for i, name in enumerate(SIDEBAR_ORDER, 1):
+		if frappe.db.exists("Workspace", name):
+			frappe.db.set_value("Workspace", name, "sequence_id", i, update_modified=False)
