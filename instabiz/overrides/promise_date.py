@@ -25,6 +25,7 @@ from frappe import _
 from frappe.utils import add_days, flt, getdate, nowdate
 
 from instabiz.overrides import ib_settings
+from instabiz.overrides.ib_status import stored_statuses
 
 
 def _location_tree(location):
@@ -71,10 +72,11 @@ def open_demand(item_codes, warehouses, exclude_so=None, location=None):
 			SUM(GREATEST(c.stock_qty - IFNULL(c.delivered_qty, 0) * IFNULL(c.conversion_factor, 1), 0)) AS qty
 		FROM `tabSales Order Item` c JOIN `tabSales Order` p ON p.name = c.parent
 		WHERE p.docstatus = 1 AND p.transaction_date >= %(since)s AND IFNULL(p.per_delivered, 0) < 100
-			AND p.status NOT IN ('Closed', 'Cancelled') AND p.name != %(ex)s
+			AND p.status NOT IN %(closed)s AND p.name != %(ex)s
 			AND {where_place} AND c.item_code IN %(items)s
 		GROUP BY c.item_code""".format(where_place=where_place), {"since": add_days(nowdate(), -days), "ex": exclude_so or "",
-			"whs": tuple(warehouses), "items": tuple(item_codes), "loc": (location or "").upper()}, as_dict=True)
+			"whs": tuple(warehouses), "items": tuple(item_codes), "loc": (location or "").upper(),
+			"closed": stored_statuses("Sales Order", "Completed", "Closed", "Cancelled")}, as_dict=True)
 	return {r.item_code: flt(r.qty) for r in rows}
 
 

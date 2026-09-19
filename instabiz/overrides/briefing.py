@@ -142,12 +142,13 @@ def _owing(limit):
 	"""Per customer: unpaid invoices (billing live) or undelivered/unpaid orders of the
 	last 90 days (billing on Sales Orders — older orders are rarely closed)."""
 	from instabiz.overrides.billing_mode import is_dev_billing_mode
+	from instabiz.overrides.ib_status import stored_statuses
 
 	if is_dev_billing_mode():
 		rows = frappe.db.sql("""SELECT customer_name, SUM(base_grand_total - IFNULL(custom_advance_paid, 0)) AS amount
 			FROM `tabSales Order` WHERE docstatus = 1 AND transaction_date >= %s AND IFNULL(per_billed, 0) < 100
-				AND status NOT IN ('Closed', 'Cancelled') GROUP BY customer_name HAVING amount > %s ORDER BY amount DESC""",
-			(add_days(nowdate(), -90), limit), as_dict=True)
+				AND status NOT IN %s GROUP BY customer_name HAVING amount > %s ORDER BY amount DESC""",
+			(add_days(nowdate(), -90), stored_statuses("Sales Order", "Completed", "Closed", "Cancelled"), limit), as_dict=True)
 	else:
 		rows = frappe.db.sql("""SELECT customer_name, SUM(outstanding_amount) AS amount FROM `tabSales Invoice`
 			WHERE docstatus = 1 AND outstanding_amount > 0 GROUP BY customer_name HAVING amount > %s ORDER BY amount DESC""",

@@ -5,6 +5,7 @@ Delivered / billed documents are left as they are."""
 import frappe
 from frappe.utils import flt
 
+from instabiz.overrides.ib_status import stored_statuses
 from instabiz.overrides.utils import ROLL_UOMS
 
 
@@ -12,9 +13,10 @@ def execute():
 	rows = frappe.db.sql("""SELECT c.name, c.item_code, c.warehouse, c.qty, c.width_mm, c.length_mtr, c.conversion_factor
 		FROM `tabSales Order Item` c JOIN `tabSales Order` p ON p.name = c.parent
 		JOIN `tabItem` i ON i.name = c.item_code
-		WHERE p.docstatus = 1 AND IFNULL(p.per_delivered, 0) < 100 AND p.status NOT IN ('Closed', 'Cancelled')
+		WHERE p.docstatus = 1 AND IFNULL(p.per_delivered, 0) < 100 AND p.status NOT IN %s
 			AND i.stock_uom = 'SQMT' AND UPPER(c.uom) IN %s AND c.width_mm > 0 AND c.length_mtr > 0
-			AND IFNULL(c.delivered_qty, 0) < c.qty""", (tuple(ROLL_UOMS),), as_dict=True)
+			AND IFNULL(c.delivered_qty, 0) < c.qty""", (stored_statuses("Sales Order", "Completed", "Closed", "Cancelled"),
+		tuple(ROLL_UOMS)), as_dict=True)
 	touched = set()
 	for r in rows:
 		area = flt(r.width_mm) / 1000 * flt(r.length_mtr)
