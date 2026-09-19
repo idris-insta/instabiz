@@ -79,6 +79,8 @@ scheduler_events = {
         # hammering the device with constant requests.
         "*/15 * * * *": [
             "instabiz.overrides.hikvision.run_hikvision_sync",
+            # IndiaMART enquiries → Leads (off until IB Lead Capture Settings has the key)
+            "instabiz.overrides.lead_capture.pull_indiamart",
         ],
     },
 }
@@ -158,6 +160,8 @@ after_migrate = [
     "instabiz.overrides.indexes.after_migrate",
     "instabiz.overrides.overtime.after_migrate",
     "instabiz.overrides.incentive_scale.after_migrate",  # incentive scales + User.custom_incentive_scale
+    "instabiz.overrides.lead_capture.after_migrate",  # lead sources + Lead capture fields
+    "instabiz.overrides.checkin.after_migrate",  # selfie + office distance on Employee Checkin
     "instabiz.overrides.workspace_merge.merge_modules",  # one tab per module (Instabiz + ERPNext)
 ]
 

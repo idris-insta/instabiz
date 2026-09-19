@@ -66,16 +66,82 @@ def get_my_status():
 		"log_type":          log_type,
 		"last_checkin_time": last_time,
 		"duration":          duration,
+		"rules":             checkin_rules(),
 	}
 
 
+_OFFICE_FIELD = {"Maharashtra": "office_mh", "Gujarat": "office_gj", "Tamil Nadu": "office_tn"}
+
+
+def checkin_rules():
+	"""Selfie / location rules for /checkin (IB HR Settings)."""
+	from instabiz.overrides import ib_settings
+
+	return {
+		"selfie": ib_settings.get("checkin_selfie", "Optional") or "Optional",
+		"require_location": ib_settings.get_check("checkin_require_location", False),
+		"radius_m": ib_settings.get_int("checkin_radius_m", 0),
+	}
+
+
+def _office_point(employee):
+	from instabiz.overrides import ib_settings
+
+	state = frappe.db.get_value("Employee", employee, "custom_location_state") if frappe.db.has_column(
+		"Employee", "custom_location_state") else None
+	raw = ib_settings.get(_OFFICE_FIELD.get(state or ""), "") or ""
+	try:
+		lat, lng = (float(x) for x in raw.replace(" ", "").split(","))
+		return lat, lng
+	except Exception:
+		return None
+
+
+def _distance_m(a, b):
+	from math import asin, cos, radians, sin, sqrt
+
+	lat1, lng1, lat2, lng2 = map(radians, (a[0], a[1], b[0], b[1]))
+	h = sin((lat2 - lat1) / 2) ** 2 + cos(lat1) * cos(lat2) * sin((lng2 - lng1) / 2) ** 2
+	return 2 * 6371000 * asin(sqrt(h))
+
+
+def _save_selfie(checkin_name, data_url):
+	import base64
+
+	head, _sep, b64 = (data_url or "").partition(",")
+	if "image/" not in head or not b64:
+		return None
+	content = base64.b64decode(b64)
+	if len(content) > 1_500_000:
+		frappe.throw(_("Photo is too large."))
+	f = frappe.get_doc({"doctype": "File", "file_name": f"{checkin_name}.jpg", "content": content,
+		"attached_to_doctype": "Employee Checkin", "attached_to_name": checkin_name,
+		"attached_to_field": "custom_selfie", "is_private": 1})
+	f.insert(ignore_permissions=True)
+	return f.file_url
+
+
 @frappe.whitelist()
-def self_checkin(log_type, latitude=None, longitude=None):
-	"""Check in or out for the logged-in employee."""
+def self_checkin(log_type, latitude=None, longitude=None, selfie=None):
+	"""Check in or out for the logged-in employee (selfie / office distance per IB HR Settings)."""
 	if log_type not in ("IN", "OUT"):
 		frappe.throw(_("Invalid log_type"))
 
 	employee = _get_employee_for_user()
+	rules = checkin_rules()
+	if rules["selfie"] == "Required" and not selfie:
+		frappe.throw(_("Take a selfie to check {0}.").format(_("in") if log_type == "IN" else _("out")))
+	has_point = bool(latitude and longitude)
+	if (rules["require_location"] or rules["radius_m"]) and not has_point:
+		frappe.throw(_("Turn on location for this page to check in."))
+	distance = None
+	if has_point:
+		office = _office_point(employee.name)
+		if office:
+			distance = round(_distance_m((float(latitude), float(longitude)), office))
+			if rules["radius_m"] and distance > rules["radius_m"]:
+				frappe.throw(_("You are {0} m from the office — check-in is allowed within {1} m.").format(
+					distance, rules["radius_m"]))
 
 	# Prevent consecutive duplicate log types (IN→IN or OUT→OUT)
 	last = frappe.db.sql(
@@ -103,9 +169,27 @@ def self_checkin(log_type, latitude=None, longitude=None):
 	if latitude and longitude:
 		doc.latitude  = float(latitude)
 		doc.longitude = float(longitude)
+	if distance is not None and doc.meta.has_field("custom_office_distance_m"):
+		doc.custom_office_distance_m = distance
 
 	doc.insert(ignore_permissions=True)
-	return {"log_type": log_type}
+	if selfie and rules["selfie"] != "Off":
+		url = _save_selfie(doc.name, selfie)
+		if url:
+			frappe.db.set_value("Employee Checkin", doc.name, "custom_selfie", url, update_modified=False)
+	return {"log_type": log_type, "distance_m": distance}
+
+
+def after_migrate():
+	"""Selfie + office distance on Employee Checkin (mobile /checkin)."""
+	for fieldname, spec in {
+		"custom_selfie": {"label": "Selfie", "fieldtype": "Attach Image", "read_only": 1, "insert_after": "longitude"},
+		"custom_office_distance_m": {"label": "Distance from Office (m)", "fieldtype": "Int", "read_only": 1,
+			"insert_after": "custom_selfie"},
+	}.items():
+		if not frappe.db.exists("Custom Field", {"dt": "Employee Checkin", "fieldname": fieldname}):
+			frappe.get_doc({"doctype": "Custom Field", "dt": "Employee Checkin", "fieldname": fieldname, **spec}).insert(
+				ignore_permissions=True)
 
 
 @frappe.whitelist()

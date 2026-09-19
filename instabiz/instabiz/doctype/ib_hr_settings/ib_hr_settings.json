@@ -17,7 +17,15 @@
   "leave_col",
   "annual_sick_leave",
   "annual_privilege_leave",
-  "monthly_leave_credit"
+  "monthly_leave_credit",
+  "checkin_section",
+  "checkin_selfie",
+  "checkin_require_location",
+  "checkin_radius_m",
+  "checkin_col",
+  "office_mh",
+  "office_gj",
+  "office_tn"
  ],
  "fields": [
   {
@@ -100,11 +108,58 @@
    "fieldtype": "Float",
    "label": "IB Payroll Monthly Leave Credit (Days)",
    "default": "2"
+  },
+  {
+   "fieldname": "checkin_section",
+   "fieldtype": "Section Break",
+   "label": "Mobile Check-in (/checkin)"
+  },
+  {
+   "fieldname": "checkin_selfie",
+   "fieldtype": "Select",
+   "label": "Selfie",
+   "options": "Off\nOptional\nRequired",
+   "default": "Optional",
+   "description": "Photo taken with the phone's front camera at check-in / check-out, kept on the Employee Checkin."
+  },
+  {
+   "fieldname": "checkin_require_location",
+   "fieldtype": "Check",
+   "label": "Location required",
+   "default": "0",
+   "description": "Refuse the check-in when the phone does not share its location."
+  },
+  {
+   "fieldname": "checkin_radius_m",
+   "fieldtype": "Int",
+   "label": "Allowed distance from office (m)",
+   "default": "0",
+   "description": "0 = no limit. Otherwise the check-in must be within this distance of the employee's office below."
+  },
+  {
+   "fieldname": "checkin_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "office_mh",
+   "fieldtype": "Data",
+   "label": "Maharashtra office (lat, long)",
+   "description": "e.g. 19.2813, 73.0483 — from Google Maps, right-click → the numbers."
+  },
+  {
+   "fieldname": "office_gj",
+   "fieldtype": "Data",
+   "label": "Gujarat office (lat, long)"
+  },
+  {
+   "fieldname": "office_tn",
+   "fieldtype": "Data",
+   "label": "Tamil Nadu office (lat, long)"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-19 12:00:00.000000",
+ "modified": "2026-09-20 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB HR Settings",

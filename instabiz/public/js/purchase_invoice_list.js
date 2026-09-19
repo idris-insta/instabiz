@@ -35,6 +35,9 @@ frappe.listview_settings["Purchase Invoice"] = {
 	},
 
 	onload(listview) {
+		// Photo / PDF of a supplier bill → OCR → draft Purchase Invoice (IB Document Intake)
+		listview.page.add_inner_button(__("Scan Bill"), () =>
+			frappe.new_doc("IB Document Intake", { intake_type: "Purchase Invoice" }));
 		ib_setup_list_print(listview, "Purchase Invoice");
 		ib_hide_sidebar();
 		ib_setup_list_autocomplete_filter(listview, "Purchase Invoice", "title", "Title");

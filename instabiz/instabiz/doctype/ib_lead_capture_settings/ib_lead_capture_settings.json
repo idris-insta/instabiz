@@ -1,0 +1,146 @@
+{
+ "actions": [],
+ "creation": "2026-09-19 20:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "description": "Where new enquiries come from: IndiaMART (pulled every 15 minutes) and the website form / any other site (posted to the capture link).",
+ "field_order": [
+  "gen_section",
+  "default_territory",
+  "gen_col",
+  "default_owner",
+  "im_section",
+  "enable_indiamart",
+  "indiamart_key",
+  "im_col",
+  "indiamart_last_pull",
+  "indiamart_last_result",
+  "web_section",
+  "enable_web",
+  "web_token",
+  "web_col",
+  "web_help"
+ ],
+ "fields": [
+  {
+   "fieldname": "gen_section",
+   "fieldtype": "Section Break",
+   "label": "Who gets new enquiries"
+  },
+  {
+   "fieldname": "default_territory",
+   "fieldtype": "Link",
+   "label": "Territory when the state is unknown",
+   "options": "Territory"
+  },
+  {
+   "fieldname": "gen_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_owner",
+   "fieldtype": "Link",
+   "label": "Assign to (when round-robin is off)",
+   "options": "User",
+   "description": "Leave empty to leave the enquiry with the Sales Manager queue (owner Administrator)."
+  },
+  {
+   "fieldname": "im_section",
+   "fieldtype": "Section Break",
+   "label": "IndiaMART"
+  },
+  {
+   "fieldname": "enable_indiamart",
+   "fieldtype": "Check",
+   "label": "Pull IndiaMART enquiries",
+   "default": "0"
+  },
+  {
+   "fieldname": "indiamart_key",
+   "fieldtype": "Password",
+   "label": "IndiaMART CRM Key",
+   "description": "IndiaMART seller panel → Lead Manager → Import/Export → CRM integration → generate key."
+  },
+  {
+   "fieldname": "im_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "indiamart_last_pull",
+   "fieldtype": "Datetime",
+   "label": "Pulled up to",
+   "read_only": 1
+  },
+  {
+   "fieldname": "indiamart_last_result",
+   "fieldtype": "Small Text",
+   "label": "Last pull result",
+   "read_only": 1
+  },
+  {
+   "fieldname": "web_section",
+   "fieldtype": "Section Break",
+   "label": "Website / other sources"
+  },
+  {
+   "fieldname": "enable_web",
+   "fieldtype": "Check",
+   "label": "Accept enquiries from the website",
+   "default": "0"
+  },
+  {
+   "fieldname": "web_token",
+   "fieldtype": "Data",
+   "label": "Capture token",
+   "read_only": 1,
+   "description": "Sent by the website with each enquiry. Press 'New token' to change it."
+  },
+  {
+   "fieldname": "web_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "web_help",
+   "fieldtype": "HTML",
+   "options": "<p class='text-muted small'>POST to <code>/api/method/instabiz.overrides.lead_capture.web_lead</code> with <code>token, name, mobile, email, company, city, state, pincode, product, message, source</code>. Duplicates (same mobile/email) are added to the existing lead's timeline and its owner is told.</p>"
+  }
+ ],
+ "issingle": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-09-19 20:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "IB Lead Capture Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 0,
+   "report": 0
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 0,
+   "report": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

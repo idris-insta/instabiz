@@ -58,5 +58,11 @@
  "pdf_link_valid_days": "IB Messaging Settings",
  "wa_api_url": "IB Messaging Settings",
  "wa_sender_number": "IB Messaging Settings",
- "wa_api_token": "IB Messaging Settings"
+ "wa_api_token": "IB Messaging Settings",
+ "checkin_selfie": "IB HR Settings",
+ "checkin_require_location": "IB HR Settings",
+ "checkin_radius_m": "IB HR Settings",
+ "office_mh": "IB HR Settings",
+ "office_gj": "IB HR Settings",
+ "office_tn": "IB HR Settings"
 }

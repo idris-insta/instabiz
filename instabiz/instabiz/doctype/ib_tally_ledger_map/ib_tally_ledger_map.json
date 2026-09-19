@@ -1,0 +1,41 @@
+{
+ "actions": [],
+ "creation": "2026-09-19 20:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "account",
+  "tally_ledger"
+ ],
+ "fields": [
+  {
+   "fieldname": "account",
+   "fieldtype": "Link",
+   "label": "Account",
+   "options": "Account",
+   "in_list_view": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "tally_ledger",
+   "fieldtype": "Data",
+   "label": "Tally Ledger",
+   "in_list_view": 1,
+   "reqd": 1
+  }
+ ],
+ "issingle": 0,
+ "istable": 1,
+ "editable_grid": 1,
+ "links": [],
+ "modified": "2026-09-19 20:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "IB Tally Ledger Map",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

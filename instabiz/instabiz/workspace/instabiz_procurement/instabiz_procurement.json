@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"data\":{\"col\":12,\"text\":\"<span class=\\\"h5\\\"><b>DASHBOARDS</b></span>\"},\"id\":\"proc-h0\",\"type\":\"paragraph\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Procurement Dashboard\"},\"id\":\"proc-pd\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Analytics Hub\"},\"id\":\"proc-analytics-hub\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Follow-Ups\"},\"id\":\"fu-shortcut\",\"type\":\"shortcut\"},{\"data\":{\"col\":12,\"text\":\"<span class=\\\"h5\\\"><b>TRANSACTIONS</b></span>\"},\"id\":\"proc-h1\",\"type\":\"paragraph\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Purchase Order\"},\"id\":\"proc-po\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Purchase Receipt\"},\"id\":\"proc-pr\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Purchase Invoice\"},\"id\":\"proc-pinv\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Debit Note\"},\"id\":\"proc-dbn\",\"type\":\"shortcut\"},{\"id\":\"ibctk182wu\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Buying Settings (Instabiz)\",\"col\":3}},{\"data\":{\"col\":12,\"text\":\"<span class=\\\"h5\\\"><b>REPORTS</b></span>\"},\"id\":\"proc-h2\",\"type\":\"paragraph\"},{\"data\":{\"col\":3,\"shortcut_name\":\"AP Aging\"},\"id\":\"proc-ap\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Purchase Pipeline\"},\"id\":\"proc-pp\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Debit Notes\"},\"id\":\"proc-dbnr\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Purchase Register\"},\"id\":\"proc-preg\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Item-wise Purchase Register\"},\"id\":\"proc-ipreg\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Supplier Ledger Summary\"},\"id\":\"proc-sup-ledger\",\"type\":\"shortcut\"},{\"id\":\"ibcq47esk1\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Replenishment\",\"col\":3}},{\"id\":\"ibkjoquaca\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Idle Stock\",\"col\":3}},{\"id\":\"ibdusk3hzi\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Range Review\",\"col\":3}},{\"data\":{\"col\":12,\"text\":\"<span class=\\\"h5\\\"><b>HELP & KNOWLEDGE BASE</b></span>\"},\"id\":\"proc-h3\",\"type\":\"paragraph\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Knowledge Base\"},\"id\":\"proc-kb\",\"type\":\"shortcut\"},{\"data\":{\"col\":12,\"text\":\"<span class=\\\"h5\\\"><b>AI &amp; PLANNING</b></span>\"},\"id\":\"ai-h\",\"type\":\"paragraph\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Document Intake\"},\"id\":\"ai-dint\",\"type\":\"shortcut\"}]",
+ "content": "[{\"data\":{\"col\":12,\"text\":\"<span class=\\\"h5\\\"><b>DASHBOARDS</b></span>\"},\"id\":\"proc-h0\",\"type\":\"paragraph\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Procurement Dashboard\"},\"id\":\"proc-pd\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Analytics Hub\"},\"id\":\"proc-analytics-hub\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Follow-Ups\"},\"id\":\"fu-shortcut\",\"type\":\"shortcut\"},{\"data\":{\"col\":12,\"text\":\"<span class=\\\"h5\\\"><b>TRANSACTIONS</b></span>\"},\"id\":\"proc-h1\",\"type\":\"paragraph\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Purchase Order\"},\"id\":\"proc-po\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Purchase Receipt\"},\"id\":\"proc-pr\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Purchase Invoice\"},\"id\":\"proc-pinv\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Debit Note\"},\"id\":\"proc-dbn\",\"type\":\"shortcut\"},{\"id\":\"ibctk182wu\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Buying Settings (Instabiz)\",\"col\":3}},{\"id\":\"ib4wdicuxf\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Quality Inspection\",\"col\":3}},{\"id\":\"ib9mxx8y1y\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Job Work (Subcontracting Order)\",\"col\":3}},{\"id\":\"ibsshal3ve\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Job Work Stock (ITC-04)\",\"col\":3}},{\"id\":\"ib3yu9pkbq\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Scan Purchase Bill\",\"col\":3}},{\"data\":{\"col\":12,\"text\":\"<span class=\\\"h5\\\"><b>REPORTS</b></span>\"},\"id\":\"proc-h2\",\"type\":\"paragraph\"},{\"data\":{\"col\":3,\"shortcut_name\":\"AP Aging\"},\"id\":\"proc-ap\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Purchase Pipeline\"},\"id\":\"proc-pp\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Debit Notes\"},\"id\":\"proc-dbnr\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Purchase Register\"},\"id\":\"proc-preg\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Item-wise Purchase Register\"},\"id\":\"proc-ipreg\",\"type\":\"shortcut\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Supplier Ledger Summary\"},\"id\":\"proc-sup-ledger\",\"type\":\"shortcut\"},{\"id\":\"ibcq47esk1\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Replenishment\",\"col\":3}},{\"id\":\"ibkjoquaca\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Idle Stock\",\"col\":3}},{\"id\":\"ibdusk3hzi\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Range Review\",\"col\":3}},{\"data\":{\"col\":12,\"text\":\"<span class=\\\"h5\\\"><b>HELP & KNOWLEDGE BASE</b></span>\"},\"id\":\"proc-h3\",\"type\":\"paragraph\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Knowledge Base\"},\"id\":\"proc-kb\",\"type\":\"shortcut\"},{\"data\":{\"col\":12,\"text\":\"<span class=\\\"h5\\\"><b>AI &amp; PLANNING</b></span>\"},\"id\":\"ai-h\",\"type\":\"paragraph\"},{\"data\":{\"col\":3,\"shortcut_name\":\"Document Intake\"},\"id\":\"ai-dint\",\"type\":\"shortcut\"}]",
  "creation": "2026-08-10 20:28:49.351042",
  "custom_blocks": [],
  "docstatus": 0,
@@ -11,7 +11,7 @@
  "is_hidden": 0,
  "label": "Instabiz Procurement",
  "links": [],
- "modified": "2026-09-19 17:00:00.000000",
+ "modified": "2026-09-20 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "Instabiz Procurement",
@@ -179,6 +179,35 @@
    "link_to": "IB Range Review",
    "type": "Report",
    "report_ref_doctype": "Item"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Quality Inspection",
+   "link_to": "Quality Inspection",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Job Work (Subcontracting Order)",
+   "link_to": "Subcontracting Order",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Job Work Stock (ITC-04)",
+   "link_to": "GST Job Work Stock Movement",
+   "type": "Report",
+   "report_ref_doctype": "Stock Entry"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Scan Purchase Bill",
+   "link_to": "IB Document Intake",
+   "type": "DocType"
   }
  ],
  "title": "Instabiz Procurement"

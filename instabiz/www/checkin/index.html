@@ -180,6 +180,9 @@
     align-items: center;
     text-align: center;
   }
+  .ck-selfie { display: none; margin-top: 14px; width: 96px; height: 96px; border-radius: 50%;
+    object-fit: cover; border: 3px solid #d97757; }
+  .ck-hint { margin-top: 10px; font-size: 13px; color: #8d99a6; }
   .ck-error {
     background: #fff5f5;
     border: 1px solid #fed7d7;
@@ -225,6 +228,9 @@
       <span class="ck-spinner" id="ck-spinner"></span>
       <span id="ck-btn-label">—</span>
     </button>
+    <input type="file" id="ck-cam" accept="image/*" capture="user" style="display:none">
+    <img class="ck-selfie" id="ck-selfie" alt="">
+    <div class="ck-hint" id="ck-hint"></div>
     <div class="ck-last" id="ck-last"></div>
   </div>
 </div>
@@ -329,6 +335,11 @@
     }
 
     last.textContent = s.last_checkin_time ? "Last: " + fmt_time(s.last_checkin_time) : "";
+    const r = s.rules || {};
+    const need = [];
+    if (r.selfie === "Required") need.push("a selfie");
+    if (r.require_location || r.radius_m) need.push("your location" + (r.radius_m ? " (within " + r.radius_m + " m of office)" : ""));
+    if (need.length && s.log_type !== "DONE" && s.log_type !== "OUT") document.getElementById("ck-hint").textContent = "Needs " + need.join(" and ");
   }
 
   // ── Live timer ──────────────────────────────────────────────────────────────
@@ -350,25 +361,74 @@
   document.getElementById("ck-btn").addEventListener("click", function () {
     if (!_state) return;
     const log_type = _state.log_type === "IN" ? "OUT" : "IN";
-    set_loading(true);
-
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        pos => do_checkin(log_type, pos.coords.latitude, pos.coords.longitude),
-        ()   => do_checkin(log_type),
-        { timeout: 5000 }
-      );
-    } else {
-      do_checkin(log_type);
-    }
+    const selfie = (_state.rules || {}).selfie || "Optional";
+    if (selfie === "Off") { with_location(log_type, null); return; }
+    // front camera → small JPEG → check in
+    const cam = document.getElementById("ck-cam");
+    cam.value = "";
+    cam.onchange = () => {
+      const file = cam.files && cam.files[0];
+      if (!file) { if (selfie === "Required") show_error("A selfie is needed to check in."); else with_location(log_type, null); return; }
+      shrink(file).then(url => {
+        const img = document.getElementById("ck-selfie");
+        img.src = url; img.style.display = "block";
+        with_location(log_type, url);
+      });
+    };
+    cam.click();
   });
 
-  function do_checkin(log_type, lat, lng) {
+  function shrink(file) {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        const s = Math.min(1, 480 / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL("image/jpeg", 0.75));
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  function with_location(log_type, selfie) {
+    set_loading(true);
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => do_checkin(log_type, pos.coords.latitude, pos.coords.longitude, selfie),
+        ()  => do_checkin(log_type, null, null, selfie),
+        { timeout: 8000, enableHighAccuracy: true }
+      );
+    } else {
+      do_checkin(log_type, null, null, selfie);
+    }
+  }
+
+  function do_checkin(log_type, lat, lng, selfie) {
     const data = { log_type };
     if (lat) { data.latitude = lat; data.longitude = lng; }
+    if (selfie) data.selfie = selfie;
     api_post(API_CHECKIN, data)
-      .then(r => { set_loading(false); if (!r.exc) load(); else show_error("Check-in failed."); })
-      .catch(() => { set_loading(false); show_error("Network error."); });
+      .then(r => {
+        set_loading(false);
+        if (!r.exc) {
+          const d = r.message && r.message.distance_m;
+          document.getElementById("ck-hint").textContent = d != null ? d + " m from office" : "";
+          load();
+        } else {
+          let msg = "Check-in failed.";
+          try { msg = JSON.parse(r._server_messages).map(m => JSON.parse(m).message).join(" "); } catch (e) {}
+          show_error(msg); render_btn_only();
+        }
+      })
+      .catch(() => { set_loading(false); show_error("Network error."); render_btn_only(); });
+  }
+
+  function render_btn_only() {
+    const label = document.getElementById("ck-btn-label");
+    document.getElementById("ck-btn").disabled = false;
+    label.textContent = _state && _state.log_type === "IN" ? "← Check Out" : "→ Check In";
   }
 
   function set_loading(on) {

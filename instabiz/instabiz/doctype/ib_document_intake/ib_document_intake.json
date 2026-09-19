@@ -33,7 +33,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Intake Type",
-   "options": "Sales Order\nPurchase Order",
+   "options": "Sales Order\nPurchase Order\nPurchase Invoice",
    "reqd": 1
   },
   {
@@ -100,7 +100,7 @@
    "fieldname": "raw_text",
    "fieldtype": "Long Text",
    "label": "Raw Text",
-   "reqd": 1
+   "mandatory_depends_on": "eval:!doc.scanned_document"
   },
   {
    "collapsible": 1,
@@ -143,7 +143,7 @@
  "icon": "fa fa-magic",
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-10 00:00:00",
+ "modified": "2026-09-20 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB Document Intake",

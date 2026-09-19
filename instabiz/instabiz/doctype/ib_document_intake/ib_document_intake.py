@@ -36,6 +36,8 @@ from instabiz.overrides import llm
 
 _SALES_ROLES = {"Sales User", "Sales Manager", "System Manager"}
 _PURCHASE_ROLES = {"Purchase User", "Purchase Manager", "System Manager"}
+_ACCOUNTS_ROLES = {"Accounts User", "Accounts Manager"}
+GSTIN_RE = re.compile(r"\b\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b")
 
 
 class IBDocumentIntake(Document):
@@ -47,8 +49,8 @@ class IBDocumentIntake(Document):
 			return
 		if self.intake_type == "Sales Order" and not (_SALES_ROLES & roles):
 			frappe.throw(_("You need a Sales role to create a Sales Order intake."))
-		if self.intake_type == "Purchase Order" and not (_PURCHASE_ROLES & roles):
-			frappe.throw(_("You need a Purchase role to create a Purchase Order intake."))
+		if self.intake_type in ("Purchase Order", "Purchase Invoice") and not ((_PURCHASE_ROLES | _ACCOUNTS_ROLES) & roles):
+			frappe.throw(_("You need a Purchase or Accounts role to create a {0} intake.").format(self.intake_type))
 
 	# ── OCR ──────────────────────────────────────────────────────────────────
 
@@ -100,8 +102,20 @@ class IBDocumentIntake(Document):
 			"If a field is not present in the text, use null. Never invent data that "
 			"is not present in the text."
 		)
+		if self.intake_type == "Purchase Invoice":
+			system = (
+				"You read supplier tax invoices (purchase bills) for an Indian B2B adhesive-tape "
+				"manufacturer. Reply with ONLY a JSON object, no prose, no markdown fences:\n"
+				'{"party_name": "supplier name", "supplier_gstin": "...", "bill_no": "...", '
+				'"bill_date": "YYYY-MM-DD", "grand_total": <number>, '
+				'"items": [{"description": "...", "hsn": "...", "qty": <number>, "rate": <number before tax>}]}\n'
+				"Use null for anything not in the text. Never invent data."
+			)
 		prompt = f"Document type: {self.intake_type}\n\nRaw text:\n{(self.raw_text or '')[:6000]}"
-		raw = llm.complete(system, prompt, max_tokens=800)
+		raw = llm.complete(system, prompt, max_tokens=1200)
+
+		if not raw and self.intake_type == "Purchase Invoice":
+			return self._extract_bill_header()
 
 		if not raw:
 			self.extracted_json = json.dumps({"error": "extraction_unavailable"}, indent=2)
@@ -130,7 +144,9 @@ class IBDocumentIntake(Document):
 
 		doctype = "Customer" if self.intake_type == "Sales Order" else "Supplier"
 		party_guess = (parsed.get("party_name") or "").strip()
-		party_match = match_party(party_guess, doctype)
+		party_match = match_supplier_gstin(parsed.get("supplier_gstin")) if doctype == "Supplier" else None
+		if not party_match or party_match["status"] == "Not Matched":
+			party_match = match_party(party_guess, doctype)
 
 		items = parsed.get("items") or []
 		if not isinstance(items, list):
@@ -155,6 +171,26 @@ class IBDocumentIntake(Document):
 			else ""
 		)
 		self.extraction_error = ""
+		self.status = "Extracted"
+		self.save()
+		return {"ok": True, "extracted": parsed, "party_match": party_match}
+
+	def _extract_bill_header(self):
+		"""No AI available: read the bill header with plain rules (supplier GSTIN, bill
+		number, date, total). The lines are then entered on the Purchase Invoice itself."""
+		parsed = read_bill_header(self.raw_text)
+		party_match = match_supplier_gstin(parsed.get("supplier_gstin"))
+		parsed["items"] = []
+		parsed["party_match"] = party_match
+		parsed["read_by"] = "rules"
+		self.customer_or_supplier = parsed.get("supplier_gstin") or ""
+		self.extracted_json = json.dumps(parsed, indent=2, default=str)
+		self.match_status = party_match["status"]
+		self.matched_party = party_match["matches"][0] if party_match["status"] == "Exact Match" else ""
+		self.extraction_error = _(
+			"Read without AI (no Claude key): supplier, bill no, date and total only. "
+			"Convert opens a new Purchase Invoice with these filled in — add the lines there."
+		)
 		self.status = "Extracted"
 		self.save()
 		return {"ok": True, "extracted": parsed, "party_match": party_match}
@@ -205,6 +241,8 @@ class IBDocumentIntake(Document):
 				"qty": flt(it.get("qty")) or 1,
 				"rate": flt(it.get("rate")) or 0,
 			})
+		if not resolved_items and self.intake_type == "Purchase Invoice":
+			return {"ok": True, "open_new": self._bill_fields(parsed)}
 		if not resolved_items:
 			frappe.throw(_("No line items to convert — check the extraction."))
 
@@ -229,6 +267,12 @@ class IBDocumentIntake(Document):
 				doc.append("items", {
 					**ri, "uom": uom, "conversion_factor": 1, "delivery_date": delivery_date,
 				})
+		elif self.intake_type == "Purchase Invoice":
+			doc = frappe.new_doc("Purchase Invoice")
+			doc.update(self._bill_fields(parsed))
+			for ri in resolved_items:
+				uom = frappe.db.get_value("Item", ri["item_code"], "stock_uom") or "Nos"
+				doc.append("items", {**ri, "uom": uom, "stock_uom": uom, "conversion_factor": 1})
 		else:
 			doc = frappe.new_doc("Purchase Order")
 			doc.supplier = self.matched_party
@@ -245,6 +289,9 @@ class IBDocumentIntake(Document):
 		# Standard insert() — docstatus stays 0 (draft). submit() is never called.
 		doc.insert(ignore_permissions=False)
 
+		if self.scanned_document and doc.doctype == "Purchase Invoice":
+			frappe.get_doc({"doctype": "File", "file_url": self.scanned_document,
+				"attached_to_doctype": doc.doctype, "attached_to_name": doc.name}).insert(ignore_permissions=True)
 		self.created_doctype = doc.doctype
 		self.created_docname = doc.name
 		self.status = "Converted"
@@ -252,7 +299,74 @@ class IBDocumentIntake(Document):
 		return {"ok": True, "doctype": doc.doctype, "docname": doc.name}
 
 
+	def _bill_fields(self, parsed):
+		from instabiz.overrides.utils import LOCATION_WAREHOUSE
+		loc = (self.location or "").strip()
+		if not loc or loc == "Select":
+			frappe.throw(_("Select a Location before converting — the bill is booked to that branch."))
+		try:
+			bill_date = frappe.utils.getdate(parsed.get("bill_date")) if parsed.get("bill_date") else None
+		except Exception:
+			bill_date = None
+		return {
+			"supplier": self.matched_party,
+			"company": frappe.db.get_single_value("Global Defaults", "default_company"),
+			"custom_location": loc,
+			"set_warehouse": LOCATION_WAREHOUSE.get(loc.lower()),
+			"bill_no": parsed.get("bill_no"),
+			"bill_date": str(bill_date) if bill_date else None,
+			"posting_date": nowdate(),
+			"remarks": _("From {0}").format(self.name),
+		}
+
+
 # ── module-level helpers (also unit-tested directly) ──────────────────────
+
+_DATE_FORMATS = ("%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%d/%m/%y", "%d-%m-%y", "%d-%b-%Y", "%d-%b-%y", "%d/%b/%Y")
+
+
+def read_bill_header(text):
+	"""Rule-based bill header: the first GSTIN that is not one of ours is the
+	supplier's; bill number, date and grand total from the usual labels."""
+	from datetime import datetime
+
+	text = text or ""
+	ours = set(frappe.get_all("Address", filters={"is_your_company_address": 1}, pluck="gstin")) - {None, ""}
+	gstins = [g for g in GSTIN_RE.findall(text.upper()) if g not in ours]
+	no = re.search(r"(?:invoice|bill|inv)\.?\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9][A-Z0-9/\-]{1,24})", text, re.I)
+	dt = re.search(r"date\s*[:\-]?\s*(\d{1,2}[./\-][A-Za-z0-9]{1,3}[./\-]\d{2,4})", text, re.I)
+	tot = None
+	for m in re.finditer(r"(?:grand\s*total|invoice\s*total|total\s*amount|net\s*payable)\s*[:\-]?\s*(?:rs\.?|inr|\u20b9)?\s*([\d,]+\.?\d*)", text, re.I):
+		tot = m.group(1)
+	bill_date = None
+	if dt:
+		for fmt in _DATE_FORMATS:
+			try:
+				bill_date = datetime.strptime(dt.group(1), fmt).date().isoformat()
+				break
+			except ValueError:
+				continue
+	return {"supplier_gstin": gstins[0] if gstins else None, "bill_no": no.group(1) if no else None,
+		"bill_date": bill_date, "grand_total": flt(tot.replace(",", "")) if tot else None}
+
+
+def match_supplier_gstin(gstin):
+	"""Supplier by GSTIN — on the Supplier itself, else on one of its addresses."""
+	gstin = (gstin or "").strip().upper()
+	if not gstin:
+		return {"status": "Not Matched", "matches": []}
+	names = frappe.get_all("Supplier", filters={"gstin": gstin}, pluck="name")
+	if not names:
+		names = frappe.db.sql_list(
+			"""SELECT DISTINCT dl.link_name FROM `tabAddress` a
+			JOIN `tabDynamic Link` dl ON dl.parent = a.name AND dl.parenttype = 'Address'
+			WHERE dl.link_doctype = 'Supplier' AND a.gstin = %s""", gstin)
+	if len(names) == 1:
+		return {"status": "Exact Match", "matches": names}
+	if names:
+		return {"status": "Ambiguous", "matches": names}
+	return {"status": "Not Matched", "matches": []}
+
 
 def _parse_llm_json(raw):
 	raw = (raw or "").strip()

@@ -65,6 +65,11 @@ frappe.ui.form.on("IB Document Intake", {
 							callback: (r) => {
 								frm.reload_doc();
 								const res = r.message || {};
+								if (res.open_new) {
+									// bill read without its lines: open a new Purchase Invoice with the header filled
+									frappe.new_doc("Purchase Invoice", res.open_new);
+									return;
+								}
 								if (res.ok) {
 									frappe.show_alert({ message: __("Created {0} {1}", [res.doctype, res.docname]), indicator: "green" });
 									frappe.set_route("Form", res.doctype, res.docname);
