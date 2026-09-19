@@ -47,10 +47,18 @@ def _location(doc):
 	for key, value in LOCATION_COMPANY_GSTIN.items():
 		if gstin and value == gstin:
 			return key
-	wh = (doc.get("set_warehouse") or "").upper()
-	for key in LOCATION_WAREHOUSE:
-		if key.upper() in wh:
-			return key
+	loc = (doc.get("location") or "").lower()  # IB Gate Pass / IB Expense
+	if loc in LOCATION_WAREHOUSE:
+		return loc
+	# warehouse documents (stock entry, material request, receipts): the warehouses say where
+	warehouses = [doc.get("set_warehouse"), doc.get("from_warehouse"), doc.get("to_warehouse"),
+		doc.get("set_from_warehouse")]
+	for row in doc.get("items") or []:
+		warehouses += [row.get("warehouse"), row.get("s_warehouse"), row.get("t_warehouse")]
+	for wh in warehouses:
+		for key in LOCATION_WAREHOUSE:
+			if wh and key.upper() in wh.upper():
+				return key
 	return "maharashtra"
 
 
