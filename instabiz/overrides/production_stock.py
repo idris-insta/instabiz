@@ -159,10 +159,29 @@ def reverse_run_stock(doc):
 	then start entry — no real ordering dependency between two unlinked
 	Stock Entries, but cancelling the later one first mirrors normal
 	unwind order). Called from cancel_run(). A real Stock Entry .cancel()
-	correctly reverses the ledger; never posts a manual counter-entry."""
-	for fieldname in ("stock_entry", "start_stock_entry"):
-		name = doc.get(fieldname)
-		if not name:
-			continue
-		if frappe.db.get_value("Stock Entry", name, "docstatus") == 1:
-			frappe.get_doc("Stock Entry", name).cancel()
+	correctly reverses the ledger; never posts a manual counter-entry.
+
+	Real bug, fixed here: advance_with_length_split() gives every sibling
+	run the SAME start_stock_entry (the parent's one RM->WIP transfer,
+	divided into shares — see that function's own comment). A naive
+	unconditional cancel would reverse the WHOLE shared transfer the
+	moment any ONE sibling got cancelled, clawing back material still
+	legitimately in WIP for the other siblings — leaving them unable to
+	Finish (their own Repack would try to consume from WIP that's no
+	longer there). The shared transfer is only actually cancelled once
+	every run referencing it has been dealt with (Cancelled itself, or
+	this run's own doc, since cancel_run() calls this before the
+	workflow transition below has flipped this run's own status yet)."""
+	stock_entry = doc.get("stock_entry")
+	if stock_entry and frappe.db.get_value("Stock Entry", stock_entry, "docstatus") == 1:
+		frappe.get_doc("Stock Entry", stock_entry).cancel()
+
+	start_se = doc.get("start_stock_entry")
+	if start_se and frappe.db.get_value("Stock Entry", start_se, "docstatus") == 1:
+		still_needed = frappe.db.exists("IB Work Order", {
+			"start_stock_entry": start_se,
+			"name": ["!=", doc.name],
+			"status": ["!=", "Cancelled"],
+		})
+		if not still_needed:
+			frappe.get_doc("Stock Entry", start_se).cancel()

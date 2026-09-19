@@ -756,6 +756,16 @@ def advance_with_length_split(work_order, batches, output_qty=None, operator=Non
 			child.source_item = doc.source_item
 			child.source_qty = flt(doc.source_qty) / batches if doc.source_qty else 0
 			child.source_warehouse = doc.source_warehouse
+			# Phase 3 (real stock-ledger integration) — the parent's ONE
+			# Start-time RM->WIP transfer already moved the material this
+			# split is dividing; a child must NOT trigger a second transfer
+			# (that would double-count against the real RM warehouse). It
+			# inherits the same reference so its own Finish-time posting
+			# (which keys off start_stock_entry being set) still fires —
+			# each child's Finish independently consumes its own qty share
+			# from the shared WIP balance, which is the physically correct
+			# behavior, not a double-count.
+			child.start_stock_entry = doc.start_stock_entry
 			child.notes = _("Batch {0}/{1} split from {2} (length exceeded machine capacity)").format(
 				i + 1, batches, doc.name)
 
