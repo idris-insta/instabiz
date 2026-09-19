@@ -16,7 +16,14 @@
   "auto_mr_warehouse",
   "terms_section",
   "purchase_order_terms",
-  "challan_terms"
+  "challan_terms",
+  "production_stock_section",
+  "production_posts_stock",
+  "production_stock_mode",
+  "production_stock_col",
+  "fg_warehouse_gujarat",
+  "fg_warehouse_maharashtra",
+  "fg_warehouse_chennai"
  ],
  "fields": [
   {
@@ -90,11 +97,54 @@
    "fieldtype": "Text Editor",
    "label": "Delivery Challan Terms",
    "default": "<ol>\n<li>GOODS ONCE DISPATCHED WILL NOT BE TAKEN BACK WITHOUT PRIOR WRITTEN APPROVAL.</li>\n<li>PLEASE CHECK THE MATERIAL ON RECEIPT AND NOTE ANY SHORTAGE OR DAMAGE ON THE LR COPY.</li>\n<li>THE COMPANY SHALL NOT BEAR ANY RESPONSIBILITY FOR ANY DAMAGE OCCURRED TO THE GOODS WHILE IN TRANSIT.</li>\n</ol>"
+  },
+  {
+   "fieldname": "production_stock_section",
+   "fieldtype": "Section Break",
+   "label": "Production → Stock"
+  },
+  {
+   "fieldname": "production_posts_stock",
+   "fieldtype": "Check",
+   "label": "Post production to stock",
+   "default": "1",
+   "description": "When a run finishes: its source material (and recipe items like core / carton) go out, the finished goods come in — one Repack entry."
+  },
+  {
+   "fieldname": "production_stock_mode",
+   "fieldtype": "Select",
+   "label": "Entry",
+   "options": "Submit\nDraft",
+   "default": "Submit",
+   "description": "Draft: the store checks and submits it."
+  },
+  {
+   "fieldname": "production_stock_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "fg_warehouse_gujarat",
+   "fieldtype": "Link",
+   "options": "Warehouse",
+   "label": "Finished goods warehouse — Gujarat",
+   "description": "Blank = the warehouse the material came from."
+  },
+  {
+   "fieldname": "fg_warehouse_maharashtra",
+   "fieldtype": "Link",
+   "options": "Warehouse",
+   "label": "Finished goods warehouse — Maharashtra"
+  },
+  {
+   "fieldname": "fg_warehouse_chennai",
+   "fieldtype": "Link",
+   "options": "Warehouse",
+   "label": "Finished goods warehouse — Chennai"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-19 12:00:00.000000",
+ "modified": "2026-09-20 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB Stock Settings",

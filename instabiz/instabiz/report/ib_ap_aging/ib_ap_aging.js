@@ -1,6 +1,13 @@
 frappe.query_reports["IB AP Aging"] = {
 	filters: [
 		{
+			fieldname: "ranges",
+			label: __("Ageing (days)"),
+			fieldtype: "Data",
+			default: "30,60,90",
+			description: __("Bucket break points, e.g. 15,30,45,60,90"),
+		},
+		{
 			fieldname: "supplier",
 			label: __("Supplier"),
 			fieldtype: "Link",

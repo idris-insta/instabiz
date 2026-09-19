@@ -981,6 +981,9 @@ def cancel_run(work_order, reason=None):
 			(run_row.source_qty, run_row.source_batch),
 		)
 
+	from instabiz.overrides.production_stock import reverse_run_stock_entry
+
+	reverse_run_stock_entry(work_order)  # cancel / delete the run's Repack entry
 	_reverse_run_genealogy(work_order)  # also nulls fg_batch links on the run + outputs
 
 	if reason:
@@ -1169,6 +1172,15 @@ def _finish_run(doc, outputs_qty=None):
 	_settle_order_sheet(doc)
 
 	message = _("Run complete — FG batch {0}, {1} serial(s)").format(fg_batch_id, serials_made)
+	# material out / finished goods in (Repack) — never blocks completing the run
+	try:
+		from instabiz.overrides.production_stock import post_run_stock
+
+		stock_note = post_run_stock(doc)
+		if stock_note:
+			message += " — " + stock_note
+	except Exception:
+		frappe.log_error("IB run stock posting", frappe.get_traceback())
 	if truncated_items:
 		# Was silent before — a genuinely large run (2000+ real units) just
 		# under-reported its serial count with nothing telling anyone it

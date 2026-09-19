@@ -64,5 +64,13 @@
  "checkin_radius_m": "IB HR Settings",
  "office_mh": "IB HR Settings",
  "office_gj": "IB HR Settings",
- "office_tn": "IB HR Settings"
+ "office_tn": "IB HR Settings",
+ "production_posts_stock": "IB Stock Settings",
+ "production_stock_mode": "IB Stock Settings",
+ "fg_warehouse_gujarat": "IB Stock Settings",
+ "fg_warehouse_maharashtra": "IB Stock Settings",
+ "fg_warehouse_chennai": "IB Stock Settings",
+ "je_needs_approval": "IB Accounts Settings",
+ "payment_needs_approval": "IB Accounts Settings",
+ "approval_limit": "IB Accounts Settings"
 }

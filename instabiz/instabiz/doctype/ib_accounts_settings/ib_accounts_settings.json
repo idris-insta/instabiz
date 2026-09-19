@@ -18,7 +18,12 @@
   "bank_account_chennai",
   "invoice_section",
   "invoice_declaration",
-  "jurisdiction"
+  "jurisdiction",
+  "approval_section",
+  "je_needs_approval",
+  "payment_needs_approval",
+  "approval_col",
+  "approval_limit"
  ],
  "fields": [
   {
@@ -107,11 +112,39 @@
    "label": "Jurisdiction",
    "default": "Mumbai",
    "description": "Printed as 'Subject to <city> jurisdiction'."
+  },
+  {
+   "fieldname": "approval_section",
+   "fieldtype": "Section Break",
+   "label": "Approvals (maker / checker)"
+  },
+  {
+   "fieldname": "je_needs_approval",
+   "fieldtype": "Check",
+   "label": "Journal Entries need approval",
+   "default": "1",
+   "description": "Accounts Users save and Send for Approval; an Accounts Manager approves (submits) or rejects."
+  },
+  {
+   "fieldname": "payment_needs_approval",
+   "fieldtype": "Check",
+   "label": "Outgoing payments need approval",
+   "default": "0"
+  },
+  {
+   "fieldname": "approval_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "approval_limit",
+   "fieldtype": "Currency",
+   "label": "Only above this amount",
+   "description": "0 = every entry."
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-19 12:00:00.000000",
+ "modified": "2026-09-20 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB Accounts Settings",

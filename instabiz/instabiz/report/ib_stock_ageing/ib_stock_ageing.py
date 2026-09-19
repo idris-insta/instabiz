@@ -8,7 +8,10 @@ def execute(filters=None):
 	filters = filters or {}
 	data = _data(filters)
 	columns = _columns()
-	return columns, data, None, _chart(data, filters), _summary(data)
+	from instabiz.overrides.ageing import rebucket
+
+	columns, data, chart, summary = rebucket(filters, columns, data, "qty", "Float", _chart(data, filters), _summary(data))
+	return columns, data, None, chart, summary
 
 
 def _columns():

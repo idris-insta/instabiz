@@ -125,9 +125,31 @@ def pdf_link(doc, print_format=None):
 	return get_url(f"/api/method/frappe.utils.print_format.download_pdf?{query}")
 
 
+def dispatch_details(doc):
+	"""E-way bill, LR / transporter and public attachments (with a link each) for the message."""
+	lines = []
+	ewb = doc.get("ewaybill") or doc.get("custom_ewaybill")
+	if not ewb and doc.doctype in ("Sales Invoice", "Delivery Note") and frappe.db.exists("DocType", "e-Waybill Log"):
+		ewb = frappe.db.get_value("e-Waybill Log", {"reference_name": doc.name}, "e_waybill_number")
+	if ewb:
+		lines.append(f"E-way bill: {ewb}")
+	lr = doc.get("custom_lr_number") or doc.get("lr_no")
+	if lr:
+		transporter = doc.get("custom_transport") or doc.get("transporter_name") or ""
+		lr_date = formatdate(doc.get("lr_date"), "dd-MM-yyyy") if doc.get("lr_date") else ""
+		lines.append(" ".join(filter(None, [f"LR: {lr}", lr_date, f"({transporter})" if transporter else ""])))
+	# public attachments only — a private file has no link that works outside the app
+	for f in frappe.get_all("File", filters={"attached_to_doctype": doc.doctype, "attached_to_name": doc.name, "is_folder": 0,
+			"is_private": 0}, fields=["file_name", "file_url"], order_by="creation"):
+		url = get_url(f.file_url)
+		lines.append(f"{f.file_name}: {url}")
+	return "\n".join(lines)
+
+
 def _context(doc, tpl):
 	sender = frappe.get_cached_doc("User", frappe.session.user)
 	return {
+		"dispatch_details": dispatch_details(doc),
 		"doc": doc,
 		"party_name": party_name(doc),
 		"company": doc.get("company") or frappe.defaults.get_global_default("company"),
@@ -164,6 +186,9 @@ def get_message(doctype, name, channel="WhatsApp", template=None):
 	else:
 		message = f"Dear {ctx['party_name']},\n{doctype} {name}.\n{pdf_link(doc)}"
 		subject = f"{doctype} {name}"
+	extras = ctx["dispatch_details"]
+	if extras and "dispatch_details" not in (tpl.message if tpl else ""):
+		message = message.rstrip() + "\n\n" + extras
 	return {
 		"templates": [t.name for t in templates],
 		"template": chosen,

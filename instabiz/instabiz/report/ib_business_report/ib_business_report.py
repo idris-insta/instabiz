@@ -15,7 +15,7 @@ from datetime import timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import date_diff, flt, formatdate, getdate
+from frappe.utils import cint, date_diff, flt, formatdate, getdate
 
 VIEWS = ["Monthly Summary", "Party-wise", "Collection Status", "Item-wise", "Item Monthly",
 	"Party Monthly", "State-wise", "Salesperson-wise"]
@@ -37,7 +37,24 @@ def execute(filters=None):
 		"State-wise": _state, "Salesperson-wise": _salesperson,
 	}[f.view]
 	columns, data, chart = builder(f, inv, coll, months)
+	if f.view != "Monthly Summary" and (flt(f.min_amount) or cint(f.top_n)):
+		data = _top(data, f)
 	return columns, data, None, chart, _summary(f, inv, coll)
+
+
+def _top(data, f):
+	"""Top N / at least this much sale — on the party, item, state and salesperson views."""
+	key = next((k for k in ("base", "amount", "total", "sale") if data and any(k in r for r in data)), None)
+	if not key:
+		return data
+	totals = [r for r in data if r.get("bold") or r.get("is_total")]
+	rows = [r for r in data if r not in totals]
+	if flt(f.min_amount):
+		rows = [r for r in rows if flt(r.get(key)) >= flt(f.min_amount)]
+	rows.sort(key=lambda r: -flt(r.get(key)))
+	if cint(f.top_n):
+		rows = rows[: cint(f.top_n)]
+	return rows + totals
 
 
 # ---------------------------------------------------------------- data

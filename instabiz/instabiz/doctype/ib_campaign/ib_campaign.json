@@ -1,0 +1,278 @@
+{
+ "actions": [],
+ "creation": "2026-09-20 14:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "autoname": "field:campaign_name",
+ "naming_rule": "By fieldname",
+ "description": "WhatsApp / email campaign to a chosen group of customers or leads — build the list from filters, send, and see the orders that followed.",
+ "field_order": [
+  "campaign_name",
+  "channel",
+  "status",
+  "cb0",
+  "sent_on",
+  "track_days",
+  "s_msg",
+  "subject",
+  "message",
+  "attachment",
+  "s_aud",
+  "audience",
+  "territory",
+  "customer_group",
+  "sales_person",
+  "cb1",
+  "no_order_days",
+  "ordered_within_days",
+  "bought_item_group",
+  "with_outstanding",
+  "cb2",
+  "lead_source",
+  "lead_status",
+  "s_rec",
+  "recipients",
+  "s_res",
+  "total_recipients",
+  "sent_count",
+  "cb3",
+  "orders_after",
+  "order_value_after"
+ ],
+ "fields": [
+  {
+   "fieldname": "campaign_name",
+   "fieldtype": "Data",
+   "label": "Campaign",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "channel",
+   "fieldtype": "Select",
+   "label": "Channel",
+   "options": "WhatsApp\nEmail\nWhatsApp + Email",
+   "default": "WhatsApp",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nSending\nSent",
+   "default": "Draft",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "cb0",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sent_on",
+   "fieldtype": "Date",
+   "label": "Sent On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "track_days",
+   "fieldtype": "Int",
+   "label": "Count orders within (days)",
+   "default": "30"
+  },
+  {
+   "fieldname": "s_msg",
+   "fieldtype": "Section Break",
+   "label": "Message"
+  },
+  {
+   "fieldname": "subject",
+   "fieldtype": "Data",
+   "label": "Email Subject",
+   "depends_on": "eval:doc.channel!='WhatsApp'"
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Text",
+   "label": "Message",
+   "reqd": 1,
+   "description": "Use {name}, {first_name}, {sales_person}, {sales_person_phone}, {last_order_date}, {outstanding}."
+  },
+  {
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "label": "Attachment (price list / brochure)",
+   "description": "Sent as a link."
+  },
+  {
+   "fieldname": "s_aud",
+   "fieldtype": "Section Break",
+   "label": "Who gets it"
+  },
+  {
+   "fieldname": "audience",
+   "fieldtype": "Select",
+   "label": "Send To",
+   "options": "Customers\nLeads\nCustomers + Leads",
+   "default": "Customers"
+  },
+  {
+   "fieldname": "territory",
+   "fieldtype": "Link",
+   "label": "State",
+   "options": "Territory"
+  },
+  {
+   "fieldname": "customer_group",
+   "fieldtype": "Link",
+   "label": "Customer Group",
+   "options": "Customer Group"
+  },
+  {
+   "fieldname": "sales_person",
+   "fieldtype": "Link",
+   "label": "Sales Person",
+   "options": "User"
+  },
+  {
+   "fieldname": "cb1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "no_order_days",
+   "fieldtype": "Int",
+   "label": "No order in the last (days)",
+   "description": "e.g. 90 = customers gone quiet."
+  },
+  {
+   "fieldname": "ordered_within_days",
+   "fieldtype": "Int",
+   "label": "Ordered in the last (days)"
+  },
+  {
+   "fieldname": "bought_item_group",
+   "fieldtype": "Link",
+   "label": "Has bought (item group)",
+   "options": "Item Group"
+  },
+  {
+   "fieldname": "with_outstanding",
+   "fieldtype": "Check",
+   "label": "Only customers with dues"
+  },
+  {
+   "fieldname": "cb2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "lead_source",
+   "fieldtype": "Link",
+   "label": "Lead Source",
+   "options": "Lead Source",
+   "depends_on": "eval:doc.audience!='Customers'"
+  },
+  {
+   "fieldname": "lead_status",
+   "fieldtype": "Select",
+   "label": "Lead Status",
+   "options": "\nCold Lead\nHot Lead\nContacted\nQualified\nProposal\nNegotiation",
+   "depends_on": "eval:doc.audience!='Customers'"
+  },
+  {
+   "fieldname": "s_rec",
+   "fieldtype": "Section Break",
+   "label": "Recipients"
+  },
+  {
+   "fieldname": "recipients",
+   "fieldtype": "Table",
+   "label": "Recipients",
+   "options": "IB Campaign Recipient"
+  },
+  {
+   "fieldname": "s_res",
+   "fieldtype": "Section Break",
+   "label": "Results",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "total_recipients",
+   "fieldtype": "Int",
+   "label": "Recipients",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sent_count",
+   "fieldtype": "Int",
+   "label": "Sent",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "orders_after",
+   "fieldtype": "Int",
+   "label": "Orders after",
+   "read_only": 1
+  },
+  {
+   "fieldname": "order_value_after",
+   "fieldtype": "Currency",
+   "label": "Order value after",
+   "read_only": 1
+  }
+ ],
+ "istable": 0,
+ "links": [],
+ "modified": "2026-09-20 14:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Instabiz",
+ "name": "IB Campaign",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 1,
+   "report": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 1,
+   "report": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "share": 1,
+   "export": 1,
+   "report": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "title_field": "campaign_name"
+}

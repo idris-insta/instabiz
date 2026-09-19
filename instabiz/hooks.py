@@ -172,6 +172,8 @@ after_migrate = [
     "instabiz.overrides.checkin.after_migrate",  # selfie + office distance on Employee Checkin
     "instabiz.overrides.branch_transfer.after_migrate",  # Stock Entry.custom_final_warehouse
     "instabiz.instabiz.doctype.ib_employee_loan.ib_employee_loan.after_migrate",  # "Loan Recovery" salary component
+    "instabiz.overrides.dimensions.after_migrate",  # Branch + Department accounting dimensions, branch masters
+    "instabiz.overrides.approvals.after_migrate",  # approval fields on Journal Entry / Payment Entry
     "instabiz.overrides.workspace_merge.merge_modules",  # one tab per module (Instabiz + ERPNext)
 ]
 
@@ -309,7 +311,14 @@ override_doctype_class = {
 # ── Server-side doc events ────────────────────────────────────────────────────
 # REMOVED: recalculate_* hooks — already handled inside the override classes
 # above. Keeping them here caused double execution on every validate.
+# Branch / Department accounting dimensions also on these custom accounting doctypes
+accounting_dimension_doctypes = ["IB Expense", "IB Credit Note", "IB Credit Note Item", "IB Debit Note", "IB Debit Note Item"]
+
 doc_events = {
+    "*": {
+        # Branch dimension filled from the document's location / warehouse
+        "validate": "instabiz.overrides.dimensions.set_branch",
+    },
     "User": {
         "after_insert": [
             "instabiz.overrides.user.create_sales_person_for_user",
@@ -385,10 +394,14 @@ doc_events = {
     "Purchase Invoice": {
         "validate": "instabiz.overrides.duplicate_check.warn_purchase_invoice",  # possible duplicate bill (warning only)
     },
+    "Journal Entry": {
+        "before_submit": "instabiz.overrides.approvals.check_before_submit",  # maker / checker
+    },
     "Payment Entry": {
         "validate":      ["instabiz.overrides.payment_entry.enforce_sales_user_own_customer",
                           "instabiz.overrides.duplicate_check.warn_payment_entry"],
-        "before_submit": "instabiz.overrides.payment_entry.before_submit",
+        "before_submit": ["instabiz.overrides.payment_entry.before_submit",
+                          "instabiz.overrides.approvals.check_before_submit"],
         "on_submit":     "instabiz.overrides.payment_entry.on_submit",
         "on_cancel":     "instabiz.overrides.payment_entry.on_cancel",
     },

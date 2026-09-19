@@ -35,6 +35,30 @@
 		},
 	});
 
+	["Journal Entry", "Payment Entry"].forEach((dt) => {
+		frappe.ui.form.on(dt, {
+			refresh(frm) {
+				const st = frm.doc.custom_approval_status;
+				if (st) frm.dashboard.add_indicator(__("Approval: {0}", [__(st)]), st === "Approved" ? "green" : st === "Rejected" ? "red" : "orange");
+				if (frm.doc.custom_approval_note) frm.dashboard.set_headline(__("Approver: {0}", [frappe.utils.escape_html(frm.doc.custom_approval_note)]));
+				if (frm.doc.docstatus !== 0 || frm.is_new()) return;
+				if (st !== "Pending") {
+					frm.add_custom_button(__("Send for Approval"), () =>
+						frappe.call("instabiz.overrides.approvals.send_for_approval", { doctype: dt, name: frm.doc.name })
+							.then(() => frm.reload_doc()));
+				} else if (frappe.user.has_role(["Accounts Manager", "System Manager"])) {
+					frm.add_custom_button(__("Approve"), () =>
+						frappe.call("instabiz.overrides.approvals.decide", { doctype: dt, name: frm.doc.name, approve: 1 })
+							.then(() => frm.reload_doc())).addClass("btn-primary");
+					frm.add_custom_button(__("Reject"), () =>
+						frappe.prompt({ fieldtype: "Small Text", fieldname: "note", label: __("Reason"), reqd: 1 }, (v) =>
+							frappe.call("instabiz.overrides.approvals.decide", { doctype: dt, name: frm.doc.name, approve: 0, note: v.note })
+								.then(() => frm.reload_doc())));
+				}
+			},
+		});
+	});
+
 	frappe.ui.form.on("Item", {
 		refresh(frm) {
 			if (frm.is_new()) return;

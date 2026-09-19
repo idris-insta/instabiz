@@ -43,11 +43,15 @@ def _own(doctype, name, customer):
 
 
 def _outstanding(customer):
+	from instabiz.overrides.ib_status import stored_statuses
+
 	if is_dev_billing_mode():
-		expr, cond = "(grand_total - IFNULL(custom_advance_paid, 0))", "docstatus = 1 AND per_billed < 100 AND status NOT IN ('Closed', 'Cancelled')"
+		expr = "GREATEST(grand_total - IFNULL(custom_advance_paid, 0), 0)"
+		cond = "docstatus = 1 AND per_billed < 100 AND status NOT IN %(closed)s"
 	else:
 		expr, cond = "outstanding_amount", "docstatus = 1 AND outstanding_amount > 0"
-	val = frappe.db.sql(f"SELECT IFNULL(SUM({expr}), 0) FROM `tab{sales_doctype()}` WHERE customer = %s AND {cond}", customer)
+	val = frappe.db.sql(f"SELECT IFNULL(SUM({expr}), 0) FROM `tab{sales_doctype()}` WHERE customer = %(c)s AND {cond}",
+		{"c": customer, "closed": stored_statuses("Sales Order", "Closed", "Completed")})
 	return flt(val[0][0])
 
 

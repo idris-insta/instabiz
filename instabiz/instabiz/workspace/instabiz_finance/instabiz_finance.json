@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"fin-h0\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Dashboards</b></span>\",\"col\":12}},{\"id\":\"fin-fd\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Finance Dashboard\",\"col\":3}},{\"id\":\"fin-col\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Collections\",\"col\":3}},{\"id\":\"fin-analytics-hub\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Analytics Hub\",\"col\":3}},{\"id\":\"fu-shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Follow-Ups\",\"col\":3}},{\"id\":\"fin-h1\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>TRANSACTIONS</b></span>\",\"col\":12}},{\"id\":\"fin-bi\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Bank Import\",\"col\":3}},{\"id\":\"fin-pe\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Payment Entry\",\"col\":3}},{\"id\":\"fin-pdc\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"PDC Cheques\",\"col\":3}},{\"id\":\"fin-cn\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Credit Note\",\"col\":3}},{\"id\":\"fin-sinv\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Sales Invoice\",\"col\":3}},{\"id\":\"fin-bank-recon-tool\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Bank Reconciliation Tool\",\"col\":3}},{\"id\":\"fin-advance-approvals\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Advance Approvals\",\"col\":3}},{\"id\":\"640eb1ac2f\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Journal Entry\",\"col\":3}},{\"id\":\"fin-expense\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Company Expense\",\"col\":3}},{\"id\":\"fin-h2\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>REPORTS</b></span>\",\"col\":12}},{\"id\":\"fin-rar\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"AR Aging\",\"col\":3}},{\"id\":\"fin-cf\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cash Flow\",\"col\":3}},{\"id\":\"fin-br\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Bank Recon\",\"col\":3}},{\"id\":\"fin-colr\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Collections Report\",\"col\":3}},{\"id\":\"fin-crn\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Credit Notes\",\"col\":3}},{\"id\":\"fin-cust-ledger\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Customer Ledger Summary\",\"col\":3}},{\"id\":\"69a0a1af3a\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Party Outstanding Summary\",\"col\":3}},{\"id\":\"d22ed49ac2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"General Ledger\",\"col\":3}},{\"id\":\"cd1602ce77\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Trial Balance\",\"col\":3}},{\"id\":\"f7935cd158\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Accounts Dashboard\",\"col\":3}},{\"id\":\"ibzt9clbvw\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Business Report (OTDS)\",\"col\":3}},{\"id\":\"ib5c7v98rx\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Party Ledger\",\"col\":3}},{\"id\":\"ibzuubouol\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Day Book\",\"col\":3}},{\"id\":\"ibmp8p7xz4\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Tally Export\",\"col\":3}},{\"id\":\"ib5bnr0s8u\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Budget vs Actual\",\"col\":3}},{\"id\":\"ib15wx5b6j\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Budgets\",\"col\":3}},{\"id\":\"ibvahoewea\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Duplicate Check\",\"col\":3}},{\"id\":\"ibzb9jvp3p\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Employee Loans\",\"col\":3}},{\"id\":\"ibpo9d9lft\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Bank Payment File\",\"col\":3}},{\"id\":\"ibdd8jp17x\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Tally Ledger Names\",\"col\":3}},{\"id\":\"ib9jaapkl1\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Collections Priority\",\"col\":3}},{\"id\":\"iby0oeci6a\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Incentive Statement\",\"col\":3}},{\"id\":\"ibnidwfdzr\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Price Realisation\",\"col\":3}},{\"id\":\"fin-h3\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>HELP &amp; KNOWLEDGE BASE</b></span>\",\"col\":12}},{\"id\":\"fin-kb\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Knowledge Base\",\"col\":3}},{\"id\":\"ai-h\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>MASTERS</b></span>\",\"col\":12}},{\"id\":\"fin-coa\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Chart of Accounts\",\"col\":3}},{\"id\":\"fin-cc\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cost Center\",\"col\":3}},{\"id\":\"ibzndhsnmc\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Financial Year\",\"col\":3}},{\"id\":\"ibducwrvgc\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"GST Inbox (IMS)\",\"col\":3}},{\"id\":\"ibla6coajl\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"GSTR-2B Reconciliation\",\"col\":3}},{\"id\":\"ibfb2x91rc\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Scan Purchase Bill\",\"col\":3}},{\"id\":\"ibfm7tdecw\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Accounts Settings (Instabiz)\",\"col\":3}},{\"id\":\"ibbbchzed4\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Print Settings (Instabiz)\",\"col\":3}}]",
+ "content": "[{\"id\":\"ibpendcard\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Pending Approvals\",\"col\":3}},{\"id\":\"ibpendshort\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pending Approvals\",\"col\":3}},{\"id\":\"fin-h0\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Dashboards</b></span>\",\"col\":12}},{\"id\":\"fin-fd\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Finance Dashboard\",\"col\":3}},{\"id\":\"fin-col\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Collections\",\"col\":3}},{\"id\":\"fin-analytics-hub\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Analytics Hub\",\"col\":3}},{\"id\":\"fu-shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Follow-Ups\",\"col\":3}},{\"id\":\"fin-h1\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>TRANSACTIONS</b></span>\",\"col\":12}},{\"id\":\"fin-bi\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Bank Import\",\"col\":3}},{\"id\":\"fin-pe\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Payment Entry\",\"col\":3}},{\"id\":\"fin-pdc\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"PDC Cheques\",\"col\":3}},{\"id\":\"fin-cn\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Credit Note\",\"col\":3}},{\"id\":\"fin-sinv\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Sales Invoice\",\"col\":3}},{\"id\":\"fin-bank-recon-tool\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Bank Reconciliation Tool\",\"col\":3}},{\"id\":\"fin-advance-approvals\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Advance Approvals\",\"col\":3}},{\"id\":\"640eb1ac2f\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Journal Entry\",\"col\":3}},{\"id\":\"fin-expense\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Company Expense\",\"col\":3}},{\"id\":\"fin-h2\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>REPORTS</b></span>\",\"col\":12}},{\"id\":\"fin-rar\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"AR Aging\",\"col\":3}},{\"id\":\"fin-cf\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cash Flow\",\"col\":3}},{\"id\":\"fin-br\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Bank Recon\",\"col\":3}},{\"id\":\"fin-colr\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Collections Report\",\"col\":3}},{\"id\":\"fin-crn\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Credit Notes\",\"col\":3}},{\"id\":\"fin-cust-ledger\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Customer Ledger Summary\",\"col\":3}},{\"id\":\"69a0a1af3a\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Party Outstanding Summary\",\"col\":3}},{\"id\":\"d22ed49ac2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"General Ledger\",\"col\":3}},{\"id\":\"cd1602ce77\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Trial Balance\",\"col\":3}},{\"id\":\"f7935cd158\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Accounts Dashboard\",\"col\":3}},{\"id\":\"ibzt9clbvw\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Business Report (OTDS)\",\"col\":3}},{\"id\":\"ib5c7v98rx\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Party Ledger\",\"col\":3}},{\"id\":\"ibzuubouol\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Day Book\",\"col\":3}},{\"id\":\"ibmp8p7xz4\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Tally Export\",\"col\":3}},{\"id\":\"ib5bnr0s8u\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Budget vs Actual\",\"col\":3}},{\"id\":\"ib1k77l0if\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Payment Register\",\"col\":3}},{\"id\":\"ib993y7rra\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cash Forecast\",\"col\":3}},{\"id\":\"iboqpykkhv\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Dormant Accounts\",\"col\":3}},{\"id\":\"ib15wx5b6j\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Budgets\",\"col\":3}},{\"id\":\"ibvahoewea\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Duplicate Check\",\"col\":3}},{\"id\":\"ibzb9jvp3p\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Employee Loans\",\"col\":3}},{\"id\":\"ibpo9d9lft\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Bank Payment File\",\"col\":3}},{\"id\":\"ibdd8jp17x\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Tally Ledger Names\",\"col\":3}},{\"id\":\"ib9jaapkl1\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Collections Priority\",\"col\":3}},{\"id\":\"iby0oeci6a\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Incentive Statement\",\"col\":3}},{\"id\":\"ibnidwfdzr\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Price Realisation\",\"col\":3}},{\"id\":\"fin-h3\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>HELP &amp; KNOWLEDGE BASE</b></span>\",\"col\":12}},{\"id\":\"fin-kb\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Knowledge Base\",\"col\":3}},{\"id\":\"ai-h\",\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>MASTERS</b></span>\",\"col\":12}},{\"id\":\"fin-coa\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Chart of Accounts\",\"col\":3}},{\"id\":\"fin-cc\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cost Center\",\"col\":3}},{\"id\":\"ibzndhsnmc\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Financial Year\",\"col\":3}},{\"id\":\"ibducwrvgc\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"GST Inbox (IMS)\",\"col\":3}},{\"id\":\"ibla6coajl\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"GSTR-2B Reconciliation\",\"col\":3}},{\"id\":\"ibfb2x91rc\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Scan Purchase Bill\",\"col\":3}},{\"id\":\"ibfm7tdecw\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Accounts Settings (Instabiz)\",\"col\":3}},{\"id\":\"ibbbchzed4\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Print Settings (Instabiz)\",\"col\":3}}]",
  "creation": "2026-08-11 02:00:04.067802",
  "custom_blocks": [],
  "docstatus": 0,
@@ -11,11 +11,16 @@
  "is_hidden": 0,
  "label": "Instabiz Finance",
  "links": [],
- "modified": "2026-09-20 12:00:00.000000",
+ "modified": "2026-09-20 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "Instabiz Finance",
- "number_cards": [],
+ "number_cards": [
+  {
+   "label": "Pending Approvals",
+   "number_card_name": "Pending Approvals"
+  }
+ ],
  "owner": "Administrator",
  "parent_page": "",
  "public": 1,
@@ -372,6 +377,38 @@
    "label": "Employee Loans",
    "link_to": "IB Employee Loan",
    "type": "DocType"
+  },
+  {
+   "color": "Orange",
+   "doc_view": "",
+   "label": "Pending Approvals",
+   "link_to": "IB Pending Approvals",
+   "type": "Report",
+   "report_ref_doctype": "Journal Entry"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Payment Register",
+   "link_to": "IB Payment Register",
+   "type": "Report",
+   "report_ref_doctype": "Payment Entry"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Cash Forecast",
+   "link_to": "IB Cash Forecast",
+   "type": "Report",
+   "report_ref_doctype": "GL Entry"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Dormant Accounts",
+   "link_to": "IB Dormant Accounts",
+   "type": "Report",
+   "report_ref_doctype": "GL Entry"
   }
  ],
  "title": "Instabiz Finance"
