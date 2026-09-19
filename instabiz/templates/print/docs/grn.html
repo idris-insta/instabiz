@@ -1,0 +1,28 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none", layout=(ib_layout if ib_layout is defined else None)) %}
+{% set rows = [] %}
+{% set ns = namespace(rec=0, acc=0, rej=0) %}
+{% for r in doc.items %}
+  {% set ns.rec = ns.rec + (r.received_qty or r.qty or 0) %}{% set ns.acc = ns.acc + (r.qty or 0) %}{% set ns.rej = ns.rej + (r.rejected_qty or 0) %}
+  {% set _ = rows.append([loop.index ~ ".", "<div class='nm'>" ~ (r.item_name or r.item_code) ~ "</div><div class='sub'>" ~ r.item_code ~ "</div>",
+    "%g" | format(r.received_qty or r.qty or 0), "%g" | format(r.qty or 0), "%g" | format(r.rejected_qty or 0), r.uom or "", r.warehouse or "", r.batch_no or r.get("custom_supplier_lot") or ""]) %}
+{% endfor %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head("Goods Receipt Note",
+	[["Supplier", p.party.name], ["GST no", p.party.gstin], ["Address", (p.party.bill.lines | join(", ")) if p.party.bill else ""]],
+	[["GRN no", doc.name], ["Date", ib_date(doc.posting_date)], ["Supplier invoice", doc.get("supplier_delivery_note") or doc.get("bill_no")], ["Location", doc.get("custom_location")]],
+	[["#Transport", ""], ["Transporter", doc.get("transporter_name")], ["LR no", doc.get("lr_no")], ["Vehicle no", doc.get("vehicle_no")]]) }}
+{{ ib.grid([["#", "4%"], ["Item", "34%"], ["Received", "10%", "r"], ["Accepted", "10%", "r"], ["Rejected", "10%", "r"], ["UOM", "7%"], ["Warehouse", "15%"], ["Batch / lot", "10%"]],
+	rows, ["", "Total", "%g" | format(ns.rec), "%g" | format(ns.acc), "%g" | format(ns.rej), "", "", ""]) }}
+{% if doc.remarks %}<div class="words"><span class="lbl">Remarks :</span> {{ doc.remarks }}</div>{% endif %}
+</div>
+<table class="sign"><tr>
+  <td style="width:33%"><div style="height:45px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Received by (stores)</div></td>
+  <td style="width:34%"><div style="height:45px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Checked by (quality)</div></td>
+  <td style="width:33%" class="r"><div class="lbl">For {{ p.seller.name }}</div><div style="height:30px"></div><div class="lbl">Authorised signatory</div></td>
+</tr></table>
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

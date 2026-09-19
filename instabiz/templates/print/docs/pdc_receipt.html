@@ -1,0 +1,19 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none", layout=(ib_layout if ib_layout is defined else None)) %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head("Post-dated Cheque Receipt",
+	[["Received from", doc.customer_name or doc.customer]],
+	[["Receipt no", doc.name], ["Received on", ib_date(doc.received_date)], ["Against invoice", doc.sales_invoice]],
+	[["#Cheque", ""], ["Cheque no", doc.cheque_no], ["Cheque date", ib_date(doc.cheque_date)], ["Bank", doc.bank_name], ["Status", doc.status]]) }}
+<table class="sum"><tr>
+  <td class="left" style="width:55%">Received the above cheque, subject to realisation on its date.{% if doc.notes %}<div class="muted">{{ doc.notes }}</div>{% endif %}</td>
+  <td style="width:45%;padding:0"><table class="totals"><tr class="net"><td>Amount (INR):</td><td class="r">{{ "%.2f" | format(doc.amount) }}</td></tr></table></td>
+</tr></table>
+<div class="words"><span class="lbl">Amount (in words) :</span> {{ ib_words(doc.amount) }}</div>
+</div>
+{{ ib.sign_block(p) }}
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

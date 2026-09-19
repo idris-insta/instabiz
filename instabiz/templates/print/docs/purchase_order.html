@@ -1,0 +1,19 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, layout=(ib_layout if ib_layout is defined else None)) %}
+{% set cur = doc.currency or "INR" %}
+{% set lines = ib_items(doc) %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head("Purchase Order",
+	[["Supplier", p.party.name], ["GST no", p.party.gstin], ["Address", (p.party.bill.lines | join(", ")) if p.party.bill else ""], ["Contact", doc.get("contact_display")], ["Contact no", doc.get("contact_mobile")]],
+	[["PO no", doc.name], ["Date", ib_date(doc.transaction_date)], ["Required by", ib_date(doc.schedule_date)], ["Location", doc.get("custom_location")], ["Deliver to", doc.set_warehouse]],
+	[["#Terms", ""], ["Payment terms", doc.payment_terms_template], ["Freight", doc.get("custom_freight_terms")], ["Quotation ref", doc.get("supplier_quotation") or doc.get("custom_supplier_ref")]]) }}
+{{ ib.item_grid(lines, cur, gst_label=ib_gst_label(lines)) }}
+{{ ib.totals_block(ib_totals(doc), cur, "<span class='lbl'>Please quote " ~ doc.name ~ " on your invoice, challan and every package.</span>") }}
+</div>
+{{ ib.terms_block(p, "Purchase terms") }}
+{{ ib.sign_block(p) }}
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

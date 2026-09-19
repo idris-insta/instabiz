@@ -91,5 +91,9 @@
  "promise_open_order_days": "IB Sales Settings",
  "reco_tolerance_pct": "IB Stock Settings",
  "reco_ready_days": "IB Stock Settings",
- "reco_notify": "IB Stock Settings"
+ "reco_notify": "IB Stock Settings",
+ "print_default_layout": "IB Print Settings",
+ "invoice_copies": "IB Print Settings",
+ "upi_id": "IB Print Settings",
+ "upi_payee_name": "IB Print Settings"
 }

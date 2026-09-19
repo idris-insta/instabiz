@@ -466,8 +466,13 @@ def statement(customer, from_date=None, to_date=None):
 
 # ── the one jinja entry point ──────────────────────────────────────────────────
 
-def ib_print(doc, kind=None):
-	"""Everything a print format needs, as one dict."""
+LAYOUTS = ("classic", "modern", "compact")
+
+
+def ib_print(doc, kind=None, layout=None):
+	"""Everything a print format needs, as one dict. layout: classic / modern / compact
+	(the print format picks it; else IB Print Settings default layout)."""
+	layout = (layout or get("print_default_layout", "Classic") or "Classic").lower()
 	accent = get("print_accent_color", "#c0392b") or "#c0392b"
 	s = seller(doc)
 	note = get("print_footer_note", "")
@@ -489,6 +494,10 @@ def ib_print(doc, kind=None):
 		sales_person=sales_person(doc),
 		is_draft=bool(doc.meta.is_submittable) and doc.docstatus == 0,
 		is_cancelled=doc.docstatus == 2,
+		layout=layout if layout in LAYOUTS else "classic",
+		upi=upi(doc, kind),
+		copies=copies(doc),
+		einvoice=einvoice(doc),
 	)
 
 
@@ -529,3 +538,168 @@ def ib_gst_label(lines):
 	"""Heading for the GST column: 'GST (18%)' when every line has one rate."""
 	rates = {round(line.gst_rate, 2) for line in lines if line.gst_rate}
 	return f"GST ({next(iter(rates)):g}%)" if len(rates) == 1 else "GST"
+
+
+# ── payment QR, copies, e-invoice ──────────────────────────────────────────────
+
+_UPI_DOCS = ("Sales Invoice", "Sales Order", "Customer")
+
+
+def _amount_due(doc, kind=None):
+	if doc.doctype == "Sales Invoice":
+		return flt(doc.outstanding_amount if doc.docstatus == 1 else (doc.rounded_total or doc.grand_total))
+	if doc.doctype == "Sales Order":
+		total = flt(doc.get("custom_total_with_gst")) or flt(doc.rounded_total or doc.grand_total)
+		return max(total - flt(doc.get("custom_advance_paid")), 0)
+	if doc.doctype == "Customer":
+		try:
+			return max(flt(statement(doc.name).closing), 0)
+		except Exception:
+			return 0
+	return 0
+
+
+def upi(doc, kind=None):
+	"""UPI payment QR (Zoho / Vyapar style) for what the customer owes on this document.
+	Only when IB Print Settings has a UPI ID and there is something to pay."""
+	upi_id = (get("upi_id", "") or "").strip()
+	if not upi_id or doc.doctype not in _UPI_DOCS or doc.get("docstatus") == 2:
+		return None
+	amount = flt(_amount_due(doc, kind), 2)
+	if amount <= 0:
+		return None
+	from urllib.parse import quote
+
+	payee = get("upi_payee_name", "") or doc.get("company") or frappe.defaults.get_global_default("company") or ""
+	note = doc.name if doc.doctype != "Customer" else "Statement"
+	url = f"upi://pay?pa={quote(upi_id)}&pn={quote(payee)}&am={amount:.2f}&cu=INR&tn={quote(note)}"
+	try:
+		import pyqrcode
+
+		qr = pyqrcode.create(url).png_as_base64_str(scale=4)
+	except Exception:
+		return None
+	return frappe._dict(id=upi_id, amount=amount, qr=f"data:image/png;base64,{qr}", payee=payee)
+
+
+def copies(doc):
+	"""Copy labels for GST invoices (Rule 48): one page set per label."""
+	if doc.doctype != "Sales Invoice":
+		return [None]
+	setting = get("invoice_copies", "Original") or "Original"
+	labels = {"Original": ["Original for Recipient"],
+		"Original + Duplicate": ["Original for Recipient", "Duplicate for Transporter"],
+		"Original + Duplicate + Triplicate": ["Original for Recipient", "Duplicate for Transporter",
+			"Triplicate for Supplier"]}
+	return labels.get(setting, ["Original for Recipient"])
+
+
+def einvoice(doc):
+	"""IRN / acknowledgement / signed QR of a Sales Invoice, when e-invoiced."""
+	if doc.doctype != "Sales Invoice":
+		return None
+	log = None
+	if frappe.db.exists("DocType", "e-Invoice Log"):
+		log = frappe.db.get_value("e-Invoice Log", {"reference_doctype": "Sales Invoice", "reference_name": doc.name},
+			["irn", "signed_qr_code", "acknowledgement_number", "acknowledged_on"], as_dict=True, order_by="creation desc")
+	irn = (log.irn if log else None) or doc.get("irn")
+	if not irn:
+		return None
+	qr = None
+	if log and log.signed_qr_code:
+		try:
+			import pyqrcode
+
+			qr = "data:image/png;base64," + pyqrcode.create(log.signed_qr_code).png_as_base64_str(scale=2)
+		except Exception:
+			qr = None
+	ewb = doc.get("ewaybill") or ""
+	return frappe._dict(irn=irn, ack_no=log.acknowledgement_number if log else "",
+		ack_date=log.acknowledged_on if log else None, qr=qr, ewaybill=ewb)
+
+
+# ── lines for non-sales documents ─────────────────────────────────────────────
+
+def _item_name(code):
+	return frappe.get_cached_value("Item", code, "item_name") if code else ""
+
+
+def stock_lines(doc):
+	out = []
+	for i, r in enumerate(doc.get("items") or [], start=1):
+		out.append(frappe._dict(idx=i, row=r, item_code=r.item_code, item_name=r.item_name or r.item_code,
+			spec=item_spec(r), source=r.s_warehouse or "", target=r.t_warehouse or "", qty=flt(r.qty),
+			uom=r.uom or r.stock_uom, batch=r.get("batch_no") or "", rate=flt(r.basic_rate), amount=flt(r.amount)))
+	return out
+
+
+def request_lines(doc):
+	out = []
+	for i, r in enumerate(doc.get("items") or [], start=1):
+		out.append(frappe._dict(idx=i, row=r, item_code=r.item_code, item_name=r.item_name or r.item_code,
+			spec=item_spec(r), qty=flt(r.qty), uom=r.uom, warehouse=r.warehouse or "",
+			needed_by=r.get("schedule_date"), ordered=flt(r.get("ordered_qty"))))
+	return out
+
+
+def journal_lines(doc):
+	out = []
+	for i, r in enumerate(doc.get("accounts") or [], start=1):
+		party = f"{r.party_type}: {r.party}" if r.get("party") else ""
+		ref = f"{r.reference_type} {r.reference_name}" if r.get("reference_name") else ""
+		out.append(frappe._dict(idx=i, account=r.account, party=party, reference=ref,
+			cost_center=r.get("cost_center") or "", debit=flt(r.debit_in_account_currency),
+			credit=flt(r.credit_in_account_currency), remark=r.get("user_remark") or ""))
+	return out
+
+
+def gate_lines(doc):
+	out = []
+	for i, r in enumerate(doc.get("items") or [], start=1):
+		out.append(frappe._dict(idx=i, item_code=r.item_code or "", item_name=_item_name(r.item_code) or r.item_code or "",
+			description=r.get("description") or "", qty=flt(r.qty), uom=r.uom or "", packages=flt(r.get("packages")),
+			returned=flt(r.get("returned_qty")), remarks=r.get("remarks") or ""))
+	return out
+
+
+def payment_refs(doc):
+	return [frappe._dict(idx=i, doctype=r.reference_doctype, name=r.reference_name,
+		total=flt(r.total_amount), outstanding=flt(r.outstanding_amount), allocated=flt(r.allocated_amount))
+		for i, r in enumerate(doc.get("references") or [], start=1)]
+
+
+def note_totals(doc):
+	"""Totals for IB Credit / Debit Note (tax is one figure, no tax rows)."""
+	grand = flt(doc.grand_total)
+	return frappe._dict(total=flt(doc.total), discount=0, net=flt(doc.total), extra=0, rounding=0,
+		taxes=[frappe._dict(description=doc.taxes_and_charges or frappe._("GST"), rate=0,
+			tax_amount=flt(doc.total_taxes_and_charges))] if flt(doc.total_taxes_and_charges) else [],
+		grand=grand, words=money_in_words(grand, "INR"), advance=0, total_qty=0)
+
+
+def ib_stock_lines(doc):
+	return stock_lines(doc)
+
+
+def ib_request_lines(doc):
+	return request_lines(doc)
+
+
+def ib_journal_lines(doc):
+	return journal_lines(doc)
+
+
+def ib_gate_lines(doc):
+	return gate_lines(doc)
+
+
+def ib_payment_refs(doc):
+	return payment_refs(doc)
+
+
+def ib_note_totals(doc):
+	return note_totals(doc)
+
+
+def ib_words(amount, currency="INR"):
+	return money_in_words(flt(amount), currency or "INR")

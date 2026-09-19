@@ -1,0 +1,34 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none", layout=(ib_layout if ib_layout is defined else None)) %}
+{% set titles = {"Material Transfer": "Stock Transfer Note", "Material Receipt": "Material Receipt Note", "Material Issue": "Material Issue Note",
+	"Repack": "Production / Repack Note", "Manufacture": "Production Note", "Send to Subcontractor": "Job Work Challan"} %}
+{% set show_value = doc.purpose in ("Material Receipt", "Repack", "Manufacture") %}
+{% set rows = [] %}
+{% set ns = namespace(qty=0, val=0) %}
+{% for l in ib_stock_lines(doc) %}
+  {% set ns.qty = ns.qty + l.qty %}{% set ns.val = ns.val + l.amount %}
+  {% set it %}<div class="nm">{{ l.item_name }}</div><div class="sub">{{ l.item_code }}{% if l.spec %} · {{ l.spec }}{% endif %}</div>{% endset %}
+  {% set row = [l.idx ~ ".", it, l.source, l.target, "%g" | format(l.qty), l.uom, l.batch] %}
+  {% if show_value %}{% set row = row + ["%.2f" | format(l.rate), "%.2f" | format(l.amount)] %}{% endif %}
+  {% set _ = rows.append(row) %}
+{% endfor %}
+{% set cols = [["#", "4%"], ["Item", "32%" if show_value else "40%"], ["From", "13%"], ["To", "13%"], ["Qty", "8%", "r"], ["UOM", "6%"], ["Batch", "10%"]] %}
+{% set foot = ["", "Total", "", "", "%g" | format(ns.qty), "", ""] %}
+{% if show_value %}{% set cols = cols + [["Rate", "7%", "r"], ["Value", "9%", "r"]] %}{% set foot = foot + ["", "%.2f" | format(ns.val)] %}{% endif %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head(titles.get(doc.purpose, doc.stock_entry_type or "Stock Entry"),
+	[["Entry no", doc.name], ["Date", ib_date(doc.posting_date)], ["Type", doc.stock_entry_type]],
+	[["From", doc.from_warehouse], ["To", doc.to_warehouse or doc.get("custom_final_warehouse")], ["In transit", "Yes" if doc.add_to_transit else ""]],
+	[["#Reference", ""], ["Work order", doc.get("work_order")], ["Material request", (doc.items[0].material_request if doc.items else "")], ["Remarks", doc.remarks]]) }}
+{{ ib.grid(cols, rows, foot) }}
+</div>
+<table class="sign"><tr>
+  <td style="width:33%"><div style="height:40px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Issued by</div></td>
+  <td style="width:34%"><div style="height:40px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Received by</div></td>
+  <td style="width:33%" class="r"><div class="lbl">For {{ p.seller.name }}</div><div style="height:28px"></div><div class="lbl">Authorised signatory</div></td>
+</tr></table>
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

@@ -1,0 +1,19 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none", layout=(ib_layout if ib_layout is defined else None)) %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head("Expense Voucher",
+	[["Paid to", doc.paid_to], ["Expense head", doc.expense_account], ["Location", doc.location]],
+	[["Voucher no", doc.name], ["Date", ib_date(doc.posting_date)], ["Status", doc.payment_status]],
+	[["#Payment", ""], ["Mode", doc.mode_of_payment], ["Payable account", doc.payable_account if doc.payment_status == "Unpaid" else ""]]) }}
+<table class="sum"><tr>
+  <td class="left" style="width:55%"><div class="lbl">Towards</div><div>{{ doc.description or "" }}</div>{% if doc.remarks %}<div class="muted">{{ doc.remarks }}</div>{% endif %}</td>
+  <td style="width:45%;padding:0"><table class="totals"><tr class="net"><td>Amount (INR):</td><td class="r">{{ "%.2f" | format(doc.amount) }}</td></tr></table></td>
+</tr></table>
+<div class="words"><span class="lbl">Amount (in words) :</span> {{ ib_words(doc.amount) }}</div>
+</div>
+{{ ib.sign_block(p, receiver=True) }}
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

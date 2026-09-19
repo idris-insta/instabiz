@@ -1,0 +1,34 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none", layout=(ib_layout if ib_layout is defined else None)) %}
+{% set returnable = doc.purpose in ("Returnable", "Job Work", "Sample") or doc.expected_return_date %}
+{% set rows = [] %}
+{% set ns = namespace(qty=0, pkg=0) %}
+{% for l in ib_gate_lines(doc) %}
+  {% set ns.qty = ns.qty + l.qty %}{% set ns.pkg = ns.pkg + l.packages %}
+  {% set it %}<div class="nm">{{ l.item_name }}</div>{% if l.description and l.description != l.item_name %}<div class="sub">{{ l.description }}</div>{% endif %}{% endset %}
+  {% set row = [l.idx ~ ".", it, "%g" | format(l.qty), l.uom, "%g" | format(l.packages) if l.packages else ""] %}
+  {% if returnable %}{% set row = row + ["%g" | format(l.returned) if l.returned else ""] %}{% endif %}
+  {% set _ = rows.append(row + [l.remarks]) %}
+{% endfor %}
+{% set cols = [["#", "4%"], ["Item", "44%"], ["Qty", "10%", "r"], ["UOM", "8%"], ["Pkgs", "8%", "r"]] %}
+{% set foot = ["", "Total", "%g" | format(ns.qty), "", "%g" | format(ns.pkg)] %}
+{% if returnable %}{% set cols = cols + [["Returned", "10%", "r"]] %}{% set foot = foot + [""] %}{% endif %}
+{% set cols = cols + [["Remarks", "16%" if returnable else "26%"]] %}{% set foot = foot + [""] %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head((doc.gate_pass_type or "") ~ " Gate Pass" ~ (" — Returnable" if returnable else ""),
+	[[doc.party_type or "Party", doc.party_name or doc.party], ["Purpose", doc.purpose], ["Reference", ((doc.reference_doctype or "") ~ " " ~ (doc.reference_name or "")) if doc.reference_name else ""]],
+	[["Pass no", doc.name], ["Date", ib_date(doc.posting_date)], ["Time", doc.gate_time], ["Location", doc.location], ["Return by", ib_date(doc.expected_return_date) if returnable else ""]],
+	[["#Vehicle", ""], ["Vehicle no", doc.vehicle_no], ["Driver", doc.driver_name], ["Driver mobile", doc.driver_mobile], ["Transporter", doc.transporter], ["LR no", doc.lr_no]]) }}
+{{ ib.grid(cols, rows, foot) }}
+{% if doc.remarks %}<div class="words"><span class="lbl">Remarks :</span> {{ doc.remarks }}</div>{% endif %}
+</div>
+<table class="sign"><tr>
+  <td style="width:33%"><div style="height:40px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Driver</div></td>
+  <td style="width:34%"><div style="height:40px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Security{% if doc.security_name %} — {{ doc.security_name }}{% endif %}</div></td>
+  <td style="width:33%" class="r"><div class="lbl">For {{ p.seller.name }}</div><div style="height:28px"></div><div class="lbl">Authorised signatory</div></td>
+</tr></table>
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

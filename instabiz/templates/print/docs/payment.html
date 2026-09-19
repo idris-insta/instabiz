@@ -1,0 +1,32 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none", layout=(ib_layout if ib_layout is defined else None)) %}
+{% set cur = doc.paid_from_account_currency if doc.payment_type == "Pay" else doc.paid_to_account_currency %}
+{% set amount = doc.paid_amount if doc.payment_type == "Pay" else doc.received_amount %}
+{% set title = "Payment Receipt" if doc.payment_type == "Receive" else ("Payment Voucher" if doc.payment_type == "Pay" else "Transfer Voucher") %}
+{% set refs = ib_payment_refs(doc) %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head(title,
+	[["Received from" if doc.payment_type == "Receive" else "Paid to", p.party.name], ["GST no", p.party.gstin], ["Address", (p.party.bill.lines | join(", ")) if p.party.bill else ""]],
+	[["Voucher no", doc.name], ["Date", ib_date(doc.posting_date)], ["Mode", doc.mode_of_payment], ["Reference no", doc.reference_no], ["Reference date", ib_date(doc.reference_date)]],
+	[["#Accounts", ""], ["Paid from", doc.paid_from], ["Paid to", doc.paid_to], ["Against order", doc.get("custom_advance_for_so")]]) }}
+<table class="sum"><tr>
+  <td class="left" style="width:55%">
+    <div class="lbl">The sum of</div><div style="font-size:11px">{{ ib_words(amount, cur) }}</div>
+    {% if doc.remarks %}<div class="muted" style="margin-top:4px">{{ doc.remarks }}</div>{% endif %}
+  </td>
+  <td style="width:45%;padding:0"><table class="totals">
+    <tr class="net"><td>Amount ({{ cur }}):</td><td class="r">{{ "%.2f" | format(amount) }}</td></tr>
+    {% if doc.unallocated_amount %}<tr><td class="k">On account:</td><td class="r">{{ "%.2f" | format(doc.unallocated_amount) }}</td></tr>{% endif %}
+  </table></td>
+</tr></table>
+{% if refs %}
+{% set rows = [] %}{% for r in refs %}{% set _ = rows.append([r.idx ~ ".", r.doctype, r.name, "%.2f" | format(r.total), "%.2f" | format(r.outstanding), "%.2f" | format(r.allocated)]) %}{% endfor %}
+{{ ib.grid([["#", "5%"], ["Against", "20%"], ["Document", "27%"], ["Total", "16%", "r"], ["Outstanding", "16%", "r"], ["Adjusted", "16%", "r"]], rows) }}
+{% endif %}
+</div>
+{{ ib.sign_block(p, receiver=(doc.payment_type == "Pay")) }}
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

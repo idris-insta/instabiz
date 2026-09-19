@@ -180,6 +180,7 @@ after_migrate = [
     "instabiz.overrides.manufacturing_site.after_migrate",  # Warehouse "Manufacturing" tick (factory vs plain warehouse)
     "instabiz.overrides.ewaybill.after_migrate",  # e-Way Bill from the Sales Invoice only
     "instabiz.overrides.own_data.after_migrate",  # company-wide sales reports: managers only
+    "instabiz.overrides.print_families.after_migrate",  # default letterhead for standard prints
     "instabiz.overrides.so_gst.after_migrate",  # Sales Order: GST on invoice + total incl. GST
     "instabiz.overrides.stock_dims.after_migrate",  # thickness / colour / width / length on stock + purchase rows
     "instabiz.overrides.workspace_merge.merge_modules",  # one tab per module (Instabiz + ERPNext)
@@ -560,6 +561,13 @@ jinja = {
         "instabiz.overrides.print_helpers.ib_date",
         "instabiz.overrides.print_helpers.ib_gst_label",
         "instabiz.overrides.print_helpers.ib_outstanding_rows",
+        "instabiz.overrides.print_helpers.ib_stock_lines",
+        "instabiz.overrides.print_helpers.ib_request_lines",
+        "instabiz.overrides.print_helpers.ib_journal_lines",
+        "instabiz.overrides.print_helpers.ib_gate_lines",
+        "instabiz.overrides.print_helpers.ib_payment_refs",
+        "instabiz.overrides.print_helpers.ib_note_totals",
+        "instabiz.overrides.print_helpers.ib_words",
         "instabiz.overrides.production.get_order_sheet_wo_names",
         "instabiz.overrides.production.get_order_sheet_stage_workflow",
         "instabiz.instabiz.doctype.ib_container_import.ib_container_import.get_barcode_data_uri",

@@ -1,0 +1,24 @@
+{#- IB Credit Note (customer) and IB Debit Note (supplier). -#}
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none", layout=(ib_layout if ib_layout is defined else None)) %}
+{% set is_credit = doc.doctype == "IB Credit Note" %}
+{% set party_dt = "Customer" if is_credit else "Supplier" %}
+{% set party_id = doc.customer if is_credit else doc.supplier %}
+{% set party_name = frappe.db.get_value(party_dt, party_id, "customer_name" if is_credit else "supplier_name") or party_id %}
+{% set addr = frappe.db.get_value("Dynamic Link", {"link_doctype": party_dt, "link_name": party_id, "parenttype": "Address"}, "parent") %}
+{% set lines = ib_items(doc) %}
+{% set t = ib_note_totals(doc) %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head("Credit Note" if is_credit else "Debit Note",
+	[[party_dt, party_name], ["GST no", frappe.db.get_value(party_dt, party_id, "gstin") or ""], ["Address", frappe.db.get_value("Address", addr, "address_line1") if addr else ""]],
+	[["Note no", doc.name], ["Date", ib_date(doc.posting_date)], ["Against invoice", doc.against_sales_invoice if is_credit else doc.against_purchase_invoice], ["Reason", doc.reason_code]],
+	[["#Status", ""], ["Status", doc.status], ["Stock updated", "Yes" if doc.get("update_stock") else "No"]]) }}
+{{ ib.item_grid(lines, "INR", gst_label="GST") }}
+{{ ib.totals_block(t, "INR", doc.remarks or "") }}
+</div>
+{{ ib.sign_block(p) }}
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

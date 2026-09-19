@@ -12,7 +12,15 @@
   "print_website",
   "print_phone",
   "print_email",
-  "print_footer_note"
+  "print_footer_note",
+  "layout_section",
+  "print_default_layout",
+  "layout_col",
+  "invoice_copies",
+  "payment_section",
+  "upi_id",
+  "payment_col",
+  "upi_payee_name"
  ],
  "fields": [
   {
@@ -65,11 +73,56 @@
    "fieldtype": "Small Text",
    "label": "Footer Note",
    "description": "Added to the bottom of customer documents."
+  },
+  {
+   "fieldname": "layout_section",
+   "fieldtype": "Section Break",
+   "label": "Layout",
+   "description": "Every document has Classic, Modern and Compact print formats (all with the letterhead). Pick one here to make it the default for every document; the others stay available in the print view."
+  },
+  {
+   "fieldname": "print_default_layout",
+   "fieldtype": "Select",
+   "label": "Default layout",
+   "options": "\nClassic\nModern\nCompact",
+   "description": "Classic: bordered house style. Modern: accent title band, soft boxes, striped rows. Compact: dense, more lines per page."
+  },
+  {
+   "fieldname": "layout_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "invoice_copies",
+   "fieldtype": "Select",
+   "label": "Tax invoice copies",
+   "options": "Original\nOriginal + Duplicate\nOriginal + Duplicate + Triplicate",
+   "default": "Original",
+   "description": "Prints each copy with its label (Original for Recipient / Duplicate for Transporter / Triplicate for Supplier)."
+  },
+  {
+   "fieldname": "payment_section",
+   "fieldtype": "Section Break",
+   "label": "Payment QR"
+  },
+  {
+   "fieldname": "upi_id",
+   "fieldtype": "Data",
+   "label": "UPI ID",
+   "description": "When set, invoices, order confirmations, proformas and statements carry a UPI QR for the amount due."
+  },
+  {
+   "fieldname": "payment_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "upi_payee_name",
+   "fieldtype": "Data",
+   "label": "UPI payee name"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-19 12:00:00.000000",
+ "modified": "2026-09-20 20:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB Print Settings",

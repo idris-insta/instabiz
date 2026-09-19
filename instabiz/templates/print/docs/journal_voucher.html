@@ -1,0 +1,26 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none", layout=(ib_layout if ib_layout is defined else None)) %}
+{% set rows = [] %}
+{% for l in ib_journal_lines(doc) %}
+  {% set acc %}<div class="nm">{{ l.account }}</div>{% if l.party %}<div class="sub">{{ l.party }}</div>{% endif %}{% if l.reference %}<div class="sub">{{ l.reference }}</div>{% endif %}{% if l.remark %}<div class="sub">{{ l.remark }}</div>{% endif %}{% endset %}
+  {% set _ = rows.append([l.idx ~ ".", acc, l.cost_center, ("%.2f" | format(l.debit)) if l.debit else "", ("%.2f" | format(l.credit)) if l.credit else ""]) %}
+{% endfor %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head(doc.voucher_type or "Journal Voucher",
+	[["Voucher no", doc.name], ["Date", ib_date(doc.posting_date)]],
+	[["Cheque / ref no", doc.cheque_no], ["Cheque date", ib_date(doc.cheque_date)]],
+	[["#Status", ""], ["Approval", doc.get("custom_approval_status")], ["Approved by", doc.get("custom_approved_by")]]) }}
+{{ ib.grid([["#", "5%"], ["Account", "47%"], ["Cost centre", "16%"], ["Debit", "16%", "r"], ["Credit", "16%", "r"]], rows,
+	["", "Total", "", "%.2f" | format(doc.total_debit), "%.2f" | format(doc.total_credit)]) }}
+<div class="words"><span class="lbl">Amount (in words) :</span> {{ ib_words(doc.total_debit) }}{% if doc.user_remark %}<br><span class="lbl">Narration :</span> {{ doc.user_remark }}{% endif %}</div>
+</div>
+<table class="sign"><tr>
+  <td style="width:33%"><div style="height:40px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Prepared by</div></td>
+  <td style="width:34%"><div style="height:40px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Checked by</div></td>
+  <td style="width:33%"><div style="height:40px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Approved by</div></td>
+</tr></table>
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

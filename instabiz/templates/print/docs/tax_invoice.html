@@ -1,0 +1,60 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, layout=(ib_layout if ib_layout is defined else None)) %}
+{% set cur = doc.currency or "INR" %}
+{% set lines = ib_items(doc) %}
+{% set t = ib_totals(doc) %}
+{% set h = ib_hsn_summary(doc) %}
+{% set ns = namespace(dn=[], so=[]) %}
+{% for row in doc.items %}
+  {% if row.delivery_note and row.delivery_note not in ns.dn %}{% set _ = ns.dn.append(row.delivery_note) %}{% endif %}
+  {% if row.sales_order and row.sales_order not in ns.so %}{% set _ = ns.so.append(row.sales_order) %}{% endif %}
+{% endfor %}
+{% set title = "Credit Note" if doc.is_return else ("Tax Invoice" if (t.taxes or h.rows) else "Bill of Supply") %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{% for copy in p.copies %}
+<div class="{{ 'pagebreak' if not loop.first else '' }}">
+{{ ib.seller_block(p) }}
+<div class="box">
+{% if copy %}<div style="padding:3px 6px 0"><span class="copytag red">{{ copy }}</span></div>{% endif %}
+{{ ib.doc_head(title,
+	[["Bill to", p.party.name], ["GST no", p.party.gstin], ["Address", (p.party.bill.lines | join(", ")) if p.party.bill else ""], ["State", (p.party.state ~ (" (" ~ p.party.state_code ~ ")" if p.party.state_code else "")) if p.party.state else ""], ["Place of supply", p.party.place_of_supply], ["Ship to", (p.party.ship.lines | join(", ")) if p.party.ship else ""]],
+	[["Invoice no", doc.name], ["Date", ib_date(doc.posting_date)], ["Due date", ib_date(doc.due_date)], ["Your PO", doc.po_no], ["PO date", ib_date(doc.po_date)], ["Against order", ns.so | join(", ")], ["Challan", ns.dn | join(", ")]],
+	[["#Dispatch details", ""], ["Transporter", doc.get("custom_transport") or doc.get("transporter_name")], ["LR no", doc.get("custom_lr_number") or doc.get("lr_no")], ["Vehicle no", doc.get("vehicle_no")], ["E-way bill", doc.get("ewaybill")], ["Reverse charge", "Yes" if doc.get("is_reverse_charge") else "No"]]) }}
+{{ ib.einvoice_block(p.einvoice) }}
+{{ ib.item_grid(lines, cur, gst_label=ib_gst_label(lines)) }}
+{% set left %}
+{% if h.rows %}
+<table class="grid" style="margin-bottom:6px">
+  <thead><tr><th style="width:22%">HSN/SAC</th><th style="width:26%" class="r">Taxable</th>
+    {% if h.interstate %}<th style="width:26%" class="r">IGST</th>{% else %}<th style="width:13%" class="r">CGST</th><th style="width:13%" class="r">SGST</th>{% endif %}
+    <th style="width:26%" class="r">Total tax</th></tr></thead>
+  <tbody>
+  {% for r in h.rows %}<tr><td>{{ r.hsn }}</td><td class="r">{{ "%.2f" | format(r.taxable) }}</td>
+    {% if h.interstate %}<td class="r">{{ "%.2f" | format(r.igst) }} <span class="muted">@{{ "%g" | format(r.igst_rate) }}%</span></td>
+    {% else %}<td class="r">{{ "%.2f" | format(r.cgst) }}</td><td class="r">{{ "%.2f" | format(r.sgst) }}</td>{% endif %}
+    <td class="r">{{ "%.2f" | format(r.tax) }}</td></tr>{% endfor %}
+  <tr class="tot"><td>Total</td><td class="r">{{ "%.2f" | format(h.total.taxable) }}</td>
+    {% if h.interstate %}<td class="r">{{ "%.2f" | format(h.total.igst) }}</td>{% else %}<td class="r">{{ "%.2f" | format(h.total.cgst) }}</td><td class="r">{{ "%.2f" | format(h.total.sgst) }}</td>{% endif %}
+    <td class="r">{{ "%.2f" | format(h.total.tax) }}</td></tr>
+  </tbody>
+</table>
+<div><span class="lbl">Tax amount (in words) :</span> {{ ib_words(h.total.tax, cur) }}</div>
+{% endif %}
+<table style="margin-top:6px"><tr>
+  <td style="width:62%">
+    {% if p.bank %}<div class="lbl red">Pay to</div>
+    <div><span class="lbl">Bank :</span> {{ p.bank.bank }} &nbsp; <span class="lbl">A/C :</span> {{ p.bank.account_no }} &nbsp; <span class="lbl">IFSC :</span> {{ p.bank.ifsc }}</div>{% endif %}
+    {% if doc.docstatus == 1 and doc.outstanding_amount is not none %}<div><span class="lbl">Balance due :</span> {{ ib_money(doc.outstanding_amount, cur) }}</div>{% endif %}
+  </td>
+  <td style="width:38%">{{ ib.upi_block(p) }}</td>
+</tr></table>
+{% endset %}
+{{ ib.totals_block(t, cur, left) }}
+</div>
+{{ ib.terms_block(p, "Terms of sale") }}
+{{ ib.sign_block(p) }}
+</div>
+{% endfor %}
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

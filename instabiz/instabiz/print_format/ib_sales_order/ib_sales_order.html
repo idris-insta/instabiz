@@ -1,19 +1,2 @@
-{% import "templates/print/ib_print_macros.html" as ib with context %}
-{% set p = ib_print(doc) %}
-{% set cur = doc.currency or "INR" %}
-{% set lines = ib_items(doc) %}
-{% set t = ib_totals(doc) %}
-{{ ib.styles(p) }}
-<div class="ibp">
-{{ ib.seller_block(p) }}
-<div class="box">
-{{ ib.doc_head("Order Confirmation",
-	[["Customer name", p.party.name], ["GST no", p.party.gstin], ["Address", (p.party.bill.lines | join(", ")) if p.party.bill else ""], ["Ship to", (p.party.ship.lines | join(", ")) if p.party.ship else ""], ["Contact no", p.party.mobile]],
-	[["Sales person", p.sales_person.name if p.sales_person else doc.get("custom_sales_person")], ["Location", doc.get("custom_location")], ["Order no", doc.name], ["Date", ib_date(doc.transaction_date)], ["Expected dispatch", ib_date(doc.delivery_date)]],
-	[["#Order procedure", ""], ["Transport", doc.get("custom_transport")], ["Booking for", doc.get("booking_for")], ["Reference PO", doc.po_no or doc.get("custom_reference_po")], ["Payment terms", doc.payment_terms_template]]) }}
-{{ ib.item_grid(lines, cur, gst_label=ib_gst_label(lines)) }}
-{{ ib.totals_block(t, cur, doc.get("custom_remarks") or "", [["Advance received", "%.2f" | format(t.advance) if t.advance else ""], ["Balance payable", "%.2f" | format(t.grand - t.advance) if t.advance else ""]]) }}
-</div>
-{{ ib.terms_block(p) }}
-{{ ib.sign_block(p) }}
-</div>
+{#- Follows IB Print Settings → Default layout. Same document as the "... - Classic / Modern / Compact" formats. -#}
+{% include "templates/print/docs/sales_order.html" %}

@@ -1,0 +1,21 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "proforma", layout=(ib_layout if ib_layout is defined else None)) %}
+{% set cur = doc.currency or "INR" %}
+{% set lines = ib_items(doc) %}
+{% set t = ib_totals(doc) %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p) }}
+<div class="box">
+{{ ib.doc_head("Proforma Invoice",
+	[["Customer name", p.party.name], ["GST no", p.party.gstin], ["Address", (p.party.bill.lines | join(", ")) if p.party.bill else ""], ["Contact no", p.party.mobile]],
+	[["Sales person", p.sales_person.name if p.sales_person else doc.get("custom_sales_person")], ["Location", doc.get("custom_location")], ["PI no", doc.name], ["Date", ib_date(doc.transaction_date)]],
+	[["#Order procedure", ""], ["Transport", doc.get("custom_transport")], ["Booking for", doc.get("booking_for")], ["Reference PO", doc.po_no or doc.get("custom_reference_po")]]) }}
+{{ ib.item_grid(lines, cur, gst_label=ib_gst_label(lines)) }}
+{% set left %}<span class="lbl">Please quote {{ doc.name }} in your payment reference.</span><br>A GST tax invoice will be issued at the time of dispatch.{{ ib.upi_block(p) }}{% endset %}
+{{ ib.totals_block(t, cur, left, [["Advance received", "%.2f" | format(t.advance) if t.advance else ""], ["Amount payable", "%.2f" | format(t.grand - t.advance) if t.advance else ""]]) }}
+</div>
+{{ ib.terms_block(p) }}
+{{ ib.sign_block(p) }}
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

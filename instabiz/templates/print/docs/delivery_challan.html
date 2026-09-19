@@ -1,0 +1,21 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, layout=(ib_layout if ib_layout is defined else None)) %}
+{% set lines = ib_items(doc) %}
+{% set ns = namespace(so=[], wt=0, pkg=0) %}
+{% for row in doc.items %}{% if row.against_sales_order and row.against_sales_order not in ns.so %}{% set _ = ns.so.append(row.against_sales_order) %}{% endif %}{% endfor %}
+{% for l in lines %}{% set ns.wt = ns.wt + l.weight %}{% set ns.pkg = ns.pkg + l.packages %}{% endfor %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head("Delivery Challan" ~ (" (Return)" if doc.is_return else ""),
+	[["Consignee", p.party.name], ["GST no", p.party.gstin], ["Ship to", (p.party.ship.lines | join(", ")) if p.party.ship else ((p.party.bill.lines | join(", ")) if p.party.bill else "")], ["Contact no", p.party.mobile]],
+	[["Challan no", doc.name], ["Date", ib_date(doc.posting_date)], ["Against order", ns.so | join(", ")], ["Your PO", doc.po_no], ["Location", doc.get("custom_location")]],
+	[["#Dispatch details", ""], ["Transporter", doc.get("custom_transport") or doc.transporter_name], ["Transporter GST", doc.get("transport_gst") or doc.get("gst_transporter_id")], ["LR no", doc.get("custom_lr_number") or doc.lr_no], ["Vehicle no", doc.vehicle_no], ["Booking for", doc.get("booking_for")]]) }}
+{{ ib.item_grid(lines, show_money=False) }}
+<div class="words"><span class="lbl">Total packages :</span> {{ "%g" | format(ns.pkg) }}{% if ns.wt %} &nbsp;·&nbsp; <span class="lbl">Total weight :</span> {{ "%g" | format(ns.wt) }} KG{% endif %}</div>
+</div>
+{{ ib.terms_block(p, "Dispatch terms") }}
+{{ ib.sign_block(p, receiver=True) }}
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

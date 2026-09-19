@@ -1,0 +1,18 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none", layout=(ib_layout if ib_layout is defined else None)) %}
+{% set cur = doc.currency or "INR" %}
+{% set lines = ib_items(doc) %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head("Purchase Invoice" ~ (" (Return)" if doc.is_return else ""),
+	[["Supplier", p.party.name], ["GST no", p.party.gstin], ["Address", (p.party.bill.lines | join(", ")) if p.party.bill else ""]],
+	[["Our ref", doc.name], ["Posting date", ib_date(doc.posting_date)], ["Supplier invoice", doc.bill_no], ["Invoice date", ib_date(doc.bill_date)], ["Due date", ib_date(doc.due_date)]],
+	[["#Status", ""], ["Location", doc.get("custom_location")], ["Reverse charge", "Yes" if doc.get("is_reverse_charge") else "No"], ["Outstanding", ib_money(doc.outstanding_amount, cur) if doc.docstatus == 1 else ""]]) }}
+{{ ib.item_grid(lines, cur, gst_label=ib_gst_label(lines)) }}
+{{ ib.totals_block(ib_totals(doc), cur, doc.get("remarks") or "") }}
+</div>
+{{ ib.sign_block(p) }}
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

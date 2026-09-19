@@ -1,0 +1,27 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none", layout=(ib_layout if ib_layout is defined else None)) %}
+{% set rows = [] %}
+{% set ns = namespace(qty=0) %}
+{% for l in ib_request_lines(doc) %}
+  {% set ns.qty = ns.qty + l.qty %}
+  {% set it %}<div class="nm">{{ l.item_name }}</div><div class="sub">{{ l.item_code }}{% if l.spec %} · {{ l.spec }}{% endif %}</div>{% endset %}
+  {% set _ = rows.append([l.idx ~ ".", it, "%g" | format(l.qty), l.uom, "%g" | format(l.ordered) if l.ordered else "", l.warehouse, ib_date(l.needed_by)]) %}
+{% endfor %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head("Material Request — " ~ (doc.material_request_type or ""),
+	[["Request no", doc.name], ["Date", ib_date(doc.transaction_date)], ["Required by", ib_date(doc.schedule_date)]],
+	[["For warehouse", doc.set_warehouse], ["Status", doc.status], ["Ordered", ("%g" | format(doc.per_ordered)) ~ "%" if doc.per_ordered else ""]],
+	[["#Requested by", ""], ["Owner", frappe.utils.get_fullname(doc.owner)]]) }}
+{{ ib.grid([["#", "4%"], ["Item", "40%"], ["Qty", "10%", "r"], ["UOM", "7%"], ["Ordered", "10%", "r"], ["Warehouse", "17%"], ["Needed by", "12%"]], rows,
+	["", "Total", "%g" | format(ns.qty), "", "", "", ""]) }}
+</div>
+<table class="sign"><tr>
+  <td style="width:33%"><div style="height:40px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Requested by</div></td>
+  <td style="width:34%"><div style="height:40px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Store in-charge</div></td>
+  <td style="width:33%"><div style="height:40px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Approved by</div></td>
+</tr></table>
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

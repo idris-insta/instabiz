@@ -1,0 +1,31 @@
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none", layout=(ib_layout if ib_layout is defined else None)) %}
+{% set s = ib_statement(doc.name) %}
+{% macro drcr(v) %}{{ "%.2f" | format(v | abs) }} {{ "DR" if v >= 0 else "CR" }}{% endmacro %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p) }}
+<div class="box">
+{{ ib.doc_head("Statement of Account",
+	[["Customer name", p.party.name], ["GST no", p.party.gstin], ["Address", (p.party.bill.lines | join(", ")) if p.party.bill else ""], ["Contact no", p.party.mobile]],
+	[["Period", ib_date(s.from_date) ~ " to " ~ ib_date(s.to_date)], ["Generated on", ib_date(frappe.utils.today())], ["Basis", "Orders and receipts" if s.basis == "orders" else "Ledger"]],
+	[["#Summary", ""], ["Opening balance", drcr(s.opening)], ["Debits", "%.2f" | format(s.total_debit)], ["Credits", "%.2f" | format(s.total_credit)], ["Closing balance", drcr(s.closing)]]) }}
+<table class="items">
+  <thead><tr><th style="width:12%">Date</th><th style="width:40%">Particulars</th><th style="width:15%" class="r">Debit</th><th style="width:15%" class="r">Credit</th><th style="width:18%" class="r">Balance</th></tr></thead>
+  <tbody>
+    <tr><td>{{ ib_date(s.from_date) }}</td><td class="nm">Opening balance</td><td></td><td></td><td class="r">{{ drcr(s.opening) }}</td></tr>
+    {% for e in s.lines %}
+    <tr><td>{{ ib_date(e.date) }}</td><td><div class="nm">{{ e.voucher_type }} {{ e.voucher_no }}</div>{% if e.remarks %}<div class="sub">{{ e.remarks }}</div>{% endif %}</td>
+      <td class="r">{{ ("%.2f" | format(e.debit)) if e.debit else "" }}</td><td class="r">{{ ("%.2f" | format(e.credit)) if e.credit else "" }}</td><td class="r">{{ drcr(e.balance) }}</td></tr>
+    {% endfor %}
+    <tr class="tot"><td></td><td>Total</td><td class="r">{{ "%.2f" | format(s.total_debit) }}</td><td class="r">{{ "%.2f" | format(s.total_credit) }}</td><td class="r">{{ drcr(s.closing) }}</td></tr>
+  </tbody>
+</table>
+<table class="sum"><tr>
+  <td class="left" style="width:62%"><span class="lbl">Closing balance :</span> {{ drcr(s.closing) }}<br>Please confirm this balance or tell us about any difference within 7 days.</td>
+  <td style="width:38%">{{ ib.upi_block(p) }}</td>
+</tr></table>
+</div>
+{{ ib.sign_block(p) }}
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}
