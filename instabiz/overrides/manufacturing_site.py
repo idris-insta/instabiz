@@ -67,11 +67,14 @@ def _location_of(warehouse):
 
 def so_needs_production(sales_order):
 	so = frappe.get_doc("Sales Order", sales_order) if isinstance(sales_order, str) else sales_order
-	whs = [so.get("set_warehouse")] + [r.warehouse for r in so.items]
-	whs = [w for w in whs if w]
-	if whs:
-		return any(is_factory(w) for w in whs)
-	return location_has_factory(so.get("custom_location"))
+	# header warehouse first; then the location (the Delivery Note ships from the
+	# location's warehouse, and line warehouses usually just carry the Stock
+	# Settings default, e.g. Stores - IB); lines only when neither is set
+	if so.get("set_warehouse"):
+		return is_factory(so.set_warehouse)
+	if so.get("custom_location"):
+		return location_has_factory(so.custom_location)
+	return any(is_factory(r.warehouse) for r in so.items if r.warehouse)
 
 
 class _WarehouseOnlyLocations:
