@@ -12,6 +12,8 @@ OPEN = ("Open", "In Progress", "Waiting on Customer")
 
 def execute(filters=None):
 	f = frappe._dict(filters or {})
+	f.from_date = f.from_date or frappe.utils.add_months(frappe.utils.today(), -3)
+	f.to_date = f.to_date or frappe.utils.today()
 	flt_ = {"opened_at": ["between", [f.from_date, f"{f.to_date} 23:59:59"]]}
 	for k in ("customer", "ticket_type", "status", "assigned_to", "item_code"):
 		if f.get(k):

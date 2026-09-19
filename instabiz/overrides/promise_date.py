@@ -51,26 +51,30 @@ def _warehouses(location, set_warehouse=None):
 	return frappe.get_all("Warehouse", filters={"lft": [">=", tree[0]], "rgt": ["<=", tree[1]], "is_group": 0}, pluck="name")
 
 
-def _free_stock(item_codes, warehouses, exclude_so=None):
+def _free_stock(item_codes, warehouses, exclude_so=None, location=None):
 	if not item_codes or not warehouses:
 		return {}
 	stock = {r.item_code: flt(r.qty) for r in frappe.db.sql("""SELECT item_code, SUM(actual_qty) AS qty FROM `tabBin`
 		WHERE item_code IN %s AND warehouse IN %s GROUP BY item_code""", (tuple(item_codes), tuple(warehouses)), as_dict=True)}
-	demand = open_demand(item_codes, warehouses, exclude_so)
+	demand = open_demand(item_codes, warehouses, exclude_so, location)
 	return {i: stock.get(i, 0) - demand.get(i, 0) for i in item_codes}
 
 
-def open_demand(item_codes, warehouses, exclude_so=None):
+def open_demand(item_codes, warehouses, exclude_so=None, location=None):
 	"""Qty still to deliver on submitted orders of the last promise_open_order_days
-	that ship from these warehouses (line warehouse, else the order's)."""
+	for this location (the order's Location; line / header warehouse only when an
+	order has none — line warehouses on dev often carry the Stock Settings default
+	MAHARASHTRA - IB even on Gujarat orders)."""
 	days = ib_settings.get_int("promise_open_order_days", 30)
+	where_place = "(p.custom_location = %(loc)s OR (IFNULL(p.custom_location, '') IN ('', 'Select') AND COALESCE(NULLIF(c.warehouse, ''), p.set_warehouse) IN %(whs)s))" 		if location else "COALESCE(NULLIF(c.warehouse, ''), p.set_warehouse) IN %(whs)s"
 	rows = frappe.db.sql("""SELECT c.item_code,
 			SUM(GREATEST(c.stock_qty - IFNULL(c.delivered_qty, 0) * IFNULL(c.conversion_factor, 1), 0)) AS qty
 		FROM `tabSales Order Item` c JOIN `tabSales Order` p ON p.name = c.parent
-		WHERE p.docstatus = 1 AND p.transaction_date >= %s AND IFNULL(p.per_delivered, 0) < 100
-			AND p.status NOT IN ('Closed', 'Cancelled') AND p.name != %s
-			AND COALESCE(NULLIF(c.warehouse, ''), p.set_warehouse) IN %s AND c.item_code IN %s
-		GROUP BY c.item_code""", (add_days(nowdate(), -days), exclude_so or "", tuple(warehouses), tuple(item_codes)), as_dict=True)
+		WHERE p.docstatus = 1 AND p.transaction_date >= %(since)s AND IFNULL(p.per_delivered, 0) < 100
+			AND p.status NOT IN ('Closed', 'Cancelled') AND p.name != %(ex)s
+			AND {where_place} AND c.item_code IN %(items)s
+		GROUP BY c.item_code""".format(where_place=where_place), {"since": add_days(nowdate(), -days), "ex": exclude_so or "",
+			"whs": tuple(warehouses), "items": tuple(item_codes), "loc": (location or "").upper()}, as_dict=True)
 	return {r.item_code: flt(r.qty) for r in rows}
 
 
@@ -119,7 +123,7 @@ def promise(doc):
 
 	whs = _warehouses(location, doc.get("set_warehouse"))
 	codes = list({i.item_code for i in items})
-	free = _free_stock(codes, whs, doc.get("name"))
+	free = _free_stock(codes, whs, doc.get("name"), location)
 	transit = _in_transit(codes, whs)
 	factory = False
 	if location:

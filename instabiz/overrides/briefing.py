@@ -127,7 +127,7 @@ def _stock_short(since):
 			AND p.custom_location = %s""", (since, loc))
 		if not items:
 			continue
-		demand = open_demand(items, whs)
+		demand = open_demand(items, whs, location=loc)
 		stock = {r[0]: flt(r[1]) for r in frappe.db.sql("""SELECT item_code, SUM(actual_qty) FROM `tabBin`
 			WHERE item_code IN %s AND warehouse IN %s GROUP BY item_code""", (tuple(items), tuple(whs)))}
 		for item, need in demand.items():

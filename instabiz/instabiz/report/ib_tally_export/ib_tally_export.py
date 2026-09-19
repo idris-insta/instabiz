@@ -10,6 +10,9 @@ from instabiz.overrides.tally_export import ROLES, vouchers
 def execute(filters=None):
 	f = frappe._dict(filters or {})
 	frappe.only_for(ROLES)
+	f.company = f.company or frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
+	f.from_date = f.from_date or frappe.utils.get_first_day(frappe.utils.today())
+	f.to_date = f.to_date or frappe.utils.today()
 	vs, led = vouchers(f.company, f.from_date, f.to_date, [f.voucher_type] if f.voucher_type else None)
 	data = []
 	for no, v in vs.items():
