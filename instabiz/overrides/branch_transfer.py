@@ -31,9 +31,22 @@ def _leaf(warehouse):
 		frappe.throw(_("{0} is a group — pick the floor / warehouse inside it.").format(warehouse))
 
 
+def same_premises(a, b):
+	"""Both warehouses in the same location (floors / sub-warehouses of one branch)."""
+	from instabiz.overrides.manufacturing_site import _location_of
+
+	la, lb = _location_of(a), _location_of(b)
+	if la and lb:
+		return la == lb
+	pa = frappe.db.get_value("Warehouse", a, "parent_warehouse")
+	return bool(pa) and pa == frappe.db.get_value("Warehouse", b, "parent_warehouse")
+
+
 @frappe.whitelist()
 def create_dispatch(from_warehouse, to_warehouse, items, vehicle_no=None, lr_no=None, remarks=None):
-	"""Draft Stock Entry: sending warehouse → transit, destination remembered. Returns its name."""
+	"""Draft Stock Entry. Between branches: sending warehouse → transit, destination
+	remembered (received later). Within one premises (floor to floor, sub-warehouse to
+	sub-warehouse): straight from one to the other in one entry."""
 	if not frappe.has_permission("Stock Entry", "create"):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 	_leaf(from_warehouse)
@@ -44,6 +57,16 @@ def create_dispatch(from_warehouse, to_warehouse, items, vehicle_no=None, lr_no=
 	if not items:
 		frappe.throw(_("Add at least one item with a quantity."))
 	company = frappe.db.get_value("Warehouse", from_warehouse, "company")
+	if same_premises(from_warehouse, to_warehouse):
+		se = frappe.new_doc("Stock Entry")
+		se.stock_entry_type = se.purpose = "Material Transfer"
+		se.company, se.posting_date = company, today()
+		se.from_warehouse, se.to_warehouse = from_warehouse, to_warehouse
+		se.remarks = remarks or _("Internal transfer {0} → {1}").format(from_warehouse, to_warehouse)
+		for r in items:
+			se.append("items", {"item_code": r["item_code"], "qty": flt(r["qty"]), "s_warehouse": from_warehouse, "t_warehouse": to_warehouse})
+		se.insert()
+		return se.name
 	se = frappe.new_doc("Stock Entry")
 	se.stock_entry_type = "Material Transfer"
 	se.purpose = "Material Transfer"

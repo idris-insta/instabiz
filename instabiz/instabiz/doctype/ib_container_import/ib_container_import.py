@@ -145,7 +145,8 @@ def _make_batch(doc: "IBContainerImport", row) -> str:
 	batch_id = f"{doc.name}::{row.item_code}::{row.idx}"
 	if frappe.db.exists("IB Batch", batch_id):
 		return batch_id
-	item = frappe.db.get_value("Item", row.item_code, ["gsm", "width_mm", "item_name"], as_dict=True) or {}
+	cols = [c for c in ("gsm", "width_mm") if frappe.db.has_column("Item", c)] + ["item_name"]
+	item = frappe.db.get_value("Item", row.item_code, cols, as_dict=True) or {}
 	b = frappe.new_doc("IB Batch")
 	b.batch_id = batch_id
 	b.kind = "Raw Material"
@@ -189,6 +190,26 @@ def _apply_landed_cost(doc) -> None:
 		row.landed_amount = flt(row.rate) * flt(row.total_qty) * fx + share
 		row.landed_rate = row.landed_amount / flt(row.total_qty) if flt(row.total_qty) else 0
 	doc.landed_value = sum(flt(r.landed_amount) for r in doc.items)
+	# planned selling price → expected margin per line and for the container (consignment)
+	for row in doc.items:
+		if not flt(row.selling_rate) and row.item_code:
+			row.selling_rate = _list_selling_rate(row.item_code, row.stock_uom)
+		row.expected_value = flt(row.selling_rate) * flt(row.total_qty)
+		row.expected_margin = row.expected_value - flt(row.landed_amount) if row.expected_value else 0
+		row.margin_pct = round(row.expected_margin / row.expected_value * 100, 2) if row.expected_value else 0
+	doc.expected_sale_value = sum(flt(r.expected_value) for r in doc.items)
+	doc.expected_profit = sum(flt(r.expected_margin) for r in doc.items)
+	doc.expected_margin_pct = round(doc.expected_profit / doc.expected_sale_value * 100, 2) if doc.expected_sale_value else 0
+
+
+def _list_selling_rate(item_code, uom=None):
+	price_list = frappe.db.get_single_value("Selling Settings", "selling_price_list") or "Standard Selling"
+	filters = {"item_code": item_code, "price_list": price_list}
+	if uom:
+		rate = frappe.db.get_value("Item Price", {**filters, "uom": uom}, "price_list_rate")
+		if rate:
+			return flt(rate)
+	return flt(frappe.db.get_value("Item Price", filters, "price_list_rate"))
 
 
 # ── Stock posting ────────────────────────────────────────────────────────────

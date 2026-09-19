@@ -80,7 +80,7 @@
 
 	window.ib_branch_transfer_dialog = function () {
 		const d = new frappe.ui.Dialog({
-			title: __("Branch Transfer — Dispatch"),
+			title: __("Stock Transfer — branch, floor or sub-warehouse"),
 			size: "large",
 			fields: [
 				{ fieldtype: "Link", fieldname: "from_warehouse", label: __("From"), options: "Warehouse", reqd: 1,
@@ -88,6 +88,7 @@
 				{ fieldtype: "Column Break" },
 				{ fieldtype: "Link", fieldname: "to_warehouse", label: __("To"), options: "Warehouse", reqd: 1,
 					get_query: () => ({ filters: { is_group: 0, warehouse_type: ["!=", "Transit"] } }) },
+				{ fieldtype: "HTML", fieldname: "how", options: `<p class="text-muted small">${__("Same premises (floor to floor, sub-warehouse to sub-warehouse): moved in one entry. Another branch: goes into Goods In Transit and is received there.")}</p>` },
 				{ fieldtype: "Section Break" },
 				{ fieldtype: "Table", fieldname: "items", label: __("Items"), in_place_edit: true, data: [], reqd: 1,
 					fields: [
@@ -99,7 +100,7 @@
 				{ fieldtype: "Column Break" },
 				{ fieldtype: "Data", fieldname: "lr_no", label: __("LR No") },
 			],
-			primary_action_label: __("Create Dispatch"),
+			primary_action_label: __("Create Transfer"),
 			primary_action(v) {
 				frappe.call({ method: "instabiz.overrides.branch_transfer.create_dispatch", freeze: true,
 					args: { ...v, items: (v.items || []).map((r) => ({ item_code: r.item_code, qty: r.qty })) } })

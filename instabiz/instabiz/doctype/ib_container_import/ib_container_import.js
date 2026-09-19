@@ -26,6 +26,10 @@ frappe.ui.form.on("IB Container Import", {
 	},
 
 	refresh(frm) {
+		if (frm.doc.docstatus === 1) {
+			frm.add_custom_button(__("Profitability"), () =>
+				frappe.set_route("query-report", "IB Consignment Profitability", { container: frm.doc.name, view: "Container Line" }));
+		}
 		if (!frm.is_new()) {
 			frm.fields_dict["items"].grid.add_custom_button(__("Reprint Labels"), () => {
 				const selected = frm.fields_dict["items"].grid.get_selected();

@@ -174,6 +174,7 @@ after_migrate = [
     "instabiz.instabiz.doctype.ib_employee_loan.ib_employee_loan.after_migrate",  # "Loan Recovery" salary component
     "instabiz.overrides.dimensions.after_migrate",  # Branch + Department accounting dimensions, branch masters
     "instabiz.overrides.approvals.after_migrate",  # approval fields on Journal Entry / Payment Entry
+    "instabiz.overrides.manufacturing_site.after_migrate",  # Warehouse "Manufacturing" tick (factory vs plain warehouse)
     "instabiz.overrides.workspace_merge.merge_modules",  # one tab per module (Instabiz + ERPNext)
 ]
 

@@ -26,6 +26,9 @@
   "invoice_value_inr",
   "total_charges",
   "landed_value",
+  "expected_sale_value",
+  "expected_profit",
+  "expected_margin_pct",
   "section_items",
   "items",
   "section_remarks",
@@ -164,6 +167,25 @@
    "bold": 1
   },
   {
+   "fieldname": "expected_sale_value",
+   "fieldtype": "Currency",
+   "label": "Expected Sale Value (₹)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "expected_profit",
+   "fieldtype": "Currency",
+   "label": "Expected Profit (₹)",
+   "read_only": 1,
+   "bold": 1
+  },
+  {
+   "fieldname": "expected_margin_pct",
+   "fieldtype": "Percent",
+   "label": "Expected Margin %",
+   "read_only": 1
+  },
+  {
    "fieldname": "section_items",
    "fieldtype": "Section Break",
    "label": "Items"
@@ -207,7 +229,7 @@
  ],
  "is_submittable": 1,
  "links": [],
- "modified": "2026-09-20 11:00:00.000000",
+ "modified": "2026-09-20 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB Container Import",

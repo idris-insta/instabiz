@@ -12,6 +12,6 @@ frappe.query_reports["IB Goods In Transit"] = {
 		return value;
 	},
 	onload(report) {
-		report.page.add_inner_button(__("New Branch Transfer"), () => window.ib_branch_transfer_dialog()).addClass("btn-primary");
+		report.page.add_inner_button(__("New Stock Transfer"), () => window.ib_branch_transfer_dialog()).addClass("btn-primary");
 	},
 };

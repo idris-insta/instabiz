@@ -86,7 +86,12 @@ _DEFAULT_STAGE_ROUTE = ["Cutting", "Packing"]
 # machines all live there). Maharashtra and Chennai are warehouse-only — an
 # order routed to either always gets just Packing regardless of item group,
 # since there's no factory capability physically there.
-_WAREHOUSE_ONLY_LOCATIONS = {"maharashtra", "chennai"}
+# Which locations are warehouse-only now comes from the Warehouse "Manufacturing"
+# tick (instabiz.overrides.manufacturing_site) instead of a fixed list — a location
+# with nothing ticked behaves exactly as the old {"maharashtra", "chennai"} did.
+from instabiz.overrides.manufacturing_site import _WarehouseOnlyLocations  # noqa: E402
+
+_WAREHOUSE_ONLY_LOCATIONS = _WarehouseOnlyLocations()
 _WAREHOUSE_STAGE_ROUTE = ["Packing"]
 
 
@@ -731,6 +736,14 @@ def create_order_sheet(sales_order, priority="Normal", notes=None):
 				"Sales Order {0} has no Location set. Set Location on the Sales "
 				"Order before creating its Order Sheet — Production stage routing "
 				"depends on it."
+			).format(sales_order))
+
+		from instabiz.overrides.manufacturing_site import so_needs_production
+
+		if not so_needs_production(so):
+			frappe.throw(_(
+				"{0} ships from a plain warehouse (no Manufacturing tick), so it needs no production — "
+				"make the Delivery Note directly. Tick Manufacturing on the warehouse if it is processed there."
 			).format(sales_order))
 
 		customer_name = frappe.db.get_value("Customer", so.customer, "customer_name") or so.customer
@@ -2546,6 +2559,10 @@ def _create_order_sheet_for_so(sales_order):
 			"IB Order Sheet", {"sales_order": sales_order, "status": ["!=", "Cancelled"]}
 		):
 			return
+		from instabiz.overrides.manufacturing_site import so_needs_production
+
+		if not so_needs_production(sales_order):
+			return  # plain warehouse: no production, the Delivery Note takes the stock out
 		delivery_date = frappe.db.get_value("Sales Order", sales_order, "delivery_date")
 		priority = _priority_from_delivery_date(delivery_date)
 		create_order_sheet(sales_order, priority=priority)
