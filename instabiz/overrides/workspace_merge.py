@@ -236,9 +236,13 @@ def build_reports_workspace():
 		if not names:
 			continue
 		links.append({"type": "Card Break", "label": g, "link_count": len(names), "hidden": 0, "onboard": 0})
+		short = [r.replace("IB ", "", 1) for r in names]
 		for r in names:
 			rtype = frappe.db.get_value("Report", r, "report_type")
-			links.append({"type": "Link", "label": r.replace("IB ", "", 1), "link_type": "Report", "link_to": r,
+			label = r.replace("IB ", "", 1)
+			if short.count(label) > 1:  # "IB Stock Ageing" next to ERPNext "Stock Ageing"
+				label = r
+			links.append({"type": "Link", "label": label, "link_type": "Report", "link_to": r,
 				"is_query_report": 1 if rtype in ("Script Report", "Query Report") else 0, "hidden": 0, "onboard": 0,
 				"link_count": 0})
 		content.append({"id": "ibrep" + frappe.scrub(g)[:8], "type": "card", "data": {"card_name": g, "col": 4}})
@@ -254,6 +258,48 @@ def build_reports_workspace():
 	ws.save(ignore_permissions=True) if not ws.is_new() else ws.insert(ignore_permissions=True)
 
 
+def _shortcut_key(s):
+	return (s.type or "DocType", s.link_to, s.url or "", s.doc_view or "List", s.stats_filter or "[]")
+
+
+def dedupe_workspace(name):
+	"""Drop a shortcut or card link that opens the same thing twice (the first one stays)."""
+	ws = frappe.get_doc("Workspace", name)
+	seen, shortcuts, drop = set(), [], set()
+	for s in ws.shortcuts:
+		key = _shortcut_key(s)
+		if key in seen:
+			drop.add(s.label)
+			continue
+		seen.add(key)
+		shortcuts.append(s)
+	links, seen, current, changed = [], set(), None, False
+	for row in ws.links:
+		if row.type == "Card Break":
+			current = row
+			current.link_count = 0
+			links.append(row)
+			continue
+		key = (row.link_type or "DocType", row.link_to)
+		if key in seen:
+			changed = True
+			continue
+		seen.add(key)
+		if current is not None:
+			current.link_count += 1
+		links.append(row)
+	if not drop and not changed:
+		return
+	ws.shortcuts = shortcuts
+	ws.links = links
+	content = json.loads(ws.content or "[]")
+	kept = {s.label for s in ws.shortcuts}
+	ws.content = json.dumps([b for b in content if not (b["type"] == "shortcut"
+		and (b.get("data") or {}).get("shortcut_name") in drop - kept)])
+	ws.flags.ignore_links = True
+	ws.save(ignore_permissions=True)
+
+
 def show_tabs():
 	"""Selling / CRM / Accounting (+ its sub-tabs) visible, Reports built, sidebar in a fixed order."""
 	for tab, children in SHOW_TABS.items():
@@ -265,6 +311,8 @@ def show_tabs():
 				frappe.db.set_value("Workspace", child, {"is_hidden": 0, "parent_page": tab, "public": 1},
 					update_modified=False)
 	build_reports_workspace()
+	for name in frappe.get_all("Workspace", filters={"public": 1, "is_hidden": 0}, pluck="name"):
+		dedupe_workspace(name)
 	for i, name in enumerate(SIDEBAR_ORDER, 1):
 		if frappe.db.exists("Workspace", name):
 			frappe.db.set_value("Workspace", name, "sequence_id", i, update_modified=False)

@@ -27,8 +27,8 @@ ITEM_FIELDS = {"custom_thickness", "color", "width_mm", "length_mtr", "qty_pkg"}
 # standard fields: {fieldname: columns}, 0 = out of the grid
 GRIDS = {
 	"Stock Entry Detail": {"s_warehouse": 1, "t_warehouse": 1, "qty": 1, "basic_rate": 1, "item_tax_template": 0},
-	"Material Request Item": {"schedule_date": 0, "qty": 1, "uom": 1},
-	"Stock Reconciliation Item": {"stock_uom": 0, "qty": 1, "valuation_rate": 1},
+	"Material Request Item": {"item_code": 2, "schedule_date": 0, "qty": 1, "uom": 1, "warehouse": 2},
+	"Stock Reconciliation Item": {"item_code": 2, "stock_uom": 0, "warehouse": 2, "qty": 1, "valuation_rate": 1},
 	"Purchase Order Item": {"schedule_date": 0, "warehouse": 0, "qty": 1, "uom": 1, "rate": 1, "amount": 1},
 	"Purchase Receipt Item": {"rejected_qty": 0, "net_amount": 0, "qty": 1, "rate": 1, "amount": 1, "warehouse": 1},
 	"Purchase Invoice Item": {"qty": 1, "rate": 1, "amount": 1},
