@@ -1,7 +1,7 @@
 import frappe
 from frappe.utils import nowdate, getdate, get_first_day, get_last_day, add_months, flt
 
-from instabiz.overrides.billing_mode import is_dev_billing_mode, sales_doctype, sales_outstanding_expr
+from instabiz.overrides.billing_mode import sales_total_expr, is_dev_billing_mode, sales_doctype, sales_outstanding_expr
 
 
 def get_context(context):
@@ -35,14 +35,14 @@ def get_pulse_data():
 	status_cond = "AND t.status != 'Cancelled'" if dev_mode else "AND t.is_return=0"
 
 	rev_mtd = flt(frappe.db.sql(f"""
-		SELECT COALESCE(SUM(grand_total), 0)
+		SELECT COALESCE(SUM({sales_total_expr(None)}), 0)
 		FROM `tab{doctype}`
 		WHERE docstatus=1
 		AND {date_field} BETWEEN %s AND %s
 	""", (month_start, today))[0][0])
 
 	rev_last = flt(frappe.db.sql(f"""
-		SELECT COALESCE(SUM(grand_total), 0)
+		SELECT COALESCE(SUM({sales_total_expr(None)}), 0)
 		FROM `tab{doctype}`
 		WHERE docstatus=1
 		AND {date_field} BETWEEN %s AND %s
@@ -59,7 +59,7 @@ def get_pulse_data():
 	# — the only real payment signal that exists pre-invoice.
 	three_months_start = get_first_day(add_months(today, -3))
 	total_billed = flt(frappe.db.sql(f"""
-		SELECT COALESCE(SUM(grand_total), 0)
+		SELECT COALESCE(SUM({sales_total_expr('t')}), 0)
 		FROM `tab{doctype}` t
 		WHERE docstatus=1 {status_cond}
 		AND {date_field} BETWEEN %s AND %s
@@ -147,7 +147,7 @@ def get_pulse_data():
 		SELECT
 			DATE_FORMAT({date_field}, '%%d %%b') as label,
 			{date_field} as dt,
-			COALESCE(SUM(grand_total), 0) as amount
+			COALESCE(SUM({sales_total_expr('t')}), 0) as amount
 		FROM `tab{doctype}` t
 		WHERE docstatus=1 {status_cond}
 		AND {date_field} >= DATE_SUB(%s, INTERVAL 13 DAY)

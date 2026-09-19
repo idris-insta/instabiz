@@ -3,7 +3,7 @@ from frappe.utils import nowdate, getdate, get_first_day, get_last_day, add_mont
 
 from instabiz.overrides.billing_mode import (
 	is_dev_billing_mode, sales_doctype, purchase_doctype,
-	sales_outstanding_expr, purchase_outstanding_expr,
+	sales_outstanding_expr, purchase_outstanding_expr, sales_total_expr,
 )
 
 
@@ -51,17 +51,17 @@ def get_finance_data():
 
 	# ── Revenue ──────────────────────────────────────────────────────────────
 	rev_mtd = flt(frappe.db.sql(f"""
-		SELECT COALESCE(SUM(grand_total),0) FROM `tab{sales_dt}` t
+		SELECT COALESCE(SUM({sales_total_expr('t')}),0) FROM `tab{sales_dt}` t
 		WHERE docstatus=1 {sales_cond} AND {sales_date} BETWEEN %s AND %s
 	""", (month_start, today))[0][0])
 
 	rev_last = flt(frappe.db.sql(f"""
-		SELECT COALESCE(SUM(grand_total),0) FROM `tab{sales_dt}` t
+		SELECT COALESCE(SUM({sales_total_expr('t')}),0) FROM `tab{sales_dt}` t
 		WHERE docstatus=1 {sales_cond} AND {sales_date} BETWEEN %s AND %s
 	""", (last_start, last_end))[0][0])
 
 	rev_ytd = flt(frappe.db.sql(f"""
-		SELECT COALESCE(SUM(grand_total),0) FROM `tab{sales_dt}` t
+		SELECT COALESCE(SUM({sales_total_expr('t')}),0) FROM `tab{sales_dt}` t
 		WHERE docstatus=1 {sales_cond} AND {sales_date} BETWEEN %s AND %s
 	""", (fy_start, today))[0][0])
 
@@ -146,7 +146,7 @@ def get_finance_data():
 	pl_trend = frappe.db.sql(f"""
 		SELECT DATE_FORMAT({sales_date},'%%b %%Y') as label,
 			   DATE_FORMAT({sales_date},'%%Y-%%m') as ym,
-			   COALESCE(SUM(grand_total),0) as revenue
+			   COALESCE(SUM({sales_total_expr('t')}),0) as revenue
 		FROM `tab{sales_dt}` t
 		WHERE docstatus=1 {sales_cond}
 		AND {sales_date} >= DATE_SUB(%s, INTERVAL 6 MONTH)
@@ -183,7 +183,7 @@ def get_finance_data():
 	# own date, same as AR Aging report.
 	overdue = frappe.db.sql(f"""
 		SELECT name, customer_name, {sales_date} as posting_date,
-			   {sales_date} as due_date, {ar_expr} as outstanding_amount, grand_total,
+			   {sales_date} as due_date, {ar_expr} as outstanding_amount, {sales_total_expr('t')} as grand_total,
 			   DATEDIFF(%s, {sales_date}) as days_overdue
 		FROM `tab{sales_dt}` t
 		WHERE docstatus=1 {sales_cond}

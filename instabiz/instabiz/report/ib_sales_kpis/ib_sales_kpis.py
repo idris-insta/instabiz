@@ -6,6 +6,10 @@ from frappe.utils import getdate, flt
 
 def execute(filters=None):
 	filters = filters or {}
+	from instabiz.overrides.own_data import locked_user
+
+	if locked_user():
+		filters["sales_person_user"] = locked_user()  # a plain Sales User sees only their own
 	_validate(filters)
 	data    = _data(filters)
 	columns = _columns()

@@ -23,6 +23,9 @@ VIEWS = ["Monthly Summary", "Party-wise", "Collection Status", "Item-wise", "Ite
 
 def execute(filters=None):
 	f = frappe._dict(filters or {})
+	from instabiz.overrides.own_data import locked_user
+
+	f._own_user = locked_user()  # a plain Sales User sees only the customers they handle
 	f.company = f.company or frappe.defaults.get_user_default("Company")
 	f.from_date, f.to_date = _period(f)
 	f.view = f.view or "Monthly Summary"
@@ -91,6 +94,9 @@ def _cond(f, alias="si"):
 	if f.handled_by:
 		cond += " AND IFNULL(c.custom_sales_person, '') = %(handled_by)s"
 		args["handled_by"] = f.handled_by
+	if f.get("_own_user"):
+		cond += " AND c.custom_sales_person_user = %(own_user)s"
+		args["own_user"] = f._own_user
 	if f.get("exclude_internal", 1) not in (0, "0"):
 		# branch-to-branch transfers billed to an own-company customer are not sales
 		cond += " AND IFNULL(c.is_internal_customer, 0) = 0 AND IFNULL(c.customer_name, '') NOT LIKE 'INSTABIZ%%'"
@@ -156,6 +162,9 @@ def _balances(f, customers=None):
 			return {}
 		cond = " AND party IN %(customers)s"
 		args["customers"] = tuple(customers)
+	elif f.get("_own_user"):
+		cond = " AND party IN (SELECT name FROM `tabCustomer` WHERE custom_sales_person_user = %(own_user)s)"
+		args["own_user"] = f._own_user
 	return dict(frappe.db.sql(
 		f"""SELECT party, SUM(debit - credit) FROM `tabGL Entry`
 		WHERE is_cancelled = 0 AND company = %(company)s AND party_type = 'Customer'

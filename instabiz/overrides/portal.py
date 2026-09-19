@@ -46,7 +46,7 @@ def _outstanding(customer):
 	from instabiz.overrides.ib_status import stored_statuses
 
 	if is_dev_billing_mode():
-		expr = "GREATEST(grand_total - IFNULL(custom_advance_paid, 0), 0)"
+		expr = "GREATEST(COALESCE(NULLIF(custom_total_with_gst, 0), grand_total) - IFNULL(custom_advance_paid, 0), 0)"
 		cond = "docstatus = 1 AND per_billed < 100 AND status NOT IN %(closed)s"
 	else:
 		expr, cond = "outstanding_amount", "docstatus = 1 AND outstanding_amount > 0"
@@ -131,8 +131,8 @@ def get_my_invoices(limit=60):
 		(customer, int(limit)), as_dict=True)
 	if is_dev_billing_mode():
 		out += frappe.db.sql(
-			"""SELECT 'Sales Order' AS doctype, name, transaction_date AS date, grand_total,
-			       GREATEST(grand_total - IFNULL(custom_advance_paid, 0), 0) AS outstanding, status
+			"""SELECT 'Sales Order' AS doctype, name, transaction_date AS date, COALESCE(NULLIF(custom_total_with_gst, 0), grand_total) AS grand_total,
+			       GREATEST(COALESCE(NULLIF(custom_total_with_gst, 0), grand_total) - IFNULL(custom_advance_paid, 0), 0) AS outstanding, status
 			FROM `tabSales Order` WHERE customer = %s AND docstatus = 1 AND per_billed < 100
 			ORDER BY transaction_date DESC LIMIT %s""", (customer, int(limit)), as_dict=True)
 	return sorted(out, key=lambda r: getdate(r.date), reverse=True)
@@ -264,6 +264,15 @@ def give_portal_login(customer, email, full_name=None, mobile=None):
 		user.flags.ignore_permissions = True
 		user.insert()
 	contact = frappe.db.get_value("Contact", {"email_id": email}, "name") or frappe.db.get_value("Contact", {"user": email}, "name")
+	# a login (or contact) already tied to another customer is never taken over:
+	# the set-password link would hand that customer's portal to this caller
+	other = frappe.db.sql(
+		"""SELECT DISTINCT dl.link_name FROM `tabContact` c JOIN `tabDynamic Link` dl
+		ON dl.parent = c.name AND dl.parenttype = 'Contact' AND dl.link_doctype = 'Customer'
+		WHERE (c.user = %(e)s OR c.email_id = %(e)s) AND dl.link_name != %(c)s""", {"e": email, "c": customer}, pluck=True)
+	if other:
+		frappe.throw(_("{0} is already the portal login of another customer ({1}). Use a different email.").format(
+			email, ", ".join(other)), frappe.PermissionError)
 	if contact:
 		c = frappe.get_doc("Contact", contact)
 	else:

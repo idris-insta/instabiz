@@ -460,7 +460,7 @@ def get_outstanding_statement_rows(customer):
 		doctype = sales_doctype()
 		outstanding_expr = sales_outstanding_expr("t")
 		rows = frappe.db.sql(
-			f"SELECT t.name, t.transaction_date AS doc_date, t.grand_total,"
+			f"SELECT t.name, t.transaction_date AS doc_date, COALESCE(NULLIF(t.custom_total_with_gst, 0), t.grand_total) AS grand_total,"
 			f" t.company_gstin,"
 			f" {outstanding_expr} AS balance"
 			f" FROM `tab{doctype}` t"

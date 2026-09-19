@@ -1,7 +1,7 @@
 import frappe
 from frappe.utils import nowdate, getdate, flt, cint
 
-from instabiz.overrides.billing_mode import is_dev_billing_mode, sales_doctype, sales_outstanding_expr
+from instabiz.overrides.billing_mode import sales_total_expr, is_dev_billing_mode, sales_doctype, sales_outstanding_expr
 from instabiz.overrides.utils import build_multi_token_where
 
 
@@ -93,7 +93,7 @@ def get_collections_data(search=None, filter_sp=None, overdue_only=False, offset
 			t.customer_name,
 			COUNT(t.name) as invoice_count,
 			COALESCE(SUM({outstanding_expr}), 0) as outstanding,
-			COALESCE(SUM(t.grand_total), 0) as billed,
+			COALESCE(SUM({sales_total_expr('t')}), 0) as billed,
 			MIN(t.{date_field}) as earliest_due,
 			DATEDIFF(%s, MIN(t.{date_field})) as days_overdue
 		FROM `tab{doctype}` t
@@ -128,7 +128,7 @@ def get_collections_data(search=None, filter_sp=None, overdue_only=False, offset
 		inv_where = " AND ".join(inv_conds)
 		invoices = frappe.db.sql(f"""
 			SELECT t.name, t.customer, t.{date_field} as posting_date, t.{date_field} as due_date,
-				   t.grand_total, {outstanding_expr} as outstanding_amount,
+				   {sales_total_expr('t')} AS grand_total, {outstanding_expr} as outstanding_amount,
 				   DATEDIFF(%s, t.{date_field}) as days_overdue
 			FROM `tab{doctype}` t
 			WHERE {inv_where}

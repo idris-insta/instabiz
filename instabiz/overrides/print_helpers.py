@@ -353,6 +353,14 @@ def totals(doc):
 	discount = flt(doc.get("discount_amount"))
 	extra = flt(doc.get("grand_total")) - net - tax_total
 	rounding = flt(doc.get("rounding_adjustment"))
+	words = doc.get("in_words")
+	gst = flt(doc.get("custom_gst_amount"))
+	if doc.doctype == "Sales Order" and gst and not any(t.charge_type != "Actual" for t in taxes):
+		# the order carries no GST rows; the customer still owes the invoice amount
+		taxes = [*taxes, frappe._dict(description=frappe._("GST (charged on invoice)"), rate=0, tax_amount=gst)]
+		grand = flt(doc.get("custom_total_with_gst")) or flt(doc.get("grand_total")) + gst
+		rounding = flt(grand - flt(doc.get("grand_total")) - gst, 2)
+		words = None
 	return frappe._dict(
 		total=flt(doc.get("total")),
 		discount=discount,
@@ -361,7 +369,7 @@ def totals(doc):
 		extra=flt(extra, 2) if abs(extra) > 0.5 else 0,
 		rounding=rounding,
 		grand=grand,
-		words=doc.get("in_words") or money_in_words(grand, doc.get("currency") or "INR"),
+		words=words or money_in_words(grand, doc.get("currency") or "INR"),
 		total_qty=flt(doc.get("total_qty")),
 		advance=flt(doc.get("custom_advance_paid") or doc.get("advance_paid")),
 	)
@@ -408,7 +416,7 @@ def statement(customer, from_date=None, to_date=None):
 		entries = frappe.db.sql(
 			"""
 			SELECT transaction_date AS date, 'Sales Order' AS voucher_type, name AS voucher_no,
-			       grand_total AS debit, 0 AS credit, IFNULL(po_no, '') AS remarks
+			       COALESCE(NULLIF(custom_total_with_gst, 0), grand_total) AS debit, 0 AS credit, IFNULL(po_no, '') AS remarks
 			FROM `tabSales Order` WHERE customer = %(c)s AND docstatus = 1
 			UNION ALL
 			SELECT posting_date, 'Payment Entry', name, 0, paid_amount,

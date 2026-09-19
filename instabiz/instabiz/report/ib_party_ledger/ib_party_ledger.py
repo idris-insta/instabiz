@@ -15,6 +15,8 @@ def execute(filters=None):
 	f = frappe._dict(filters or {})
 	if not f.customer:
 		return _columns(), [], None, None, []
+	if not frappe.has_permission("Customer", "read", f.customer):
+		frappe.throw(frappe._("You can only see the ledger of customers you handle."), frappe.PermissionError)
 	f.company = f.company or frappe.defaults.get_user_default("Company")
 	f.from_date = getdate(f.from_date) if f.from_date else getdate("1900-01-01")
 	f.to_date = getdate(f.to_date) if f.to_date else getdate()

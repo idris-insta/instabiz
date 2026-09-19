@@ -162,6 +162,7 @@ def mark_sent(name, row):
 @frappe.whitelist()
 def refresh_results(name):
 	doc = frappe.get_doc("IB Campaign", name)
+	doc.check_permission("read")
 	if not doc.sent_on:
 		return
 	customers = [r.party for r in doc.recipients if r.party_type == "Customer" and r.status == "Sent"]

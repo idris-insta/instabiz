@@ -52,7 +52,7 @@ def net_sales(month_start, month_end, user=None, deduct_unpaid=False):
 	"""{user: {gross, gst, unpaid, net, docs}} for the period."""
 	if is_dev_billing_mode():
 		doctype, date_expr = "Sales Order", "transaction_date"
-		unpaid_expr = "GREATEST(rounded_total - IFNULL(custom_advance_paid, 0), 0)"
+		unpaid_expr = "GREATEST(COALESCE(NULLIF(custom_total_with_gst, 0), rounded_total) - IFNULL(custom_advance_paid, 0), 0)"
 	else:
 		doctype, date_expr = "Sales Invoice", "posting_date"
 		unpaid_expr = "outstanding_amount"

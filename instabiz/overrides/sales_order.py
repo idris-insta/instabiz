@@ -76,6 +76,9 @@ class CustomSalesOrder(IbStatusMixin, SalesOrder):
         _check_customer_item_spec(self)
         _guard_document_attachments(self)
         super().validate()
+        from instabiz.overrides.so_gst import set_gst_totals
+
+        set_gst_totals(self)  # GST-inclusive total for receivables / PDF (no GST rows on the order)
 
     def check_credit_limit(self):
         # ERPNext's own check (on_submit): blocks once outstanding crosses the

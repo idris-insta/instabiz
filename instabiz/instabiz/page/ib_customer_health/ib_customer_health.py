@@ -2,7 +2,7 @@ import frappe
 from frappe.utils import nowdate, getdate, get_first_day, add_months, flt
 from erpnext.accounts.utils import get_fiscal_year
 
-from instabiz.overrides.billing_mode import is_dev_billing_mode, sales_doctype, sales_outstanding_expr
+from instabiz.overrides.billing_mode import sales_total_expr, is_dev_billing_mode, sales_doctype, sales_outstanding_expr
 from instabiz.overrides.utils import build_multi_token_where
 
 
@@ -77,21 +77,21 @@ def get_customer_health(search=None, territory=None, limit=50, offset=0):
 			GROUP BY customer
 		) ar ON ar.customer = c.name
 		LEFT JOIN (
-			SELECT customer, SUM(grand_total) as revenue
+			SELECT customer, SUM({sales_total_expr('t')}) as revenue
 			FROM `tab{doctype}` t
 			WHERE t.docstatus=1 {return_cond}
 			AND t.{date_field} BETWEEN %s AND %s
 			GROUP BY customer
 		) mtd ON mtd.customer = c.name
 		LEFT JOIN (
-			SELECT customer, SUM(grand_total) as revenue
+			SELECT customer, SUM({sales_total_expr('t')}) as revenue
 			FROM `tab{doctype}` t
 			WHERE t.docstatus=1 {return_cond}
 			AND t.{date_field} BETWEEN %s AND %s
 			GROUP BY customer
 		) ytd ON ytd.customer = c.name
 		LEFT JOIN (
-			SELECT customer, SUM(grand_total) as revenue
+			SELECT customer, SUM({sales_total_expr('t')}) as revenue
 			FROM `tab{doctype}` t
 			WHERE t.docstatus=1 {return_cond}
 			AND t.{date_field} BETWEEN %s AND %s
@@ -148,14 +148,14 @@ def get_customer_health(search=None, territory=None, limit=50, offset=0):
 			GROUP BY customer
 		) ar ON ar.customer = c.name
 		LEFT JOIN (
-			SELECT customer, SUM(grand_total) as revenue
+			SELECT customer, SUM({sales_total_expr('t')}) as revenue
 			FROM `tab{doctype}` t
 			WHERE t.docstatus=1 {return_cond}
 			AND t.{date_field} BETWEEN %s AND %s
 			GROUP BY customer
 		) mtd ON mtd.customer = c.name
 		LEFT JOIN (
-			SELECT customer, SUM(grand_total) as revenue
+			SELECT customer, SUM({sales_total_expr('t')}) as revenue
 			FROM `tab{doctype}` t
 			WHERE t.docstatus=1 {return_cond}
 			AND t.{date_field} BETWEEN %s AND %s

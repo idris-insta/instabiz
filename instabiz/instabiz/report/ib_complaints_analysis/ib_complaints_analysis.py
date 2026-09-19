@@ -12,6 +12,10 @@ OPEN = ("Open", "In Progress", "Waiting on Customer")
 
 def execute(filters=None):
 	f = frappe._dict(filters or {})
+	from instabiz.overrides.own_data import locked_user
+
+	if locked_user():
+		f.assigned_to = locked_user()  # a plain Sales User sees only their own tickets
 	f.from_date = f.from_date or frappe.utils.add_months(frappe.utils.today(), -3)
 	f.to_date = f.to_date or frappe.utils.today()
 	flt_ = {"opened_at": ["between", [f.from_date, f"{f.to_date} 23:59:59"]]}

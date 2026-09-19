@@ -3,11 +3,15 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from instabiz.overrides.billing_mode import is_dev_billing_mode, sales_doctype, sales_outstanding_expr
+from instabiz.overrides.billing_mode import sales_total_expr, is_dev_billing_mode, sales_doctype, sales_outstanding_expr
 
 
 def execute(filters=None):
 	filters = filters or {}
+	from instabiz.overrides.own_data import locked_user
+
+	if locked_user():
+		filters["sales_person_user"] = locked_user()  # a plain Sales User sees only their own
 	columns = _columns()
 	data    = _data(filters)
 	chart   = _chart(data, filters)
@@ -61,12 +65,12 @@ def _data(filters):
 		SELECT
 			t.custom_sales_person_user                                       AS sales_person,
 			COUNT(DISTINCT t.name)                                           AS invoice_count,
-			ROUND(SUM(t.grand_total), 2)                                     AS invoiced_amount,
-			ROUND(SUM(t.grand_total) - SUM({outstanding_expr}), 2)           AS collected_amount,
+			ROUND(SUM({sales_total_expr('t')}), 2)                                     AS invoiced_amount,
+			ROUND(SUM({sales_total_expr('t')}) - SUM({outstanding_expr}), 2)           AS collected_amount,
 			ROUND(SUM({outstanding_expr}), 2)                                AS outstanding,
-			CASE WHEN SUM(t.grand_total) > 0
-			     THEN ROUND((SUM(t.grand_total) - SUM({outstanding_expr}))
-			                / SUM(t.grand_total) * 100, 1)
+			CASE WHEN SUM({sales_total_expr('t')}) > 0
+			     THEN ROUND((SUM({sales_total_expr('t')}) - SUM({outstanding_expr}))
+			                / SUM({sales_total_expr('t')}) * 100, 1)
 			     ELSE 0
 			END                                                               AS collection_pct
 		FROM `tab{doctype}` t

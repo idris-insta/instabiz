@@ -145,7 +145,7 @@ def _owing(limit):
 	from instabiz.overrides.ib_status import stored_statuses
 
 	if is_dev_billing_mode():
-		rows = frappe.db.sql("""SELECT customer_name, SUM(base_grand_total - IFNULL(custom_advance_paid, 0)) AS amount
+		rows = frappe.db.sql("""SELECT customer_name, SUM(COALESCE(NULLIF(custom_total_with_gst, 0), base_grand_total) - IFNULL(custom_advance_paid, 0)) AS amount
 			FROM `tabSales Order` WHERE docstatus = 1 AND transaction_date >= %s AND IFNULL(per_billed, 0) < 100
 				AND status NOT IN %s GROUP BY customer_name HAVING amount > %s ORDER BY amount DESC""",
 			(add_days(nowdate(), -90), stored_statuses("Sales Order", "Completed", "Closed", "Cancelled"), limit), as_dict=True)

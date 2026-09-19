@@ -137,6 +137,7 @@ def get_gl_entries(filters=None, from_date=None, to_date=None,
 @frappe.whitelist()
 def get_customer_outstanding_letter(customer):
     """Generate outstanding reminder letter HTML for a customer (used by the report Print Reminder button)."""
+    frappe.has_permission("Customer", "read", customer, throw=True)
     from frappe.utils import today as today_fn, getdate, date_diff, flt, formatdate
 
     def _esc(v):

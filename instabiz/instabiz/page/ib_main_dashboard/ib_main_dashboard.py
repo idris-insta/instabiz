@@ -1,7 +1,7 @@
 import frappe
 from frappe.utils import nowdate, getdate, get_first_day, get_last_day, add_months, flt
 
-from instabiz.overrides.billing_mode import is_dev_billing_mode, sales_doctype, sales_outstanding_expr
+from instabiz.overrides.billing_mode import sales_total_expr, is_dev_billing_mode, sales_doctype, sales_outstanding_expr
 
 
 def get_context(context):
@@ -32,18 +32,22 @@ def get_dashboard_data():
 	# Only 'Cancelled' excluded, not 'Closed' — CustomSalesOrder.STATUS_MAP maps
 	# DB status 'Closed' to user-facing label 'Confirmed' (a real completed sale).
 	status_cond = "AND t.status != 'Cancelled'" if dev_mode else "AND t.is_return=0"
+	from instabiz.overrides.own_data import locked_user
+
+	if locked_user():  # a plain Sales User sees their own figures, not the company's
+		status_cond += f" AND t.custom_sales_person_user = {frappe.db.escape(locked_user())}"
 	ar_expr = sales_outstanding_expr("t")
 
 	# ── Revenue MTD ──────────────────────────────────────────────────────────
 	rev_mtd = flt(frappe.db.sql(f"""
-		SELECT COALESCE(SUM(grand_total), 0)
+		SELECT COALESCE(SUM({sales_total_expr('t')}), 0)
 		FROM `tab{sales_dt}` t
 		WHERE docstatus=1 {status_cond}
 		AND {date_field} BETWEEN %s AND %s
 	""", (month_start, today))[0][0])
 
 	rev_last = flt(frappe.db.sql(f"""
-		SELECT COALESCE(SUM(grand_total), 0)
+		SELECT COALESCE(SUM({sales_total_expr('t')}), 0)
 		FROM `tab{sales_dt}` t
 		WHERE docstatus=1 {status_cond}
 		AND {date_field} BETWEEN %s AND %s
@@ -97,7 +101,7 @@ def get_dashboard_data():
 		SELECT
 			DATE_FORMAT({date_field}, '%%b %%Y') as label,
 			DATE_FORMAT({date_field}, '%%Y-%%m') as ym,
-			COALESCE(SUM(grand_total), 0) as amount,
+			COALESCE(SUM({sales_total_expr('t')}), 0) as amount,
 			COALESCE(SUM(base_grand_total), 0) as base_amount
 		FROM `tab{sales_dt}` t
 		WHERE docstatus=1 {status_cond}
@@ -108,7 +112,7 @@ def get_dashboard_data():
 
 	# ── Top 5 customers this month ───────────────────────────────────────────
 	top_customers = frappe.db.sql(f"""
-		SELECT customer_name, COALESCE(SUM(grand_total), 0) as total
+		SELECT customer_name, COALESCE(SUM({sales_total_expr('t')}), 0) as total
 		FROM `tab{sales_dt}` t
 		WHERE docstatus=1 {status_cond}
 		AND {date_field} BETWEEN %s AND %s
@@ -123,7 +127,7 @@ def get_dashboard_data():
 	si_cond = "" if privileged else f"AND custom_sales_person_user = {frappe.db.escape(frappe.session.user)}"
 	recent_si = frappe.db.sql(f"""
 		SELECT name, customer_name, {date_field} as posting_date, {date_field} as due_date,
-		       grand_total, {ar_expr} as outstanding_amount, status
+		       {sales_total_expr('t')} as grand_total, {ar_expr} as outstanding_amount, status
 		FROM `tab{sales_dt}` t
 		WHERE docstatus=1 {si_cond}
 		ORDER BY {date_field} DESC, creation DESC

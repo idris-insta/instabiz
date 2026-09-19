@@ -42,6 +42,18 @@ def purchase_doctype():
 	return "Purchase Order" if is_dev_billing_mode() else "Purchase Invoice"
 
 
+def sales_total_expr(alias="so"):
+	"""SQL expression for what the customer owes for a row, GST included.
+
+	Sales Orders carry no GST rows (GST goes on the invoice); their
+	custom_total_with_gst holds the invoice amount. Older orders that still
+	had GST rows fall back to grand_total."""
+	p = f"{alias}." if alias else ""
+	if is_dev_billing_mode():
+		return f"COALESCE(NULLIF({p}custom_total_with_gst, 0), {p}grand_total)"
+	return f"{p}grand_total"
+
+
 def sales_outstanding_expr(alias="so"):
 	"""SQL expression for a Sales Order/Invoice row's outstanding amount.
 
@@ -52,7 +64,7 @@ def sales_outstanding_expr(alias="so"):
 	real outstanding_amount maintained by ERPNext itself.
 	"""
 	if is_dev_billing_mode():
-		return f"({alias}.grand_total - COALESCE({alias}.custom_advance_paid, 0))"
+		return f"({sales_total_expr(alias)} - COALESCE({alias}.custom_advance_paid, 0))"
 	return f"{alias}.outstanding_amount"
 
 

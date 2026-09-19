@@ -36,7 +36,12 @@
   "import_defaults_col",
   "import_default_cha",
   "import_default_extra",
-  "import_prefill_defaults"
+  "import_prefill_defaults",
+  "reco_section",
+  "reco_tolerance_pct",
+  "reco_col",
+  "reco_ready_days",
+  "reco_notify"
  ],
  "fields": [
   {
@@ -226,11 +231,40 @@
    "fieldtype": "Check",
    "label": "Pre-fill these on new containers",
    "default": "1"
+  },
+  {
+   "fieldname": "reco_section",
+   "fieldtype": "Section Break",
+   "label": "Order / Production / Dispatch Check",
+   "description": "Every Delivery Note and finished run is compared with the order and production; differences beyond the tolerance are flagged to Factory Management and the sales person."
+  },
+  {
+   "fieldname": "reco_tolerance_pct",
+   "fieldtype": "Percent",
+   "label": "Tolerance (%)",
+   "default": "5",
+   "description": "Difference allowed between ordered, produced and dispatched quantities before it is flagged."
+  },
+  {
+   "fieldname": "reco_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reco_ready_days",
+   "fieldtype": "Int",
+   "label": "Flag produced but not dispatched after (days)",
+   "default": "3"
+  },
+  {
+   "fieldname": "reco_notify",
+   "fieldtype": "Check",
+   "label": "Send bell notifications for flags",
+   "default": "1"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-20 18:00:00.000000",
+ "modified": "2026-09-20 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "IB Stock Settings",

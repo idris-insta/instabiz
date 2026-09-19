@@ -88,5 +88,8 @@
  "briefing_roles": "IB Messaging Settings",
  "briefing_min_overdue": "IB Messaging Settings",
  "briefing_use_ai": "IB Messaging Settings",
- "promise_open_order_days": "IB Sales Settings"
+ "promise_open_order_days": "IB Sales Settings",
+ "reco_tolerance_pct": "IB Stock Settings",
+ "reco_ready_days": "IB Stock Settings",
+ "reco_notify": "IB Stock Settings"
 }

@@ -108,7 +108,7 @@ def _receivables(credit_days):
 		from instabiz.overrides.ib_status import stored_statuses
 
 		rows = frappe.db.sql("""SELECT 'Sales Order' AS doctype, name, customer AS party, delivery_date AS due_base,
-			GREATEST(grand_total - IFNULL(custom_advance_paid, 0), 0) AS amount FROM `tabSales Order`
+			GREATEST(COALESCE(NULLIF(custom_total_with_gst, 0), grand_total) - IFNULL(custom_advance_paid, 0), 0) AS amount FROM `tabSales Order`
 			WHERE docstatus = 1 AND per_billed < 100 AND status NOT IN %s""",
 			(stored_statuses("Sales Order", "Closed", "Completed"),), as_dict=True)
 		for r in rows:

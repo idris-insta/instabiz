@@ -95,6 +95,7 @@ def _defaults(wo, stage, output_qty=None, input_qty=None):
 def get_prompt(work_order):
 	"""What the Complete Stage dialog should ask for this run's current stage, pre-filled."""
 	wo = frappe.get_doc("IB Work Order", work_order)
+	wo.check_permission("write")
 	stage = wo.current_stage
 	if not stage or stage == "Done":
 		return {}
@@ -113,6 +114,7 @@ def get_prompt(work_order):
 @frappe.whitelist()
 def stash(work_order, stage, data):
 	"""Hold the dialog's DPR numbers until the stage completion saves the run."""
+	frappe.get_doc("IB Work Order", work_order).check_permission("write")
 	data = frappe.parse_json(data) if isinstance(data, str) else (data or {})
 	frappe.cache.set_value(CACHE.format(work_order, stage), data, expires_in_sec=900)
 	return True

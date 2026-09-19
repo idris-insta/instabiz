@@ -17,6 +17,10 @@ def _location_from_warehouse(warehouse):
 
 def execute(filters=None):
 	filters = filters or {}
+	from instabiz.overrides.own_data import locked_user
+
+	if locked_user():
+		filters["sales_person_user"] = locked_user()  # a plain Sales User sees only their own
 	data = _data(filters)
 	columns = _columns()
 	return columns, data, None, _chart(data, filters), _summary(data)

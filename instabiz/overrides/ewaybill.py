@@ -369,7 +369,7 @@ def _search_gstin_by_name(name):
 
 
 def run_ewaybill_on_submit(doc, method=None):
-	"""Called from doc_events → Delivery Note → on_submit."""
+	"""Not wired any more: e-Way Bills are made from the Sales Invoice (see after_migrate)."""
 	if doc.get("is_return") or not doc.get("customer"):
 		return
 
@@ -405,3 +405,11 @@ def run_ewaybill_on_submit(doc, method=None):
 		queue="short",
 		now=frappe.flags.in_test,
 	)
+
+
+def after_migrate():
+	"""e-Way Bills are made from the Sales Invoice (it carries the GST); the
+	Delivery Note is internal and has no tax, so the Delivery Note route is off."""
+	if frappe.db.exists("DocType", "GST Settings") and frappe.db.get_single_value(
+			"GST Settings", "enable_e_waybill_from_dn"):
+		frappe.db.set_single_value("GST Settings", "enable_e_waybill_from_dn", 0)

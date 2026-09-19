@@ -515,6 +515,9 @@ def _ocr_file(file_url):
 	from PIL import Image
 
 	file_doc = frappe.get_doc("File", {"file_url": file_url})
+	# only a file the caller may open (not someone else's private attachment)
+	if not frappe.has_permission("File", "read", doc=file_doc):
+		frappe.throw(_("You cannot read that file."), frappe.PermissionError)
 	path = file_doc.get_full_path()
 
 	if path.lower().endswith(".pdf"):

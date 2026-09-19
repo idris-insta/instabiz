@@ -3,6 +3,7 @@ scheduler_events = {
     # 1st of month: each sales person gets last month's net sale + incentive (IB Incentive Scale)
     "monthly": ["instabiz.overrides.incentive_scale.run_monthly_notice"],
     "daily": [
+        "instabiz.overrides.production_reco.run_daily",  # made but not dispatched / order-production-dispatch flags
         # Complaints past their deadline → owner + Sales Managers (IB Support Ticket)
         "instabiz.instabiz.doctype.ib_support_ticket.ib_support_ticket.run_ticket_deadlines",
         # Returnable / job-work gate passes past their date → stock managers
@@ -177,6 +178,9 @@ after_migrate = [
     "instabiz.overrides.dimensions.after_migrate",  # Branch + Department accounting dimensions, branch masters
     "instabiz.overrides.approvals.after_migrate",  # approval fields on Journal Entry / Payment Entry
     "instabiz.overrides.manufacturing_site.after_migrate",  # Warehouse "Manufacturing" tick (factory vs plain warehouse)
+    "instabiz.overrides.ewaybill.after_migrate",  # e-Way Bill from the Sales Invoice only
+    "instabiz.overrides.own_data.after_migrate",  # company-wide sales reports: managers only
+    "instabiz.overrides.so_gst.after_migrate",  # Sales Order: GST on invoice + total incl. GST
     "instabiz.overrides.stock_dims.after_migrate",  # thickness / colour / width / length on stock + purchase rows
     "instabiz.overrides.workspace_merge.merge_modules",  # one tab per module (Instabiz + ERPNext)
 ]
@@ -381,8 +385,8 @@ doc_events = {
         "on_submit": [
             "instabiz.overrides.stock_events.publish_stock_update",
             "instabiz.overrides.dispatch_notification.run_dispatch_notification",
-            "instabiz.overrides.ewaybill.run_ewaybill_on_submit",
             "instabiz.overrides.production.mark_wos_delivered",
+            "instabiz.overrides.production_reco.check_delivery_note",  # dispatch vs order / production
         ],
         "on_cancel": "instabiz.overrides.stock_events.publish_stock_update",
     },
@@ -431,6 +435,7 @@ doc_events = {
             "instabiz.overrides.production_run.on_work_order_update_notify",
             "instabiz.overrides.dpr_auto.sync_from_work_order",  # DPR line per completed stage
             "instabiz.overrides.wastage_watch.check_run",  # stage above wastage norm → Factory Management
+            "instabiz.overrides.production_reco.check_run",  # finished run vs order qty
         ],
         "on_trash": "instabiz.overrides.production_run.reverse_run_stock",
     },
@@ -452,6 +457,20 @@ permission_query_conditions = {
     "Payment Entry":     "instabiz.overrides.permissions.payment_entry_query_conditions",
     "Territory":         "instabiz.overrides.territory.territory_query_conditions",
     "Salary Slip":       "instabiz.overrides.permissions.salary_slip_query_conditions",
+    # plain Sales User: own customers / own documents only (overrides/own_data.py)
+    "IB Support Ticket": "instabiz.overrides.own_data.query_conditions",
+    "IB Gate Pass": "instabiz.overrides.own_data.query_conditions",
+    "IB Campaign": "instabiz.overrides.own_data.query_conditions",
+    "IB Customer Score": "instabiz.overrides.own_data.query_conditions",
+    "IB Sales Target": "instabiz.overrides.own_data.query_conditions",
+    "IB Sample Request": "instabiz.overrides.own_data.query_conditions",
+    "IB Document Intake": "instabiz.overrides.own_data.query_conditions",
+    "IB Credit Note": "instabiz.overrides.own_data.query_conditions",
+    "IB Customer Assignment": "instabiz.overrides.own_data.query_conditions",
+    "IB PDC": "instabiz.overrides.own_data.query_conditions",
+    "IB Price Suggestion": "instabiz.overrides.own_data.query_conditions",
+    "IB Customer Item Spec": "instabiz.overrides.own_data.query_conditions",
+    "IB Customer Share": "instabiz.overrides.own_data.query_conditions",
 }
 
 has_permission = {
@@ -464,6 +483,19 @@ has_permission = {
     "Employee Checkin":  "instabiz.overrides.checkin.employee_checkin_has_permission",
     "Payment Entry":     "instabiz.overrides.permissions.payment_entry_has_permission",
     "Salary Slip":       "instabiz.overrides.permissions.salary_slip_has_permission",
+    "IB Support Ticket": "instabiz.overrides.own_data.has_permission",
+    "IB Gate Pass": "instabiz.overrides.own_data.has_permission",
+    "IB Campaign": "instabiz.overrides.own_data.has_permission",
+    "IB Customer Score": "instabiz.overrides.own_data.has_permission",
+    "IB Sales Target": "instabiz.overrides.own_data.has_permission",
+    "IB Sample Request": "instabiz.overrides.own_data.has_permission",
+    "IB Document Intake": "instabiz.overrides.own_data.has_permission",
+    "IB Credit Note": "instabiz.overrides.own_data.has_permission",
+    "IB Customer Assignment": "instabiz.overrides.own_data.has_permission",
+    "IB PDC": "instabiz.overrides.own_data.has_permission",
+    "IB Price Suggestion": "instabiz.overrides.own_data.has_permission",
+    "IB Customer Item Spec": "instabiz.overrides.own_data.has_permission",
+    "IB Customer Share": "instabiz.overrides.own_data.has_permission",
 }
 
 # ── Whitelisted method overrides ──────────────────────────────────────────────
@@ -555,6 +587,7 @@ app_include_js  = [
     "/assets/instabiz/js/list_utils.js",            # shared list view helpers (status multiselect, extract filter values)
     "/assets/instabiz/js/comment_popover.js",       # inline comment popover on list rows
     "/assets/instabiz/js/ib_list_print.js",         # shared list view print utility
+    "/assets/instabiz/js/ib_list_row_print.js",     # Print button on every printable list row
     "/assets/instabiz/js/report_export.js",         # global: select rows on any Script Report -> branded PDF export
     "/assets/instabiz/js/ib_dash_utils.js",         # dashboard shared: countUp loader, skeleton helpers, fmt
     "/assets/instabiz/js/so_production_panel.js",  # SO form: production stage + dispatch status panel

@@ -51,6 +51,10 @@ def _data(filters):
 	if filters.get("customer"):
 		conditions.append("customer = %(customer)s")
 		params["customer"] = filters["customer"]
+	from instabiz.overrides.own_data import locked_user, own_customers_sql
+
+	if locked_user():  # a plain Sales User: general suggestions + their own customers
+		conditions.append(f"(IFNULL(customer, '') = '' OR customer IN {own_customers_sql(locked_user())})")
 
 	return frappe.db.sql(
 		f"""

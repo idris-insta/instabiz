@@ -1190,7 +1190,7 @@ def _docs_order_data(user, privileged):
 
 	orders = frappe.db.sql(f"""
 		SELECT so.name, so.customer_name, so.transaction_date, so.status,
-			   so.grand_total, so.custom_advance_paid as advance_paid,
+			   COALESCE(NULLIF(so.custom_total_with_gst, 0), so.grand_total) AS grand_total, so.custom_advance_paid as advance_paid,
 			   so.custom_sales_person_user, so.custom_sales_person
 		FROM `tabSales Order` so
 		WHERE so.docstatus=1 {so_filter}
