@@ -301,6 +301,7 @@ fixtures = [
 # register it as a doc_event — that would execute it twice per save.
 override_doctype_class = {
     "Quotation":         "instabiz.overrides.quotation.CustomQuotation",
+    "Comment":           "instabiz.overrides.comment.IBComment",  # comments on IB Work Order ("route" table)
     "Sales Order":       "instabiz.overrides.sales_order.CustomSalesOrder",
     "Delivery Note":     "instabiz.overrides.delivery_note.CustomDeliveryNote",
     "Sales Invoice":     "instabiz.overrides.sales_invoice.CustomSalesInvoice",

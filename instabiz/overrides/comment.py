@@ -122,3 +122,25 @@ def _notify_factory_roles(doc, commenter, commenter_name):
 			"from_user":     commenter,
 			"type":          "Alert",
 		}).insert(ignore_permissions=True)
+
+
+from frappe.core.doctype.comment.comment import Comment as _FrappeComment
+
+# Doctypes with a Table field named "route": Frappe's update_comment_in_doc()
+# reads `route` of the commented document as a web route and hands the child
+# rows to redis → DataError, so every comment on these failed.
+_TABLE_ROUTE_DOCTYPES = {"IB Work Order"}
+
+
+class IBComment(_FrappeComment):
+	def on_update(self):
+		if self.reference_doctype not in _TABLE_ROUTE_DOCTYPES:
+			return super().on_update()
+		from frappe.core.doctype.comment import comment as core
+
+		orig = core.clear_cache
+		core.clear_cache = lambda *args, **kwargs: None  # these doctypes have no web page to clear
+		try:
+			return super().on_update()
+		finally:
+			core.clear_cache = orig

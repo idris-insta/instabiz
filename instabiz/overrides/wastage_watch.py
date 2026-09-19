@@ -4,8 +4,7 @@ Wastage norms. Every completed stage of a run records input, output and
 wastage % (IB WO Stage Event). The norm is the machine's Wastage Norm %, else
 IB Stock Settings "Default wastage norm %" (3). A stage above its norm:
   - bell to Factory Management (once per stage event), with operator and machine
-    (no timeline comment: IB Work Order's "route" table collides with Frappe's
-    comment cache-clear, which reads "route" as a web URL)
+  - a comment on the run's timeline
 IB Wastage Analysis shows the trend by stage / machine / operator / item group.
 """
 import frappe
@@ -50,3 +49,4 @@ def _alert(doc, ev, norm, marker):
 		frappe.get_doc({"doctype": "Notification Log", "for_user": "Administrator", "type": "Alert",
 			"subject": text[:138 - len(marker)] + " " + marker, "document_type": "IB Work Order",
 			"document_name": doc.name}).insert(ignore_permissions=True)
+	frappe.get_doc("IB Work Order", doc.name).add_comment("Comment", _("Wastage above norm: {0}").format(text))
