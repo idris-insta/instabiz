@@ -1445,6 +1445,19 @@ def hold_work_order(work_order):
 
 
 @frappe.whitelist()
+def cancel_work_order(work_order, reason=None):
+	"""Compat shim -> run model cancel_run(). Was fully built (locking,
+	batch-qty restore, genealogy reversal) but had zero UI entry point —
+	no button anywhere ever called it. Wired here so the WO panel's "More
+	actions" menu can reach it."""
+	from instabiz.overrides.production_run import cancel_run
+	r = cancel_run(work_order, reason=reason)
+	r = dict(r or {})
+	r["status"] = "ok" if r.pop("ok", False) else "error"
+	return r
+
+
+@frappe.whitelist()
 def assign_machine_to_wo(work_order, machine):
 	"""Alias for assign_machine — called by the production stages JS."""
 	return assign_machine(work_order, machine)
