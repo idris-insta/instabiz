@@ -29,11 +29,41 @@ const IB_FIN_COLOR_YTD      = "#06b6d4";
 
 class IBFinanceDashboard {
 	constructor(wrapper) {
+		this.page = wrapper.page;
 		this.$wrap = $(wrapper).find(".layout-main-section");
 		this._pl_chart  = null;
 		this._fetching  = false;
 		this._inject_styles();
 		this._build_layout();
+		this._build_controls();
+	}
+
+	_build_controls() {
+		this.page.set_secondary_action(__("Refresh"), () => this.refresh(), "refresh");
+		this.page.add_menu_item(__("Sales documents"), () => {
+			frappe.route_options = this._ar_route_options();
+			frappe.set_route("List", this.sales_dt || "Sales Invoice");
+		});
+		this.page.add_menu_item(__("Purchase documents"), () => frappe.set_route("List", this.purch_dt || "Purchase Invoice"));
+		this.page.add_menu_item(__("Payment Entries"), () => frappe.set_route("List", "Payment Entry"));
+		this.filters = ibDash.filters(this.page, {
+			key: "finance-dash",
+			fields: [ibDash.F.period(), ibDash.F.location()],
+			onChange: () => this.refresh(),
+		});
+		this.cards = ibDash.personalise(this.page, {
+			key: "finance-dash",
+			cards: [
+				{ id: "kpis", label: __("Headline numbers"), locked: 1 },
+				{ id: "pl", label: __("Profit trend") },
+				{ id: "cash", label: __("Cash & bank") },
+				{ id: "vendors", label: __("Top vendors") },
+				{ id: "gst", label: __("GST summary") },
+				{ id: "overdue", label: __("Overdue receivables") },
+			],
+			container: () => this.$wrap.find("[data-cards]"),
+		});
+		this.cards.apply();
 	}
 
 	_inject_styles() {
@@ -96,43 +126,48 @@ class IBFinanceDashboard {
 
 	_build_layout() {
 		this.$wrap.html(`
-		<div class="ib-fin-wrap">
-			<div class="ib-fin-toolbar">
-				<h2>Finance Dashboard</h2>
-				<span class="ib-fin-ts" id="ib-fin-ts"></span>
-				<button class="ib-fin-btn btn btn-default btn-sm" id="ib-fin-btn-si">Sales Invoices</button>
-				<button class="ib-fin-btn btn btn-default btn-sm" id="ib-fin-btn-pi">Purchase Invoices</button>
-				<button class="ib-fin-btn btn btn-default btn-sm" id="ib-fin-btn-pe">Payment Entries</button>
-				<button class="ib-fin-btn btn btn-default btn-sm" id="ib-fin-refresh">↻ Refresh</button>
-			</div>
-			<div id="ib-fin-kpis" class="ib-fin-kpis">${window.ib_skel_kpis ? ib_skel_kpis(6) : ""}</div>
-			<div class="ib-fin-grid">
-				<div class="ib-fin-card">
-					<div class="ib-fin-card-title">P&amp;L Trend — 6 Months</div>
-					<div class="ib-fin-chart-wrap" id="ib-fin-pl-chart"></div>
+		<div class="ib-fin-wrap ib-ui-page">
+			<div class="ib-ui-filter-note" id="ib-fin-note"><span id="ib-fin-ts"></span></div>
+			<div class="ib-dash-cards" data-cards>
+				<div data-card="kpis" class="ib-dash-c--12">
+					<div id="ib-fin-kpis" class="ib-fin-kpis">${window.ib_skel_kpis ? ib_skel_kpis(6) : ""}</div>
 				</div>
-				<div class="ib-fin-card">
-					<div class="ib-fin-card-title">Top Vendors MTD</div>
-					<div id="ib-fin-vendors"></div>
+				<div data-card="pl" class="ib-dash-c--8">
+					<div class="ib-fin-card">
+						<div class="ib-fin-card-title">${__("Revenue vs expenses — 6 months")}</div>
+						<div class="ib-fin-chart-wrap ib-ui-chart" id="ib-fin-pl-chart"></div>
+					</div>
 				</div>
-				<div class="ib-fin-card">
-					<div class="ib-fin-card-title">GST Summary (MTD)</div>
-					<div id="ib-fin-gst"></div>
+				<div data-card="cash" class="ib-dash-c--4">
+					<div class="ib-fin-card">
+						<div class="ib-fin-card-title">${__("Cash &amp; bank balances")}</div>
+						<div id="ib-fin-cash"></div>
+					</div>
 				</div>
-				<div class="ib-fin-card">
-					<div class="ib-fin-card-title">Cash &amp; Bank Balances</div>
-					<div id="ib-fin-cash"></div>
+				<div data-card="vendors" class="ib-dash-c--6">
+					<div class="ib-fin-card">
+						<div class="ib-fin-card-title">${__("Top vendors")}</div>
+						<div id="ib-fin-vendors"></div>
+					</div>
 				</div>
-			</div>
-			<div class="ib-fin-card">
-				<div class="ib-fin-card-title">Overdue Receivables</div>
-				<table class="ib-fin-tbl">
-					<thead><tr>
-						<th>Invoice</th><th>Customer</th><th>Invoice Date</th>
-						<th>Due Date</th><th>Overdue</th><th style="text-align:right">Outstanding</th>
-					</tr></thead>
-					<tbody id="ib-fin-overdue"></tbody>
-				</table>
+				<div data-card="gst" class="ib-dash-c--6">
+					<div class="ib-fin-card">
+						<div class="ib-fin-card-title">${__("GST summary")}</div>
+						<div id="ib-fin-gst"></div>
+					</div>
+				</div>
+				<div data-card="overdue" class="ib-dash-c--12">
+					<div class="ib-fin-card">
+						<div class="ib-fin-card-title">${__("Overdue receivables")}</div>
+						<table class="ib-fin-tbl">
+							<thead><tr>
+								<th>${__("Document")}</th><th>${__("Customer")}</th><th>${__("Date")}</th>
+								<th>${__("Due")}</th><th>${__("Overdue")}</th><th style="text-align:right">${__("Outstanding")}</th>
+							</tr></thead>
+							<tbody id="ib-fin-overdue"></tbody>
+						</table>
+					</div>
+				</div>
 			</div>
 		</div>`);
 
@@ -143,17 +178,25 @@ class IBFinanceDashboard {
 			frappe.route_options = this._ar_route_options();
 			frappe.set_route("List", this.sales_dt || "Sales Invoice");
 		});
-		this.$wrap.find("#ib-fin-btn-pi").on("click", () => frappe.set_route("List", this.purch_dt || "Purchase Invoice"));
-		this.$wrap.find("#ib-fin-btn-pe").on("click", () => frappe.set_route("List", "Payment Entry"));
-		this.$wrap.find("#ib-fin-refresh").on("click", () => this.refresh());
+
+	}
+
+	_args() {
+		const f = (this.filters && this.filters.get()) || {};
+		this.$wrap.find("#ib-fin-note").html(
+			`${ibUI.icon("calendar", 13)}<b>${ibUI.esc((this.filters && this.filters.label()) || "")}</b>` +
+			`<span style="margin-left:auto" id="ib-fin-ts"></span>`);
+		return { from_date: f.from_date, to_date: f.to_date, location: f.location };
 	}
 
 	refresh() {
 		const opts = ib_guarded_call(this, {
 			method: "instabiz.instabiz.page.ib_finance_dashboard.ib_finance_dashboard.get_finance_data",
+			args: this._args(),
 			callback: (r) => {
 				if (r.message) {
 					this._render(r.message);
+					this.cards && this.cards.apply();
 					this.$wrap.find("#ib-fin-ts").text("Updated " + frappe.datetime.now_time());
 				}
 			},
@@ -195,36 +238,38 @@ class IBFinanceDashboard {
 	}
 
 	_render_kpis(d) {
-		const today = frappe.datetime.get_today();
-		const ms = today.slice(0, 7) + "-01";
+		// The range comes from the filter bar, so the labels cannot say "MTD".
+		const f = (this.filters && this.filters.get()) || {};
+		const today = f.to_date || frappe.datetime.get_today();
+		const ms = f.from_date || today.slice(0, 7) + "-01";
 		const kpis = [
 			{
-				label: "Revenue MTD", raw: d.rev_mtd, color: IB_FIN_COLOR_REVENUE,
+				label: __("Revenue"), raw: d.rev_mtd, color: IB_FIN_COLOR_REVENUE,
 				delta: ib_delta_html(d.rev_delta),
 				click: () => { frappe.route_options = { docstatus: 1, [d.sales_date_field]: ["between", [ms, today]] }; frappe.set_route("List", d.sales_dt); },
 			},
 			{
-				label: "Gross Profit MTD", raw: d.gross_profit, color: d.gross_margin > 20 ? IB_FIN_COLOR_PROFIT : IB_FIN_COLOR_DANGER,
+				label: __("Gross profit"), raw: d.gross_profit, color: d.gross_margin > 20 ? IB_FIN_COLOR_PROFIT : IB_FIN_COLOR_DANGER,
 				delta: `<span class="ib-delta ${d.gross_margin > 20 ? "pos" : "neg"}">${d.gross_margin}% margin</span>`,
 				click: () => frappe.set_route("query-report", "IB Gross Margin"),
 			},
 			{
-				label: "Outstanding AR", raw: d.ar, color: IB_FIN_COLOR_WARNING,
+				label: __("Outstanding AR"), raw: d.ar, color: IB_FIN_COLOR_WARNING,
 				delta: `<span class="ib-delta neu">AP: ${this._fmt(d.ap)}</span>`,
 				click: () => { frappe.route_options = this._ar_route_options(); frappe.set_route("List", d.sales_dt); },
 			},
 			{
-				label: "Cash & Bank", raw: d.total_cash_bank, color: IB_FIN_COLOR_CASH,
+				label: __("Cash & bank"), raw: d.total_cash_bank, color: IB_FIN_COLOR_CASH,
 				delta: `<span class="ib-delta neu">${(d.cash_bank_accounts || []).length} accounts</span>`,
 				click: () => frappe.set_route("List", "Payment Entry"),
 			},
 			{
-				label: "Expenses MTD", raw: d.exp_mtd, color: IB_FIN_COLOR_EXPENSE,
+				label: __("Expenses"), raw: d.exp_mtd, color: IB_FIN_COLOR_EXPENSE,
 				delta: ib_delta_html(d.exp_delta),
 				click: () => { frappe.route_options = { docstatus: 1, [d.purch_date_field]: ["between", [ms, today]] }; frappe.set_route("List", d.purch_dt); },
 			},
 			{
-				label: "Revenue YTD", raw: d.rev_ytd, color: IB_FIN_COLOR_YTD,
+				label: __("Revenue YTD"), raw: d.rev_ytd, color: IB_FIN_COLOR_YTD,
 				delta: `<span class="ib-delta neu">fiscal year to date</span>`,
 				click: () => { frappe.route_options = { docstatus: 1 }; frappe.set_route("List", d.sales_dt); },
 			},
@@ -234,7 +279,7 @@ class IBFinanceDashboard {
 			<div class="ib-fin-kpi" data-kpi="${i}">
 				<div class="ib-fin-kpi-bar" style="background:${k.color}"></div>
 				<div class="ib-fin-kpi-lbl">${k.label}</div>
-				<div class="ib-fin-kpi-val" data-countup="${k.raw}" data-cu-inr="1">${this._fmt(k.raw)}</div>
+				<div class="ib-fin-kpi-val" title="${ibUI.moneyFull(k.raw)}">${ibUI.esc("₹" + ibUI.shortNum(k.raw))}</div>
 				<div class="ib-fin-kpi-delta">${k.delta}</div>
 				<span class="ib-fin-arrow">→</span>
 			</div>`).join("");
@@ -246,23 +291,16 @@ class IBFinanceDashboard {
 	}
 
 	_render_pl_chart(trend) {
-		const el = this.$wrap.find("#ib-fin-pl-chart")[0];
-		if (!el || !trend || !trend.length) return;
-		if (this._pl_chart) { this._pl_chart.destroy && this._pl_chart.destroy(); this._pl_chart = null; $(el).empty(); }
-		this._pl_chart = new frappe.Chart(el, {
-			type: "bar",
-			height: 175,
+		ibDash.chart(this.$wrap.find("#ib-fin-pl-chart"), {
+			type: "bar", height: 200, currency: true,
+			labels: (trend || []).map((r) => r.label),
+			datasets: [
+				{ name: __("Revenue"), values: (trend || []).map((r) => flt(r.revenue)) },
+				{ name: __("Expenses"), values: (trend || []).map((r) => flt(r.expenses)) },
+				{ name: __("Profit"), values: (trend || []).map((r) => flt(r.profit)), chartType: "line" },
+			],
 			colors: [IB_FIN_COLOR_REVENUE, IB_FIN_COLOR_EXPENSE, IB_FIN_COLOR_PROFIT],
-			data: {
-				labels: trend.map(r => r.label),
-				datasets: [
-					{ name: "Revenue",  values: trend.map(r => Number(r.revenue  || 0)) },
-					{ name: "Expenses", values: trend.map(r => Number(r.expenses || 0)) },
-					{ name: "Profit",   values: trend.map(r => Number(r.profit   || 0)) },
-				],
-			},
-			axisOptions: { xIsSeries: true },
-			tooltipOptions: { formatTooltipY: (v) => this._fmt(v) },
+			empty: __("No revenue or expenses in this window"), emptyIcon: "trending-up",
 		});
 	}
 

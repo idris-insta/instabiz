@@ -598,6 +598,7 @@ app_include_js  = [
     "/assets/instabiz/js/ib_list_row_print.js",     # Print button on every printable list row
     "/assets/instabiz/js/report_export.js",         # global: select rows on any Script Report -> branded PDF export
     "/assets/instabiz/js/ib_dash_utils.js",         # dashboard shared: countUp loader, skeleton helpers, fmt
+    "/assets/instabiz/js/ib_dash_kit.js",           # dashboard kit: theme chart wrapper, filter bar, card personalisation (window.ibDash)
     "/assets/instabiz/js/so_production_panel.js",  # SO form: production stage + dispatch status panel
     "/assets/instabiz/js/ib_simple_payment_dialog.js",  # shared simplified Payment Entry dialog for Sales Users
     "/assets/instabiz/js/ib_messaging.js",           # Send ▸ WhatsApp / Email on sales, purchase and customer forms

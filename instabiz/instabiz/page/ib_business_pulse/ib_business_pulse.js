@@ -235,27 +235,12 @@ class IBBusinessPulse {
 	}
 
 	_render_trend(trend) {
-		const $el = this.$wrap.find("#ib-bp-trend")[0];
-		if (!$el) return;
-		if (!trend.length) {
-			$($el).html(`<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:12px">No trend data</div>`);
-			return;
-		}
-		if (this._trend_chart) { this._trend_chart.destroy && this._trend_chart.destroy(); this._trend_chart = null; }
-		$($el).empty();
-		this._trend_chart = new frappe.Chart($el, {
-			type: "line",
-			data: {
-				labels: trend.map(r => r.label),
-				datasets: [{ name: "Revenue", values: trend.map(r => parseFloat(r.amount || 0)) }],
-			},
-			colors: ["#d97757"],
-			height: 165,
-			lineOptions: { regionFill: 1, hideDots: 1, spline: 1 },
-			axisOptions: { xIsSeries: 1 },
-			tooltipOptions: {
-				formatTooltipY: (v) => "₹" + Number(v).toLocaleString("en-IN", { maximumFractionDigits: 0 }),
-			},
+		this._trend_chart = ibDash.chart(this.$wrap.find("#ib-bp-trend"), {
+			type: "line", height: 175, currency: true, tone: "brand",
+			labels: (trend || []).map((r) => r.label),
+			datasets: [{ name: __("Revenue"), values: (trend || []).map((r) => parseFloat(r.amount || 0)) }],
+			lineOptions: { hideDots: 1 },
+			empty: __("No revenue in the last 14 days"), emptyIcon: "trending-up",
 		});
 	}
 }

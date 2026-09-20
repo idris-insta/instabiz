@@ -16,7 +16,7 @@ def _is_privileged(user):
 
 @frappe.whitelist()
 def get_collections_data(search=None, filter_sp=None, overdue_only=False, offset=0, limit=50,
-						  min_days_overdue=0, min_outstanding=0):
+						  min_days_overdue=0, min_outstanding=0, location=None):
 	# Basis controlled by instabiz.overrides.billing_mode — dev mode reads
 	# Sales Order (billing isn't live yet, SI-based collections always reads
 	# empty); prod mode reads real Sales Invoice. Sales Order has no is_return
@@ -46,6 +46,11 @@ def get_collections_data(search=None, filter_sp=None, overdue_only=False, offset
 	elif filter_sp:
 		conditions.append("t.custom_sales_person_user = %s")
 		params.append(filter_sp)
+
+	loc = (location or "").strip().upper()
+	if loc in ("MAHARASHTRA", "GUJARAT", "CHENNAI"):
+		conditions.append("t.custom_location = %s")
+		params.append(loc)
 
 	search_cond, search_params = build_multi_token_where(["t.customer_name", "t.name"], search)
 	if search_cond:

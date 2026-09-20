@@ -12,6 +12,7 @@ class IBCollectionsDashboard {
 		this.$wrap = $(wrapper).find(".layout-main-section");
 		this._search = "";
 		this._filter_sp = null;
+		this._location = "";
 		this._overdue_only = false;
 		this._min_days_overdue = 0;
 		this._min_outstanding = 0;
@@ -99,6 +100,13 @@ class IBCollectionsDashboard {
 				<button class="ib-col-btn btn btn-default btn-sm" id="ib-col-si">Outstanding SIs</button>
 			</div>
 			<div class="ib-col-filters">
+				<span class="ib-col-filter-label">Location</span>
+				<select class="ib-col-input form-control" id="ib-col-location" style="min-width:130px">
+					<option value="">All locations</option>
+					<option value="MAHARASHTRA">MAHARASHTRA</option>
+					<option value="GUJARAT">GUJARAT</option>
+					<option value="CHENNAI">CHENNAI</option>
+				</select>
 				<span class="ib-col-filter-label">Min days overdue</span>
 				<input type="number" min="0" class="ib-col-input form-control" id="ib-col-min-overdue"
 					placeholder="e.g. 30" style="min-width:100px" />
@@ -140,6 +148,11 @@ class IBCollectionsDashboard {
 			this._offset = 0;
 			this.load();
 		});
+		this.$wrap.find("#ib-col-location").on("change", (e) => {
+			this._location = e.target.value || "";
+			this._offset = 0;
+			this.load();
+		});
 		this.$wrap.find("#ib-col-overdue").on("click", () => {
 			this._overdue_only = !this._overdue_only;
 			this.$wrap.find("#ib-col-overdue").toggleClass("active", this._overdue_only);
@@ -174,10 +187,11 @@ class IBCollectionsDashboard {
 			}, 350);
 		});
 		this.$wrap.find("#ib-col-clear").on("click", () => {
-			this._search = ""; this._filter_sp = null; this._overdue_only = false;
+			this._search = ""; this._filter_sp = null; this._overdue_only = false; this._location = "";
 			this._min_days_overdue = 0; this._min_outstanding = 0; this._offset = 0;
 			this.$wrap.find("#ib-col-search").val("");
 			this.$wrap.find("#ib-col-sp").val("");
+			this.$wrap.find("#ib-col-location").val("");
 			this.$wrap.find("#ib-col-min-overdue").val("");
 			this.$wrap.find("#ib-col-min-outstanding").val("");
 			this.$wrap.find("#ib-col-overdue").removeClass("active");
@@ -198,6 +212,7 @@ class IBCollectionsDashboard {
 			args: {
 				search: this._search || null,
 				filter_sp: this._filter_sp,
+				location: this._location,
 				overdue_only: this._overdue_only ? 1 : 0,
 				min_days_overdue: this._min_days_overdue || 0,
 				min_outstanding: this._min_outstanding || 0,
@@ -283,7 +298,7 @@ class IBCollectionsDashboard {
 	_render_table(customers) {
 		const cols = this._cols();
 		if (!customers.length) {
-			const has_filters = this._search || this._filter_sp || this._overdue_only
+			const has_filters = this._search || this._filter_sp || this._location || this._overdue_only
 				|| this._min_days_overdue || this._min_outstanding;
 			const msg = has_filters
 				? "No customers match the current filters — try Clear Filters"

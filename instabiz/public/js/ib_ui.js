@@ -168,6 +168,78 @@
 			return `<span class="ib-ui-num">${Math.round(v || 0)}%</span>`;
 		},
 
+		// compact Indian short form — 1.2 Cr / 4.5 L / 12.3 K. Used for KPI
+		// values and chart axis labels, where the full ₹12,34,56,789 forces a
+		// line break and pushes the ₹ onto a line of its own.
+		shortNum(v, dp) {
+			const f = parseFloat(v) || 0;
+			const n = Math.abs(f), sign = f < 0 ? "-" : "";
+			const cut = (x, u) => sign + (x >= 100 ? Math.round(x) : Math.round(x * 10) / 10) + u;
+			if (n >= 1e7) return cut(n / 1e7, " Cr");
+			if (n >= 1e5) return cut(n / 1e5, " L");
+			if (n >= 1e4) return cut(n / 1e3, " K");
+			return sign + n.toLocaleString("en-IN", { maximumFractionDigits: dp === undefined ? 0 : dp });
+		},
+		moneyFull(v) {
+			return "₹" + (parseFloat(v) || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+		},
+		// ₹ + short form, full value kept in the tooltip
+		moneyShort(v) {
+			return `<span class="ib-ui-num" title="${esc(ibUI.moneyFull(v))}">₹${esc(ibUI.shortNum(v))}</span>`;
+		},
+		// ▲ 12% vs last month — invert:1 for metrics where down is good
+		deltaChip(v, { suffix = "", invert = false } = {}) {
+			const n = parseFloat(v);
+			if (!isFinite(n)) return `<span class="ib-ui-delta neu">&mdash;</span>`;
+			const r = Math.round(n * 10) / 10;
+			if (!r) return `<span class="ib-ui-delta neu">flat${suffix ? " " + esc(suffix) : ""}</span>`;
+			const good = invert ? r < 0 : r > 0;
+			return `<span class="ib-ui-delta ${good ? "up" : "down"}">${r > 0 ? "▲" : "▼"} ` +
+				`${Math.abs(r)}%${suffix ? " " + esc(suffix) : ""}</span>`;
+		},
+		// inline sparkline for a KPI card — no library, scales to the card
+		sparkline(values, { h = 26 } = {}) {
+			const v = (values || []).map((x) => parseFloat(x) || 0);
+			if (v.length < 2) return "";
+			const min = Math.min.apply(null, v.concat([0]));
+			const max = Math.max.apply(null, v);
+			const span = max - min || 1;
+			const pts = v.map((x, i) => `${((i / (v.length - 1)) * 100).toFixed(2)},` +
+				`${(h - 1 - ((x - min) / span) * (h - 5)).toFixed(2)}`);
+			return `<svg class="ib-ui-spark" viewBox="0 0 100 ${h}" preserveAspectRatio="none" aria-hidden="true">` +
+				`<polygon class="a" points="0,${h} ${pts.join(" ")} 100,${h}"/>` +
+				`<polyline class="l" points="${pts.join(" ")}"/></svg>`;
+		},
+		// The KPI card every dashboard uses: label, one big number that never
+		// wraps, a delta chip, a sub-line and an optional sparkline.
+		// { l, v, sub, delta, deltaSuffix, invert, icon, tone, spark, route, key, title }
+		kpi(k) {
+			k = k || {};
+			const tone = k.tone || "brand";
+			const attr = k.route ? ` data-route="${esc(k.route)}"` : (k.key ? ` data-kpi="${esc(k.key)}"` : "");
+			const click = k.route || k.key ? " is-click" : "";
+			const delta = k.delta === undefined || k.delta === null || k.delta === ""
+				? "" : ibUI.deltaChip(k.delta, { suffix: k.deltaSuffix, invert: k.invert });
+			return `<div class="ib-ui-kpi ib-ui-kpi--${esc(tone)}${click}"${attr}>` +
+				`<div class="ib-ui-kpi-h">${k.icon ? ibUI.icon(k.icon, 13) : ""}<span class="l">${esc(k.l)}</span></div>` +
+				`<div class="v"${k.title ? ` title="${esc(k.title)}"` : ""}>${k.v === undefined || k.v === null ? "" : k.v}</div>` +
+				`<div class="f">${delta}${k.sub ? `<span class="sub">${esc(k.sub)}</span>` : ""}</div>` +
+				`${k.spark ? ibUI.sparkline(k.spark) : ""}</div>`;
+		},
+		kpiGrid(list, { min = 180 } = {}) {
+			return `<div class="ib-ui-kpi-grid" style="--ib-kpi-min:${min}px">` +
+				`${(list || []).filter(Boolean).map((k) => ibUI.kpi(k)).join("")}</div>`;
+		},
+		// Card whose body is a chart slot — keeps every dashboard chart in the
+		// same frame (title row, optional right-hand action, fixed height).
+		chartCard({ id, kind, title, right, height = 220, note } = {}) {
+			return `<div class="ib-ui-card ib-ui-card--chart"><div class="ib-ui-card-h">` +
+				`${kind ? `<span class="k">${esc(kind)}</span>` : ""}` +
+				`${title ? `<span class="t">${esc(title)}</span>` : ""}` +
+				`${right ? `<span class="r">${right}</span>` : ""}</div>` +
+				`${note ? `<div class="ib-ui-hint" style="margin:-4px 0 6px">${esc(note)}</div>` : ""}` +
+				`<div class="ib-ui-chart" id="${esc(id)}" style="height:${height}px"></div></div>`;
+		},
 		// wire every [data-route="app/xyz"] inside $root to navigate on click
 		wireRoutes($root) {
 			$root.on("click", "[data-route]", function (e) {

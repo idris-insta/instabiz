@@ -234,8 +234,8 @@ body, .frappe-app, input, select, textarea, button {
 
 /* ── progress bar ── */
 .ib-ui-bar { display: flex; align-items: center; gap: var(--ib-space-2); }
-.ib-ui-bar .track { flex: 1; height: 7px; border-radius: 5px; background: var(--control-bg); overflow: hidden; }
-.ib-ui-bar .fill { height: 100%; border-radius: 5px; background: var(--ib-primary);
+.ib-ui-bar .track { display: block; flex: 1; height: 7px; border-radius: 5px; background: var(--control-bg); overflow: hidden; }
+.ib-ui-bar .fill { display: block; height: 100%; border-radius: 5px; background: var(--ib-primary);
     transition: width .3s ease; }
 .ib-ui-bar .fill.ok { background: #10b981; } .ib-ui-bar .fill.warn { background: #f59e0b; }
 .ib-ui-bar .fill.danger { background: #ef4444; }
@@ -3722,4 +3722,242 @@ iconify-icon { display: inline-flex; align-items: center; }
     .list-row-container.ib-cust-recency-90 .list-row {
         transition: none;
     }
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   IB DASHBOARD KIT  —  KPI cards, charts, filter bar, personalisation.
+   Pairs with window.ibUI (kpi/kpiGrid/deltaChip/sparkline/chartCard)
+   and window.ibDash (js/ib_dash_kit.js).
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── KPI card ─────────────────────────────────────────────────────── */
+.ib-ui-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(var(--ib-kpi-min, 180px), 1fr));
+    gap: var(--ib-space-3);
+}
+.ib-ui-kpi {
+    --ib-kpi-tone: var(--ib-primary);
+    position: relative; overflow: hidden; min-width: 0;
+    border: 1px solid var(--border-color); border-radius: var(--ib-r-md);
+    background: var(--card-bg); padding: 11px 14px 15px;
+}
+.ib-ui-kpi::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--ib-kpi-tone);
+}
+.ib-ui-kpi--ok      { --ib-kpi-tone: #10b981; }
+.ib-ui-kpi--warn    { --ib-kpi-tone: #f59e0b; }
+.ib-ui-kpi--danger  { --ib-kpi-tone: #ef4444; }
+.ib-ui-kpi--info    { --ib-kpi-tone: #6366f1; }
+.ib-ui-kpi--neutral { --ib-kpi-tone: var(--text-muted); }
+
+.ib-ui-kpi-h { display: flex; align-items: center; gap: 5px; color: var(--text-muted); min-width: 0; }
+.ib-ui-kpi-h svg { flex: 0 0 auto; opacity: .75; }
+.ib-ui-kpi-h .l {
+    font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* One line, never wraps — a wrapped ₹ used to land on a line of its own. */
+.ib-ui-kpi .v {
+    margin-top: 5px; font-size: clamp(17px, 1.6vw, 24px); font-weight: 700; line-height: 1.15;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums; color: var(--heading-color);
+}
+.ib-ui-kpi .v .ib-ui-num { font-weight: inherit; }
+.ib-ui-kpi .f { display: flex; align-items: center; gap: 6px; margin-top: 5px; min-height: 16px; }
+.ib-ui-kpi .f .sub {
+    font-size: 11px; color: var(--text-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ib-ui-kpi.is-click { cursor: pointer; transition: border-color .12s, box-shadow .12s, transform .12s; }
+.ib-ui-kpi.is-click:hover {
+    border-color: var(--ib-kpi-tone); transform: translateY(-1px);
+    box-shadow: 0 3px 12px rgba(0, 0, 0, .06);
+}
+
+/* ── delta chip ───────────────────────────────────────────────────── */
+.ib-ui-delta {
+    font-size: 10.5px; font-weight: 650; padding: 1px 7px; border-radius: 20px;
+    white-space: nowrap; letter-spacing: .01em;
+}
+.ib-ui-delta.up   { background: var(--ib-ok-bg);     color: var(--ib-ok-fg); }
+.ib-ui-delta.down { background: var(--ib-danger-bg); color: var(--ib-danger-fg); }
+.ib-ui-delta.neu  { background: var(--control-bg);   color: var(--text-muted); }
+
+/* ── sparkline ────────────────────────────────────────────────────── */
+.ib-ui-spark { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 26px; }
+.ib-ui-spark .l {
+    fill: none; stroke: var(--ib-kpi-tone); stroke-width: 1.5; opacity: .6;
+    vector-effect: non-scaling-stroke;
+}
+.ib-ui-spark .a { fill: var(--ib-kpi-tone); opacity: .1; stroke: none; }
+
+/* ── chart card + chart host ───────────────────────────────────────── */
+/* Grid children must be allowed to shrink or a chart's own svg width
+   forces the card wider than its column and the card scrolls sideways. */
+.ib-ui-grid > *, .ib-ui-card { min-width: 0; }
+.ib-ui-card--chart { overflow: hidden; }
+.ib-ui-card-h .r { margin-left: auto; display: flex; align-items: center; gap: var(--ib-space-2); }
+
+.ib-ui-chart { position: relative; width: 100%; overflow: hidden; }
+.ib-ui-chart .chart-container { width: 100%; margin: 0; padding: 0; }
+.ib-ui-chart .frappe-chart { width: 100%; }
+.ib-ui-chart svg { max-width: 100%; }
+.ib-ui-chart .chart-container .title { display: none; }
+.ib-ui-chart text { fill: var(--text-muted); }
+.ib-ui-chart .chart-label, .ib-ui-chart .axis text { fill: var(--text-muted) !important; font-size: 10.5px; }
+.ib-ui-chart .chart-legend text { fill: var(--text-color) !important; }
+.ib-ui-chart .chart-legend { display: flex; flex-wrap: wrap; }
+.ib-ui-chart .line-horizontal, .ib-ui-chart .axis line, .ib-ui-chart .chart-label line {
+    stroke: var(--border-color) !important;
+}
+/* hideDots leaves the last point's dot behind in some frappe-charts builds */
+.ib-ui-chart.no-dots .dataset-dots circle, .ib-ui-chart.no-dots circle.fill { display: none; }
+.ib-ui-chart .ib-ui-empty { padding: 26px 12px; }
+.ib-ui-chart .ib-ui-empty svg { width: 28px; height: 28px; }
+
+/* ── dashboard filter bar (page_form) ─────────────────────────────── */
+.ib-dash-form { display: flex !important; flex-wrap: wrap; align-items: flex-end; }
+.ib-dash-form .frappe-control { margin-bottom: 0 !important; }
+.ib-dash-form .form-group { margin-bottom: 0 !important; }
+.ib-dash-form .awesomplete { width: 100%; }
+.ib-dash-form .hide { display: none !important; }
+
+/* filter summary line, shown above the cards */
+.ib-ui-filter-note {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    font-size: 11.5px; color: var(--text-muted); margin: 0 0 var(--ib-space-3);
+}
+.ib-ui-filter-note b { color: var(--text-color); font-weight: 600; }
+
+/* ── personalisation dialog ───────────────────────────────────────── */
+.ib-pz { display: flex; flex-direction: column; gap: 4px; }
+.ib-pz-row {
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+    border: 1px solid var(--border-color); border-radius: var(--ib-r-sm); background: var(--card-bg);
+}
+.ib-pz-row label { margin: 0; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+.ib-pz-row input[type="checkbox"] { margin: 0; }
+.ib-pz-row .acts { margin-left: auto; display: flex; gap: 4px; }
+.ib-pz-row .acts button {
+    appearance: none; border: 1px solid var(--border-color); background: var(--control-bg);
+    color: var(--text-muted); border-radius: 5px; width: 24px; height: 24px; cursor: pointer;
+    font-size: 12px; line-height: 1;
+}
+.ib-pz-row .acts button:hover { border-color: var(--ib-primary); color: var(--ib-primary); }
+.ib-pz-hint { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
+
+@media (max-width: 760px) {
+    .ib-ui-kpi-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+    .ib-ui-kpi .v { font-size: 18px; }
+}
+
+/* ── dashboard card grid (12 columns, reorderable per user) ────────── */
+.ib-dash-cards { display: grid; grid-template-columns: repeat(12, 1fr); gap: var(--ib-space-3); align-items: start; }
+.ib-dash-cards > [data-card] { min-width: 0; }
+.ib-dash-c--3  { grid-column: span 3; }
+.ib-dash-c--4  { grid-column: span 4; }
+.ib-dash-c--6  { grid-column: span 6; }
+.ib-dash-c--8  { grid-column: span 8; }
+.ib-dash-c--12 { grid-column: span 12; }
+@media (max-width: 1100px) {
+    .ib-dash-c--8, .ib-dash-c--6 { grid-column: span 12; }
+    .ib-dash-c--4, .ib-dash-c--3 { grid-column: span 6; }
+}
+@media (max-width: 700px) {
+    .ib-dash-cards > [data-card] { grid-column: span 12 !important; }
+}
+
+/* ranked list (top customers / sales people) — bar + amount, no chart */
+.ib-dash-rank { display: flex; flex-direction: column; gap: 2px; }
+.ib-dash-rank .row {
+    display: flex; align-items: center; gap: var(--ib-space-2); padding: 5px 4px;
+    border-radius: 6px; font-size: 12.5px;
+}
+.ib-dash-rank .row[data-route] { cursor: pointer; }
+.ib-dash-rank .row:hover { background: var(--control-bg); }
+.ib-dash-rank .nm {
+    width: 34%; min-width: 90px; color: var(--text-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ib-dash-rank .amt { width: 84px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ib-dash-rank .ib-ui-bar { flex: 1; }
+
+/* quick-action button wall */
+.ib-dash-actions { display: flex; flex-wrap: wrap; gap: var(--ib-space-2); }
+.ib-dash-actions .ib-ui-btn { flex: 1 1 150px; justify-content: center; }
+
+/* compact tab strip that sits inside a card header */
+.ib-ui-tabs--mini { border-bottom: 0; margin: 0; gap: 2px; display: inline-flex; }
+.ib-ui-tabs--mini .ib-ui-tab {
+    padding: 2px 9px; font-size: 11px; border-bottom: 0; border-radius: 20px;
+    background: var(--control-bg); color: var(--text-muted);
+}
+.ib-ui-tabs--mini .ib-ui-tab.is-active { background: var(--ib-primary); color: #fff; }
+
+/* people list (birthdays / anniversaries) */
+.ib-hr-people { display: flex; flex-direction: column; gap: 2px; }
+.ib-hr-people .row {
+    display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-radius: 6px;
+    font-size: 12.5px; cursor: pointer;
+}
+.ib-hr-people .row:hover { background: var(--control-bg); }
+.ib-hr-people .nm { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.ib-hr-people .nm .sub { font-size: 10.5px; color: var(--text-muted); }
+.ib-hr-people .when { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Dashboards built before the kit (Finance, Procurement, Collections,
+   Customer Health) each shipped their own KPI card look. Their markup
+   stays as-is; these rules pull all four onto the .ib-ui-kpi styling so
+   the dashboards read as one product. `body ` prefix beats the page's
+   own <style> block, which is injected into <head> at runtime and
+   therefore wins on source order at equal specificity.
+   ══════════════════════════════════════════════════════════════════ */
+body .ib-fin-kpis, body .ib-proc-kpis, body .ib-col-kpis, body .ib-ch-kpis {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--ib-space-3); margin-bottom: var(--ib-space-4);
+}
+body .ib-fin-kpi, body .ib-proc-kpi, body .ib-col-kpi, body .ib-ch-kpi {
+    position: relative; overflow: hidden; min-width: 0;
+    background: var(--card-bg); border: 1px solid var(--border-color);
+    border-radius: var(--ib-r-md); padding: 11px 14px 15px 16px;
+    box-shadow: none;
+    transition: border-color .12s, box-shadow .12s, transform .12s;
+}
+body .ib-fin-kpi:hover, body .ib-proc-kpi:hover, body .ib-col-kpi:hover, body .ib-ch-kpi:hover {
+    transform: translateY(-1px); box-shadow: 0 3px 12px rgba(0, 0, 0, .06);
+}
+/* the accent stripe each page already renders as its own element */
+body .ib-fin-kpi-bar, body .ib-proc-kpi-bar, body .ib-col-kpi-bar {
+    left: 0; top: 0; bottom: 0; width: 3px; border-radius: 0;
+}
+/* label */
+body .ib-fin-kpi-lbl, body .ib-proc-kpi-l, body .ib-col-kpi-l, body .ib-ch-kpi-l {
+    font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--text-muted); margin: 0 0 5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* value — one line, never wraps the ₹ onto its own row */
+body .ib-fin-kpi-val, body .ib-proc-kpi-v, body .ib-col-kpi-v, body .ib-ch-kpi-v {
+    font-size: clamp(17px, 1.6vw, 24px); font-weight: 700; line-height: 1.15;
+    color: var(--heading-color); font-variant-numeric: tabular-nums;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 0;
+}
+/* sub-line / delta */
+body .ib-fin-kpi-delta, body .ib-proc-kpi-d, body .ib-col-kpi-d, body .ib-ch-kpi-d {
+    font-size: 11px; margin-top: 5px; color: var(--text-muted);
+}
+
+/* charts on those pages get the same host treatment as the kit's */
+body .ib-fin-chart, body .ib-proc-chart, body .ib-col-chart, body .ib-bp-trend-wrap {
+    position: relative; width: 100%; overflow: hidden;
+}
+body .ib-fin-chart .chart-container, body .ib-proc-chart .chart-container,
+body .ib-col-chart .chart-container, body .ib-bp-trend-wrap .chart-container { margin: 0; }
+body .ib-fin-card, body .ib-proc-card, body .ib-col-card, body .ib-ch-card, body .ib-bp-card,
+body .ib-bp-domain {
+    border-radius: var(--ib-r-md); border-color: var(--border-color);
 }

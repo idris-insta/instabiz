@@ -1,5 +1,5 @@
 frappe.pages["ib-main-dashboard"].on_page_load = function (wrapper) {
-	frappe.ui.make_app_page({ parent: wrapper, title: "Dashboard", single_column: true });
+	frappe.ui.make_app_page({ parent: wrapper, title: __("Dashboard"), single_column: true });
 	wrapper._ib_dash = new IBMainDashboard(wrapper);
 };
 
@@ -19,187 +19,299 @@ frappe.pages["ib-main-dashboard"].on_page_hide = function (wrapper) {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Rebuilt on the IB Design System (window.ibUI + .ib-ui-* components), 2026-09-11.
-// Backend get_dashboard_data() unchanged.
+// Built on the shared dashboard kit — window.ibUI (kpi / chartCard / table) and
+// window.ibDash (theme-aware charts, filter bar, card personalisation), so the
+// theme, the chart styling and the filters match every other IB dashboard.
+
+const IB_MD_CARDS = [
+	{ id: "kpis", label: __("Headline numbers"), locked: 1 },
+	{ id: "trend", label: __("Sales trend") },
+	{ id: "mix", label: __("Location split") },
+	{ id: "customers", label: __("Top customers") },
+	{ id: "people", label: __("Sales people") },
+	{ id: "recent", label: __("Recent orders") },
+	{ id: "actions", label: __("Quick actions") },
+];
 
 class IBMainDashboard {
 	constructor(wrapper) {
 		this.wrapper = wrapper;
 		this.page = wrapper.page;
-		this._chart = null;
 		this._data = null;
-		this._tab = "revenue";
+		this._series = "amount";
 		this._fetching = false;
 
 		this.$el = ibUI.mount(this.page);
 		ibUI.wireRoutes(this.$el);
-		this.page.add_button(__("Business Pulse"), () => frappe.set_route("ib-business-pulse"));
-		this.page.add_button(__("Analytics Hub"), () => frappe.set_route("ib-analytics-hub"));
+
+		this.page.set_secondary_action(__("Refresh"), () => this.refresh(), "refresh");
+		this.page.add_menu_item(__("Business Pulse"), () => frappe.set_route("ib-business-pulse"));
+		this.page.add_menu_item(__("Analytics Hub"), () => frappe.set_route("ib-analytics-hub"));
+
+		this.filters = ibDash.filters(this.page, {
+			key: "main-dash",
+			fields: [ibDash.F.period(), ibDash.F.location(), ibDash.F.salesPerson()],
+			onChange: () => this.refresh(),
+		});
+		this.cards = ibDash.personalise(this.page, {
+			key: "main-dash",
+			cards: IB_MD_CARDS,
+			container: () => this.$el.find("[data-cards]"),
+		});
+
+		this._shell();
 		this._skeleton();
 	}
 
+	// One stable shell — refreshes fill the card bodies instead of rebuilding
+	// the page, so the filter bar, scroll position and card order survive.
+	_shell() {
+		this.$el.html(
+			`<div class="ib-ui-filter-note" id="md-note"></div>
+			<div class="ib-dash-cards" data-cards>
+				<div data-card="kpis" class="ib-dash-c--12" id="md-kpis"></div>
+				<div data-card="trend" class="ib-dash-c--8">
+					${ibUI.chartCard({ id: "md-trend", kind: "TREND", title: __("Sales trend"), height: 230,
+						right: `<span class="ib-ui-tabs ib-ui-tabs--mini" id="md-series">
+							<button class="ib-ui-tab is-active" data-tab="amount">${__("Value")}</button>
+							<button class="ib-ui-tab" data-tab="cnt">${__("Count")}</button></span>` })}
+				</div>
+				<div data-card="mix" class="ib-dash-c--4">
+					${ibUI.chartCard({ id: "md-mix", kind: "SPLIT", title: __("By location"), height: 230 })}
+				</div>
+				<div data-card="customers" class="ib-dash-c--6">
+					<div class="ib-ui-card"><div class="ib-ui-card-h"><span class="k">TOP</span>
+						<span class="t">${__("Customers")}</span></div>
+						<div id="md-customers"></div></div>
+				</div>
+				<div data-card="people" class="ib-dash-c--6">
+					<div class="ib-ui-card"><div class="ib-ui-card-h"><span class="k">TEAM</span>
+						<span class="t">${__("Sales people")}</span></div>
+						<div id="md-people"></div></div>
+				</div>
+				<div data-card="recent" class="ib-dash-c--12">
+					<div class="ib-ui-card"><div class="ib-ui-card-h"><span class="k">LATEST</span>
+						<span class="t" id="md-recent-title">${__("Recent orders")}</span></div>
+						<div id="md-recent"></div></div>
+				</div>
+				<div data-card="actions" class="ib-dash-c--12">
+					<div class="ib-ui-card"><div class="ib-ui-card-h"><span class="k">GO TO</span>
+						<span class="t">${__("Quick actions")}</span></div>
+						<div class="ib-dash-actions">
+							${ibUI.btn(__("New Quotation"), { icon: "file-text", attrs: 'data-new="Quotation"' })}
+							${ibUI.btn(__("New Sales Order"), { icon: "shopping-cart", attrs: 'data-new="Sales Order"' })}
+							${ibUI.btn(__("New Delivery Note"), { icon: "truck", attrs: 'data-new="Delivery Note"' })}
+							${ibUI.btn(__("Customer Board"), { icon: "users", attrs: 'data-route="ib-customer-board"' })}
+							${ibUI.btn(__("Production"), { icon: "factory", attrs: 'data-route="ib-production-dashboard"' })}
+							${ibUI.btn(__("Live Stock"), { icon: "package", attrs: 'data-route="ib-stock-dashboard"' })}
+							${ibUI.btn(__("Collections"), { icon: "wallet", attrs: 'data-route="ib-collections-dashboard"' })}
+							${ibUI.btn(__("Analytics Hub"), { icon: "trending-up", attrs: 'data-route="ib-analytics-hub"' })}
+						</div></div>
+				</div>
+			</div>`,
+		);
+		this.$el.find("[data-new]").on("click", (e) => frappe.new_doc($(e.currentTarget).data("new")));
+		this.$el.find("#md-series").on("click", ".ib-ui-tab", (e) => {
+			const $t = $(e.currentTarget);
+			this.$el.find("#md-series .ib-ui-tab").removeClass("is-active");
+			$t.addClass("is-active");
+			this._series = $t.data("tab");
+			this._renderTrend();
+		});
+		ibUI.wireRoutes(this.$el);
+		this.cards.apply();
+	}
+
 	_skeleton() {
-		this.$el.html(`<div class="ib-ui-stat-grid">${ibUI.skeleton(4)}</div>${ibUI.skeleton(4)}`);
+		this.$el.find("#md-kpis").html(
+			`<div class="ib-ui-kpi-grid">${('<div class="ib-ui-kpi"><div class="ib-ui-skeleton"></div>' +
+				'<div class="ib-ui-skeleton"></div></div>').repeat(6)}</div>`,
+		);
 	}
 
 	refresh() {
+		const f = this.filters.get();
 		const opts = ib_guarded_call(this, {
 			method: "instabiz.instabiz.page.ib_main_dashboard.ib_main_dashboard.get_dashboard_data",
+			args: { from_date: f.from_date, to_date: f.to_date, location: f.location, sales_person: f.sales_person },
 			callback: (r) => {
-				if (r.message) { this._data = r.message; this._render(); }
+				if (!r.message) return;
+				this._data = r.message;
+				this._render();
 			},
-			error: () => this.$ts && this.$ts.text("Error — click Refresh"),
+			error: () => this.$el.find("#md-note").html(`<span class="ib-ui-pill ib-ui-pill--danger">${__("Could not load")}</span>`),
 		});
 		if (opts) frappe.call(opts);
 	}
 
 	_render() {
-		const d = this._data;
-		this.$el.html(`
-			<div class="ib-ui-toolbar" style="justify-content:flex-end">
-				${ibUI.btn("Refresh", { variant: "ghost", icon: "refresh-cw", attrs: 'id="ib-md-rf"' })}
-				<span id="ib-md-ts">${ibUI.refreshTime()}</span>
-			</div>
-			<div id="ib-md-kpis"></div>
-			<div class="ib-ui-grid ib-ui-grid--2" style="grid-template-columns:2fr 1fr;margin-top:var(--ib-space-3)">
-				${ibUI.card({ kind: "TREND", title: "Revenue / Top Customers", body:
-					`<div id="ib-md-tabs"></div><div id="ib-md-chart" style="height:200px;margin-top:8px"></div>` })}
-				${ibUI.card({ kind: "QUICK", title: "Quick Actions", body:
-					`<div class="ib-ui-grid ib-ui-grid--2" style="gap:8px">
-						${ibUI.btn("New Quotation", { icon: "file-text", attrs: 'data-new="Quotation"' })}
-						${ibUI.btn("New Invoice", { icon: "file-text", attrs: 'data-new="Sales Invoice"' })}
-						${ibUI.btn("New Delivery Note", { icon: "truck", attrs: 'data-new="Delivery Note"' })}
-						${ibUI.btn("Customer Board", { icon: "users", attrs: 'data-route="ib-customer-board"' })}
-						${ibUI.btn("Production", { icon: "factory", attrs: 'data-route="ib-production-dashboard"' })}
-						${ibUI.btn("Business Pulse", { icon: "trending-up", attrs: 'data-route="ib-business-pulse"' })}
-					</div>` })}
-			</div>
-			${ibUI.section("Recent Invoices", `<div id="ib-md-recent"></div>`)}
-		`);
-		this.$ts = this.$el.find("#ib-md-ts");
-		this.$el.find("#ib-md-rf").on("click", () => this.refresh());
-		this.$el.find("[data-new]").on("click", (e) => frappe.new_doc($(e.currentTarget).data("new")));
-		ibUI.wireRoutes(this.$el);
-
-		this._renderKpis(d);
-		this._renderTabs();
-		this._renderChart();
-		this._renderRecent(d.recent_si || [], d.sales_dt);
+		const d = this._data, m = d.meta;
+		this.$el.find("#md-note").html(
+			`${ibUI.icon("calendar", 13)}<b>${ibUI.esc(this.filters.label() || __("This Month"))}</b>` +
+			`<span>·</span><span>${__("compared with")} ${frappe.datetime.str_to_user(m.prev_from)} – ${frappe.datetime.str_to_user(m.prev_to)}</span>` +
+			`${m.locked ? `<span class="ib-ui-pill ib-ui-pill--info">${__("Your own figures")}</span>` : ""}` +
+			`<span style="margin-left:auto">${ibUI.refreshTime()}</span>`,
+		);
+		this.$el.find("#md-recent-title").text(m.sales_dt === "Sales Order" ? __("Recent orders") : __("Recent invoices"));
+		this._renderKpis();
+		this._renderTrend();
+		this._renderMix();
+		this._renderCustomers();
+		this._renderPeople();
+		this._renderRecent();
+		this.cards.apply();
 	}
 
-	_renderKpis(d) {
-		const today = frappe.datetime.get_today();
-		const ms = today.slice(0, 7) + "-01";
-		this._kpis = [
+	_renderKpis() {
+		const d = this._data, m = d.meta;
+		const kpis = [
 			{
-				v: ibUI.money(d.rev_mtd), l: "Revenue MTD", sub: ib_delta_text(d.rev_delta),
-				go: () => { frappe.route_options = { docstatus: 1, [d.sales_date_field]: ["between", [ms, today]] };
-					frappe.set_route("List", d.sales_dt); },
+				key: "revenue", l: m.dev_mode ? __("Order value") : __("Revenue"), icon: "trending-up",
+				v: ibUI.moneyShort(d.revenue), title: ibUI.moneyFull(d.revenue),
+				delta: d.rev_delta, deltaSuffix: __("vs prev"), spark: d.spark, tone: "brand",
+				sub: `${d.orders} ${__("orders")}`,
 			},
 			{
-				v: ibUI.money(d.ar), l: "Outstanding AR", sub: `${d.open_so} open orders`,
-				go: () => { frappe.route_options = { docstatus: 1, outstanding_amount: [">", 0] };
-					frappe.set_route("List", d.sales_dt); },
+				key: "ar", l: __("Outstanding"), icon: "wallet", tone: d.ar_overdue > 0 ? "warn" : "ok",
+				v: ibUI.moneyShort(d.ar), title: ibUI.moneyFull(d.ar),
+				sub: d.ar_overdue ? `${ibUI.shortNum(d.ar_overdue)} ${__("over 30 days")}` : __("nothing past 30 days"),
 			},
 			{
-				v: d.quotes, l: "Open Quotations", sub: `${d.pending_dn} pending DC`,
-				go: () => { frappe.route_options = { docstatus: 1, status: ["not in", ["Ordered", "Lost", "Cancelled", "Expired"]] };
-					frappe.set_route("List", "Quotation"); },
+				key: "collections", l: __("Collected"), icon: "check-circle", tone: "ok",
+				v: ibUI.moneyShort(d.collections), title: ibUI.moneyFull(d.collections),
+				sub: m.collections_all_locations ? __("all locations") : __("in this period"),
 			},
 			{
-				v: d.low_stock, l: "Low / Zero Stock", sub: "SKUs need restock",
-				go: () => frappe.set_route("ib-stock-dashboard"),
+				key: "open_so", l: __("Open orders"), icon: "shopping-cart", tone: "info",
+				v: d.open_so, sub: `${ibUI.shortNum(d.open_so_value)} ${__("to deliver")}`,
+			},
+			{
+				key: "quotes", l: __("Open quotations"), icon: "file-text", tone: "info",
+				v: d.quotes, sub: `${ibUI.shortNum(d.quote_value)} ${__("in play")}`,
+			},
+			{
+				key: "dispatch", l: __("Dispatched"), icon: "truck", tone: "brand",
+				v: d.dispatch_count, sub: `${d.pending_dn} ${__("draft challans")}`,
+			},
+			{
+				key: "low_stock", l: __("Low / zero stock"), icon: "alert-triangle",
+				tone: d.low_stock ? "danger" : "ok", v: d.low_stock, sub: __("SKUs at reorder level"),
 			},
 		];
-		this.$el.find("#ib-md-kpis").html(
-			`<div class="ib-ui-stat-grid">${this._kpis
-				.map((k, i) => ibUI.stat({ v: k.v, l: k.l, sub: k.sub, route: `#kpi-${i}` }))
-				.join("")}</div>`,
-		).find(".ib-ui-stat--link").on("click", (e) => {
-			// KPI cards use data-route="#kpi-N" only to get ibUI.stat()'s
-			// clickable styling — it's not a real route. Without stopping
-			// propagation here, the click also bubbles to ibUI.wireRoutes'
-			// delegated [data-route] listener (bound on this.$el, see
-			// render() above), which calls frappe.set_route("#kpi-N")
-			// literally and throws "Resource not found" right after the
-			// correct navigation below — same bug on all 4 cards, since
-			// they all share this pattern.
+		this._kpis = kpis;
+		this.$el.find("#md-kpis").html(ibUI.kpiGrid(kpis)).find("[data-kpi]").on("click", (e) => {
 			e.stopPropagation();
-			const i = parseInt($(e.currentTarget).data("route").replace("#kpi-", ""), 10);
-			this._kpis[i].go();
+			this._drill($(e.currentTarget).attr("data-kpi"));
 		});
 	}
 
-	_renderTabs() {
-		const t = ibUI.tabs(
-			[{ id: "revenue", label: "Revenue" }, { id: "customers", label: "Top Customers" }],
-			this._tab,
-			(id) => { this._tab = id; this._renderChart(); },
-		);
-		this.$el.find("#ib-md-tabs").empty().append(t.el);
-	}
-
-	_renderChart() {
-		const d = this._data, $c = this.$el.find("#ib-md-chart")[0];
-		if (!$c) return;
-		if (this._chart && this._chart.destroy) this._chart.destroy();
-		this._chart = null;
-		$($c).empty();
-
-		if (this._tab === "revenue") {
-			const trend = d.trend || [];
-			if (!trend.length) return $($c).html(ibUI.empty("No revenue data", "trending-up"));
-			this._chart = new frappe.Chart($c, {
-				type: "line", height: 190, colors: ["#d97757"],
-				data: { labels: trend.map((r) => r.label),
-					datasets: [{ name: "Revenue", values: trend.map((r) => parseFloat(r.amount || 0)) }] },
-				lineOptions: { regionFill: 1, spline: 1 },
-				tooltipOptions: { formatTooltipY: (v) => frappe.format(v, { fieldtype: "Currency" }) },
-				axisOptions: { xIsSeries: 1 },
-			});
-		} else {
-			const cs = d.top_customers || [];
-			if (!cs.length) return $($c).html(ibUI.empty("No customer data", "users"));
-			const max = Math.max(...cs.map((c) => parseFloat(c.total || 0))) || 1;
-			$($c).html(cs.map((c) => `
-				<div class="ib-ui-row" style="padding:5px 0">
-					<span style="width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-						class="ib-ui-hint" title="${ibUI.esc(c.customer_name)}">${ibUI.esc(c.customer_name)}</span>
-					${ibUI.bar(parseFloat(c.total || 0) / max * 100, { showLabel: false })}
-					<span style="width:96px;text-align:right;font-weight:600">${ibUI.money(c.total)}</span>
-				</div>`).join(""));
+	_drill(key) {
+		const d = this._data, m = d.meta, range = [m.from_date, m.to_date];
+		const base = {};
+		if (m.location) base.custom_location = m.location;
+		if (m.sales_person) base.custom_sales_person_user = m.sales_person;
+		const go = (dt, filters) => {
+			frappe.route_options = Object.assign({}, base, filters);
+			frappe.set_route("List", dt);
+		};
+		switch (key) {
+			case "revenue":
+				return go(m.sales_dt, { docstatus: 1, [m.date_field]: ["between", range] });
+			case "ar":
+				return frappe.set_route("query-report", "IB AR Aging");
+			case "collections":
+				return frappe.set_route("query-report", "IB Payment Register");
+			case "open_so":
+				return go("Sales Order", { docstatus: 1, status: ["not in", ["Completed", "Cancelled", "Closed", "Confirmed"]] });
+			case "quotes":
+				return go("Quotation", { docstatus: 1, status: ["not in", ["Ordered", "Lost", "Cancelled", "Expired", "Confirmed"]] });
+			case "dispatch":
+				return go("Delivery Note", { docstatus: 1, posting_date: ["between", range] });
+			case "low_stock":
+				return frappe.set_route("ib-stock-dashboard");
 		}
 	}
 
-	_renderRecent(rows, doctype) {
-		doctype = doctype || "Sales Invoice";
-		const $el = this.$el.find("#ib-md-recent");
-		if (!rows.length) return $el.html(ibUI.empty("No recent invoices", "file-text"));
-		const badge = (si) => {
-			if (si.outstanding_amount <= 0) return ibUI.pill("Paid", "ok");
-			if (si.due_date && frappe.datetime.get_diff(frappe.datetime.get_today(), si.due_date) > 0)
-				return ibUI.pill("Overdue", "danger");
-			return ibUI.pill("Unpaid", "warn");
-		};
-		$el.html(ibUI.table({
-			head: ["Invoice", "Customer", "Date", "Amount", "Status"],
-			rows: rows.map((si) => [
-				`<a data-name="${ibUI.esc(si.name)}" style="color:var(--ib-primary);cursor:pointer">${ibUI.esc(si.name)}</a>`,
-				ibUI.esc(si.customer_name),
-				frappe.datetime.str_to_user(si.posting_date) || si.posting_date,
-				`<span style="font-weight:600">${ibUI.money(si.grand_total)}</span>`,
-				badge(si),
-			]),
-		}));
-		$el.find("a[data-name]").on("click", function () {
-			frappe.set_route("Form", doctype, $(this).data("name"));
+	_renderTrend() {
+		if (!this._data) return;
+		const t = this._data.trend || [], money = this._series === "amount";
+		ibDash.chart(this.$el.find("#md-trend"), {
+			type: money ? "line" : "bar",
+			labels: t.map((r) => r.label),
+			datasets: [{ name: money ? __("Value") : __("Orders"), values: t.map((r) => parseFloat(r[this._series] || 0)) }],
+			height: 230, currency: money, dp: 0,
+			empty: __("No orders in this period"), emptyIcon: "trending-up",
 		});
 	}
-}
 
-// small delta phrase for the KPI sub-line
-function ib_delta_text(v) {
-	const n = parseFloat(v || 0);
-	if (!n) return "flat vs last month";
-	return `${n > 0 ? "▲" : "▼"} ${Math.abs(Math.round(n))}% vs last month`;
+	_renderMix() {
+		const rows = (this._data.by_location || []).filter((r) => parseFloat(r.total) > 0);
+		ibDash.chart(this.$el.find("#md-mix"), {
+			type: "donut", height: 230,
+			labels: rows.map((r) => r.label),
+			datasets: [{ name: __("Value"), values: rows.map((r) => parseFloat(r.total || 0)) }],
+			xIsSeries: 0, empty: __("Nothing to split"), emptyIcon: "layers",
+		});
+	}
+
+	_renderCustomers() {
+		const cs = this._data.top_customers || [], $el = this.$el.find("#md-customers");
+		if (!cs.length) return $el.html(ibUI.empty(__("No customer activity"), "users"));
+		const max = Math.max(...cs.map((c) => parseFloat(c.total || 0))) || 1;
+		$el.html(
+			`<div class="ib-dash-rank">${cs
+				.map(
+					(c) => `<div class="row" data-route="app/customer/${encodeURIComponent(c.customer || "")}">
+						<span class="nm" title="${ibUI.esc(c.customer_name)}">${ibUI.esc(c.customer_name)}</span>
+						${ibUI.bar((parseFloat(c.total || 0) / max) * 100, { showLabel: false })}
+						<span class="amt">${ibUI.moneyShort(c.total)}</span></div>`,
+				)
+				.join("")}</div>`,
+		);
+		ibUI.wireRoutes($el);
+	}
+
+	_renderPeople() {
+		const rows = this._data.by_person || [], $el = this.$el.find("#md-people");
+		if (!rows.length) {
+			return $el.html(ibUI.empty(this._data.meta.locked ? __("Only your own figures are shown") : __("No sales-person data"), "users"));
+		}
+		const max = Math.max(...rows.map((r) => parseFloat(r.total || 0))) || 1;
+		$el.html(
+			`<div class="ib-dash-rank">${rows
+				.map(
+					(r) => `<div class="row">
+						<span class="nm" title="${ibUI.esc(r.label)}">${ibUI.esc(r.label)}</span>
+						${ibUI.bar((parseFloat(r.total || 0) / max) * 100, { showLabel: false })}
+						<span class="amt">${ibUI.moneyShort(r.total)}</span>
+						<span class="ib-ui-hint" style="width:52px;text-align:right">${r.cnt} ${__("ord")}</span></div>`,
+				)
+				.join("")}</div>`,
+		);
+	}
+
+	_renderRecent() {
+		const rows = this._data.recent || [], dt = this._data.meta.sales_dt;
+		const $el = this.$el.find("#md-recent");
+		if (!rows.length) return $el.html(ibUI.empty(__("Nothing recent"), "file-text"));
+		const badge = (r) => {
+			if (flt(r.outstanding_amount) <= 0) return ibUI.pill(__("Settled"), "ok");
+			if (flt(r.outstanding_amount) < flt(r.grand_total)) return ibUI.pill(__("Part paid"), "warn");
+			return ibUI.pill(__("Unpaid"), "muted");
+		};
+		$el.html(
+			ibUI.table({
+				head: [__("Document"), __("Customer"), __("Location"), __("Date"), __("Amount"), __("Outstanding"), __("Payment")],
+				rows: rows.map((r) => [
+					ibUI.link(dt, r.name),
+					ibUI.esc(r.customer_name),
+					r.custom_location ? ibUI.pill(r.custom_location, "muted") : "",
+					frappe.datetime.str_to_user(r.posting_date) || r.posting_date,
+					`<span class="ib-ui-num" style="font-weight:600">${ibUI.moneyFull(r.grand_total)}</span>`,
+					`<span class="ib-ui-num">${flt(r.outstanding_amount) ? ibUI.moneyFull(r.outstanding_amount) : "—"}</span>`,
+					badge(r),
+				]),
+			}),
+		);
+	}
 }

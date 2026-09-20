@@ -20,12 +20,38 @@ frappe.pages["ib-procurement-dashboard"].on_page_hide = function (wrapper) {
 
 class IBProcurementDashboard {
 	constructor(wrapper) {
+		this.page      = wrapper.page;
 		this.$wrap     = $(wrapper).find(".layout-main-section");
 		this._chart    = null;
 		this._fetching = false;
 		this._inject_styles();
 		this._build_layout();
+		this._build_controls();
 		// refresh + timer started by on_page_show to avoid double call on first load
+	}
+
+	_build_controls() {
+		this.page.set_secondary_action(__("Refresh"), () => this.refresh(), "refresh");
+		this.page.add_menu_item(__("Purchase Orders"), () => { frappe.route_options = { docstatus: 1 }; frappe.set_route("List", "Purchase Order"); });
+		this.page.add_menu_item(__("Purchase Invoices"), () => frappe.set_route("List", "Purchase Invoice"));
+		this.page.add_menu_item(__("Receipts (GRN)"), () => frappe.set_route("List", "Purchase Receipt"));
+		this.filters = ibDash.filters(this.page, {
+			key: "procurement-dash",
+			fields: [ibDash.F.period(), ibDash.F.location()],
+			onChange: () => this.refresh(),
+		});
+		this.cards = ibDash.personalise(this.page, {
+			key: "procurement-dash",
+			cards: [
+				{ id: "kpis", label: __("Headline numbers"), locked: 1 },
+				{ id: "trend", label: __("Spend trend") },
+				{ id: "vendors", label: __("Vendor spend") },
+				{ id: "items", label: __("Top purchased items") },
+				{ id: "po", label: __("Open purchase orders") },
+			],
+			container: () => this.$wrap.find("[data-cards]"),
+		});
+		this.cards.apply();
 	}
 
 	_inject_styles() {
@@ -75,52 +101,52 @@ class IBProcurementDashboard {
 
 	_build_layout() {
 		this.$wrap.html(`
-		<div class="ib-proc-wrap">
-			<div class="ib-proc-toolbar">
-				<h2>Procurement Dashboard</h2>
-				<button class="ib-proc-btn btn btn-default btn-sm" id="ib-proc-btn-po">Purchase Orders</button>
-				<button class="ib-proc-btn btn btn-default btn-sm" id="ib-proc-btn-pi">Purchase Invoices</button>
-				<button class="ib-proc-btn btn btn-default btn-sm" id="ib-proc-btn-grn">Receipts (GRN)</button>
-				<button class="ib-proc-btn btn btn-default btn-sm" id="ib-proc-refresh">↻ Refresh</button>
-			</div>
-			<div id="ib-proc-kpis" class="ib-proc-kpis"></div>
-			<div class="ib-proc-grid">
-				<div class="ib-proc-card">
-					<div class="ib-proc-card-title">Spend Trend — 6 Months</div>
-					<div class="ib-proc-chart-wrap" id="ib-proc-chart"></div>
-				</div>
-				<div class="ib-proc-card">
-					<div class="ib-proc-card-title">Vendor Spend MTD</div>
+		<div class="ib-proc-wrap ib-ui-page">
+			<div class="ib-ui-filter-note" id="ib-proc-note"></div>
+			<div class="ib-dash-cards" data-cards>
+			<div data-card="kpis" class="ib-dash-c--12"><div id="ib-proc-kpis" class="ib-proc-kpis"></div></div>
+				<div data-card="trend" class="ib-dash-c--8"><div class="ib-proc-card">
+					<div class="ib-proc-card-title">${__("Spend trend — 6 months")}</div>
+					<div class="ib-proc-chart-wrap ib-ui-chart" id="ib-proc-chart"></div>
+				</div></div>
+				<div data-card="vendors" class="ib-dash-c--4"><div class="ib-proc-card">
+					<div class="ib-proc-card-title">${__("Vendor spend")}</div>
 					<div id="ib-proc-vendors"></div>
-				</div>
-				<div class="ib-proc-card">
-					<div class="ib-proc-card-title">Top Purchased Items MTD</div>
+				</div></div>
+				<div data-card="items" class="ib-dash-c--6"><div class="ib-proc-card">
+					<div class="ib-proc-card-title">${__("Top purchased items")}</div>
 					<div id="ib-proc-items"></div>
-				</div>
-				<div class="ib-proc-card">
-					<div class="ib-proc-card-title">Open Purchase Orders</div>
+				</div></div>
+				<div data-card="po" class="ib-dash-c--6"><div class="ib-proc-card">
+					<div class="ib-proc-card-title">${__("Open purchase orders")}</div>
 					<table class="ib-proc-tbl">
 						<thead><tr>
 							<th>PO</th><th>Vendor</th><th>Schedule</th><th>Status</th><th style="text-align:right">Value</th>
 						</tr></thead>
 						<tbody id="ib-proc-po-body"></tbody>
 					</table>
-				</div>
+				</div></div>
 			</div>
 		</div>`);
 
-		this.$wrap.find("#ib-proc-btn-po").on("click", () => { frappe.route_options = { docstatus: 1 }; frappe.set_route("List", "Purchase Order"); });
-		this.$wrap.find("#ib-proc-btn-pi").on("click", () => frappe.set_route("List", "Purchase Invoice"));
-		this.$wrap.find("#ib-proc-btn-grn").on("click", () => frappe.set_route("List", "Purchase Receipt"));
-		this.$wrap.find("#ib-proc-refresh").on("click", () => this.refresh());
+
+	}
+
+	_args() {
+		const f = (this.filters && this.filters.get()) || {};
+		this.$wrap.find("#ib-proc-note").html(
+			`${ibUI.icon("calendar", 13)}<b>${ibUI.esc((this.filters && this.filters.label()) || "")}</b>`);
+		return { from_date: f.from_date, to_date: f.to_date, location: f.location };
 	}
 
 	refresh() {
 		const opts = ib_guarded_call(this, {
 			method: "instabiz.instabiz.page.ib_procurement_dashboard.ib_procurement_dashboard.get_procurement_data",
+			args: this._args(),
 			callback: (r) => {
 				if (r.message) {
 					this._render(r.message);
+					this.cards && this.cards.apply();
 					ib_countup_all && ib_countup_all(this.$wrap);
 				}
 			},
@@ -152,7 +178,7 @@ class IBProcurementDashboard {
 			{ label: "Pending GRN", value: d.pending_grn,            raw: d.pending_grn,    isInr: false,
 			  sub: "orders to receive", color: "#f59e0b",
 			  click: () => { frappe.route_options = { docstatus: 1, status: ["in", ["To Receive and Bill", "To Receive"]] }; frappe.set_route("List", "Purchase Order"); } },
-			{ label: "Spend MTD",   value: this._fmt(d.spend_mtd),   raw: d.spend_mtd,      isInr: true,
+			{ label: __("Spend"),   value: this._fmt(d.spend_mtd),   raw: d.spend_mtd,      isInr: true,
 			  sub: `<span class="${delta_cls}">${delta_lbl}</span>`, color: "#d97757",
 			  click: () => { frappe.route_options = { docstatus: 1 }; frappe.set_route("List", d.spend_doctype); } },
 			{ label: "Overdue AP",  value: this._fmt(d.overdue_ap),  raw: d.overdue_ap,     isInr: true,
@@ -183,20 +209,11 @@ class IBProcurementDashboard {
 	}
 
 	_render_chart(trend) {
-		const el = this.$wrap.find("#ib-proc-chart")[0];
-		if (!el || !trend || !trend.length) return;
-		if (this._chart) { this._chart.destroy && this._chart.destroy(); this._chart = null; $(el).empty(); }
-		this._chart = new frappe.Chart(el, {
-			type: "line",
-			height: 170,
-			colors: ["#d97757"],
-			data: {
-				labels: trend.map(r => r.label),
-				datasets: [{ name: "Spend", values: trend.map(r => Number(r.amount || 0)) }],
-			},
-			lineOptions: { regionFill: 1, spline: 1 },
-			axisOptions: { xIsSeries: true },
-			tooltipOptions: { formatTooltipY: (v) => "₹" + Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 }) },
+		this._chart = ibDash.chart(this.$wrap.find("#ib-proc-chart"), {
+			type: "line", height: 200, currency: true, tone: "brand",
+			labels: (trend || []).map((r) => r.label),
+			datasets: [{ name: __("Spend"), values: (trend || []).map((r) => Number(r.amount || 0)) }],
+			empty: __("No spend recorded"), emptyIcon: "shopping-cart",
 		});
 	}
 

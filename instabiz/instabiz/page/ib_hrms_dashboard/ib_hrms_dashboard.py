@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import nowdate, getdate, get_first_day, get_last_day, flt
+from frappe.utils import add_months, flt, get_first_day, get_last_day, getdate, nowdate
 
 from instabiz.overrides.utils import build_multi_token_where_named
 
@@ -433,3 +433,347 @@ def reject_leave(leave_id):
 		frappe.throw(f"Cannot reject a cancelled leave application ({leave_id}).")
 	frappe.db.commit()
 	return {"status": "ok"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Overview — the analytics half of the page. get_hrms_data() above stays the
+# operational half (the attendance / leave / payroll lists with their own
+# search + pagination); this adds the numbers a manager actually reads first.
+
+HR_ROLES = ["HR Manager", "HR User", "Factory Management", "System Manager"]
+
+
+def _scope(alias="e"):
+	"""Department / branch filter shared by every query below."""
+
+	def build(department=None, branch=None):
+		cond, params = "", {}
+		if department:
+			cond += f" AND {alias}.department = %(department)s"
+			params["department"] = department
+		if branch:
+			cond += f" AND {alias}.branch = %(branch)s"
+			params["branch"] = branch
+		return cond, params
+
+	return build
+
+
+@frappe.whitelist()
+def get_hr_overview(month=None, department=None, branch=None):
+	frappe.only_for(HR_ROLES)
+	today = getdate(nowdate())
+	month_date = getdate(month) if month else today
+	month_start = get_first_day(month_date)
+	month_end = get_last_day(month_date)
+	# A month in the future has no history to report on; a past month is read
+	# in full, the running month only up to today.
+	period_end = min(month_end, today) if month_end > today else month_end
+	prev_start = get_first_day(add_months(month_start, -1))
+	prev_end = get_last_day(prev_start)
+
+	emp_cond, emp_params = _scope("e")(department, branch)
+	base = {"start": month_start, "end": month_end, "pend": period_end, "today": today}
+	p = {**emp_params, **base}
+
+	# ── Headcount ────────────────────────────────────────────────────────────
+	headcount = int(
+		frappe.db.sql(
+			f"SELECT COUNT(*) FROM `tabEmployee` e WHERE e.status = 'Active' {emp_cond}", emp_params
+		)[0][0]
+	)
+	joiners = int(
+		frappe.db.sql(
+			f"""SELECT COUNT(*) FROM `tabEmployee` e
+			WHERE e.date_of_joining BETWEEN %(start)s AND %(end)s {emp_cond}""",
+			p,
+		)[0][0]
+	)
+	exits = int(
+		frappe.db.sql(
+			f"""SELECT COUNT(*) FROM `tabEmployee` e
+			WHERE e.relieving_date BETWEEN %(start)s AND %(end)s {emp_cond}""",
+			p,
+		)[0][0]
+	)
+	exits_year = int(
+		frappe.db.sql(
+			f"""SELECT COUNT(*) FROM `tabEmployee` e
+			WHERE e.relieving_date >= DATE_SUB(%(today)s, INTERVAL 12 MONTH) {emp_cond}""",
+			p,
+		)[0][0]
+	)
+	attrition = round(exits_year / headcount * 100, 1) if headcount else 0
+
+	# ── Today ────────────────────────────────────────────────────────────────
+	checkin_today = frappe.db.sql(
+		f"""SELECT DISTINCT ec.employee FROM `tabEmployee Checkin` ec
+		INNER JOIN `tabEmployee` e ON e.name = ec.employee
+		WHERE DATE(ec.time) = %(today)s AND ec.log_type = 'IN' {emp_cond}""",
+		p,
+	)
+	att_today = frappe.db.sql(
+		f"""SELECT DISTINCT a.employee FROM `tabAttendance` a
+		INNER JOIN `tabEmployee` e ON e.name = a.employee
+		WHERE a.attendance_date = %(today)s AND a.status IN ('Present','Work From Home','Half Day')
+		AND a.docstatus = 1 {emp_cond}""",
+		p,
+	)
+	present_today = len({r[0] for r in checkin_today} | {r[0] for r in att_today})
+	on_leave_today = int(
+		frappe.db.sql(
+			f"""SELECT COUNT(DISTINCT la.employee) FROM `tabLeave Application` la
+			INNER JOIN `tabEmployee` e ON e.name = la.employee
+			WHERE %(today)s BETWEEN la.from_date AND la.to_date
+			AND la.status = 'Approved' AND la.docstatus = 1 {emp_cond}""",
+			p,
+		)[0][0]
+	)
+	absent_today = max(0, headcount - present_today - on_leave_today)
+
+	# ── Attendance for the month ─────────────────────────────────────────────
+	mix = frappe.db.sql(
+		f"""SELECT a.status, COUNT(*) c FROM `tabAttendance` a
+		INNER JOIN `tabEmployee` e ON e.name = a.employee
+		WHERE a.docstatus = 1 AND a.attendance_date BETWEEN %(start)s AND %(pend)s {emp_cond}
+		GROUP BY a.status""",
+		p,
+		as_dict=True,
+	)
+	marked = sum(r.c for r in mix) or 0
+	present_days = sum(r.c for r in mix if r.status in ("Present", "Work From Home"))
+	half_days = sum(r.c for r in mix if r.status == "Half Day")
+	att_rate = round((present_days + half_days * 0.5) / marked * 100, 1) if marked else 0
+
+	prev_mix = frappe.db.sql(
+		f"""SELECT a.status, COUNT(*) c FROM `tabAttendance` a
+		INNER JOIN `tabEmployee` e ON e.name = a.employee
+		WHERE a.docstatus = 1 AND a.attendance_date BETWEEN %(ps)s AND %(pe)s {emp_cond}
+		GROUP BY a.status""",
+		{**p, "ps": prev_start, "pe": prev_end},
+		as_dict=True,
+	)
+	prev_marked = sum(r.c for r in prev_mix) or 0
+	prev_present = sum(r.c for r in prev_mix if r.status in ("Present", "Work From Home"))
+	prev_half = sum(r.c for r in prev_mix if r.status == "Half Day")
+	prev_rate = round((prev_present + prev_half * 0.5) / prev_marked * 100, 1) if prev_marked else 0
+	att_delta = round(att_rate - prev_rate, 1) if prev_marked else None
+
+	late_count = int(
+		frappe.db.sql(
+			f"""SELECT COUNT(*) FROM `tabAttendance` a
+			INNER JOIN `tabEmployee` e ON e.name = a.employee
+			WHERE a.docstatus = 1 AND a.late_entry = 1
+			AND a.attendance_date BETWEEN %(start)s AND %(pend)s {emp_cond}""",
+			p,
+		)[0][0]
+	)
+
+	att_trend = frappe.db.sql(
+		f"""SELECT DATE_FORMAT(a.attendance_date, '%%d %%b') label, a.attendance_date d,
+			SUM(a.status IN ('Present','Work From Home')) present,
+			SUM(a.status = 'Absent') absent,
+			SUM(a.status = 'On Leave') leave_
+		FROM `tabAttendance` a
+		INNER JOIN `tabEmployee` e ON e.name = a.employee
+		WHERE a.docstatus = 1 AND a.attendance_date BETWEEN %(start)s AND %(pend)s {emp_cond}
+		GROUP BY a.attendance_date, label ORDER BY a.attendance_date""",
+		p,
+		as_dict=True,
+	)
+
+	absentees = frappe.db.sql(
+		f"""SELECT a.employee, e.employee_name, e.department, COUNT(*) days
+		FROM `tabAttendance` a
+		INNER JOIN `tabEmployee` e ON e.name = a.employee
+		WHERE a.docstatus = 1 AND a.status = 'Absent'
+		AND a.attendance_date BETWEEN %(start)s AND %(pend)s {emp_cond}
+		GROUP BY a.employee, e.employee_name, e.department
+		ORDER BY days DESC LIMIT 8""",
+		p,
+		as_dict=True,
+	)
+
+	# ── People mix ───────────────────────────────────────────────────────────
+	by_department = frappe.db.sql(
+		f"""SELECT COALESCE(NULLIF(e.department, ''), 'Unassigned') label, COUNT(*) c
+		FROM `tabEmployee` e WHERE e.status = 'Active' {emp_cond}
+		GROUP BY label ORDER BY c DESC""",
+		emp_params,
+		as_dict=True,
+	)
+	by_designation = frappe.db.sql(
+		f"""SELECT COALESCE(NULLIF(e.designation, ''), 'Unassigned') label, COUNT(*) c
+		FROM `tabEmployee` e WHERE e.status = 'Active' {emp_cond}
+		GROUP BY label ORDER BY c DESC LIMIT 10""",
+		emp_params,
+		as_dict=True,
+	)
+	tenure = frappe.db.sql(
+		f"""SELECT CASE
+				WHEN e.date_of_joining IS NULL THEN 'Unknown'
+				WHEN e.date_of_joining > DATE_SUB(%(today)s, INTERVAL 1 YEAR) THEN 'Under 1 yr'
+				WHEN e.date_of_joining > DATE_SUB(%(today)s, INTERVAL 3 YEAR) THEN '1 - 3 yrs'
+				WHEN e.date_of_joining > DATE_SUB(%(today)s, INTERVAL 5 YEAR) THEN '3 - 5 yrs'
+				ELSE 'Over 5 yrs' END label, COUNT(*) c
+		FROM `tabEmployee` e WHERE e.status = 'Active' {emp_cond}
+		GROUP BY label""",
+		p,
+		as_dict=True,
+	)
+
+	# ── Leave ────────────────────────────────────────────────────────────────
+	leave_by_type = frappe.db.sql(
+		f"""SELECT la.leave_type label, COALESCE(SUM(la.total_leave_days), 0) days
+		FROM `tabLeave Application` la
+		INNER JOIN `tabEmployee` e ON e.name = la.employee
+		WHERE la.docstatus = 1 AND la.status = 'Approved'
+		AND la.from_date <= %(end)s AND la.to_date >= %(start)s {emp_cond}
+		GROUP BY la.leave_type ORDER BY days DESC""",
+		p,
+		as_dict=True,
+	)
+	pending_leaves = int(
+		frappe.db.sql(
+			f"""SELECT COUNT(*) FROM `tabLeave Application` la
+			INNER JOIN `tabEmployee` e ON e.name = la.employee
+			WHERE la.status = 'Open' AND la.docstatus = 0 {emp_cond}""",
+			emp_params,
+		)[0][0]
+	)
+	upcoming_leave = frappe.db.sql(
+		f"""SELECT la.name, la.employee, e.employee_name, la.leave_type, la.from_date, la.to_date,
+			la.total_leave_days
+		FROM `tabLeave Application` la
+		INNER JOIN `tabEmployee` e ON e.name = la.employee
+		WHERE la.docstatus = 1 AND la.status = 'Approved'
+		AND la.to_date >= %(today)s AND la.from_date <= DATE_ADD(%(today)s, INTERVAL 14 DAY) {emp_cond}
+		ORDER BY la.from_date LIMIT 8""",
+		p,
+		as_dict=True,
+	)
+
+	# ── Overtime (the doctype may hold nothing yet — 0 is a real answer) ──────
+	ot = frappe.db.sql(
+		f"""SELECT COALESCE(SUM(o.overtime_hours), 0) hrs,
+			SUM(o.status = 'Pending Approval') pending
+		FROM `tabIB Overtime Request` o
+		INNER JOIN `tabEmployee` e ON e.name = o.employee
+		WHERE o.date BETWEEN %(start)s AND %(end)s {emp_cond}""",
+		p,
+		as_dict=True,
+	)[0]
+
+	# ── Payroll ──────────────────────────────────────────────────────────────
+	pay = frappe.db.sql(
+		f"""SELECT
+			COALESCE(SUM(CASE WHEN ss.docstatus = 1 THEN ss.net_pay ELSE 0 END), 0) net,
+			COALESCE(SUM(CASE WHEN ss.docstatus = 0 THEN ss.net_pay ELSE 0 END), 0) draft_net,
+			SUM(ss.docstatus = 0) draft_count, SUM(ss.docstatus = 1) submitted_count
+		FROM `tabSalary Slip` ss
+		INNER JOIN `tabEmployee` e ON e.name = ss.employee
+		WHERE ss.docstatus < 2 AND ss.start_date BETWEEN %(start)s AND %(end)s {emp_cond}""",
+		p,
+		as_dict=True,
+	)[0]
+	pay_trend = frappe.db.sql(
+		f"""SELECT DATE_FORMAT(ss.start_date, '%%b %%y') label, DATE_FORMAT(ss.start_date, '%%Y-%%m') bk,
+			COALESCE(SUM(ss.net_pay), 0) net, COALESCE(SUM(ss.gross_pay), 0) gross
+		FROM `tabSalary Slip` ss
+		INNER JOIN `tabEmployee` e ON e.name = ss.employee
+		WHERE ss.docstatus < 2 AND ss.start_date >= DATE_SUB(%(start)s, INTERVAL 6 MONTH)
+		AND ss.start_date <= %(end)s {emp_cond}
+		GROUP BY bk, label ORDER BY bk""",
+		p,
+		as_dict=True,
+	)
+	pay_by_dept = frappe.db.sql(
+		f"""SELECT COALESCE(NULLIF(e.department, ''), 'Unassigned') label,
+			COALESCE(SUM(ss.net_pay), 0) net
+		FROM `tabSalary Slip` ss
+		INNER JOIN `tabEmployee` e ON e.name = ss.employee
+		WHERE ss.docstatus < 2 AND ss.start_date BETWEEN %(start)s AND %(end)s {emp_cond}
+		GROUP BY label ORDER BY net DESC LIMIT 10""",
+		p,
+		as_dict=True,
+	)
+
+	# ── People moments — birthdays and work anniversaries, next 30 days ──────
+	moments = frappe.db.sql(
+		f"""SELECT e.name, e.employee_name, e.department, e.image, 'Birthday' kind,
+			e.date_of_birth d,
+			(DAYOFYEAR(e.date_of_birth) - DAYOFYEAR(%(today)s) + 366) %% 366 in_days
+		FROM `tabEmployee` e
+		WHERE e.status = 'Active' AND e.date_of_birth IS NOT NULL {emp_cond}
+		HAVING in_days <= 30
+		UNION ALL
+		SELECT e.name, e.employee_name, e.department, e.image, 'Work anniversary' kind,
+			e.date_of_joining d,
+			(DAYOFYEAR(e.date_of_joining) - DAYOFYEAR(%(today)s) + 366) %% 366 in_days
+		FROM `tabEmployee` e
+		WHERE e.status = 'Active' AND e.date_of_joining IS NOT NULL
+		AND e.date_of_joining < DATE_SUB(%(today)s, INTERVAL 1 YEAR) {emp_cond}
+		HAVING in_days <= 30
+		ORDER BY in_days LIMIT 10""",
+		p,
+		as_dict=True,
+	)
+
+	pending_ffs = int(
+		frappe.db.sql(
+			"""SELECT COUNT(*) FROM `tabIB Full Final Settlement`
+			WHERE docstatus < 2 AND status IN ('Draft','In Review','Approved')"""
+		)[0][0]
+	)
+
+	return {
+		"meta": {
+			"month": str(month_start),
+			"month_label": month_start.strftime("%B %Y"),
+			"period_end": str(period_end),
+			"department": department or "",
+			"branch": branch or "",
+		},
+		"headcount": headcount,
+		"joiners": joiners,
+		"exits": exits,
+		"attrition": attrition,
+		"present_today": present_today,
+		"on_leave_today": on_leave_today,
+		"absent_today": absent_today,
+		"att_rate": att_rate,
+		"att_delta": att_delta,
+		"att_marked": marked,
+		"late_count": late_count,
+		"att_trend": att_trend,
+		"att_mix": mix,
+		"absentees": absentees,
+		"by_department": by_department,
+		"by_designation": by_designation,
+		"tenure": tenure,
+		"leave_by_type": leave_by_type,
+		"pending_leaves": pending_leaves,
+		"upcoming_leave": upcoming_leave,
+		"ot_hours": flt(ot.hrs),
+		"ot_pending": int(ot.pending or 0),
+		"payroll_net": flt(pay.net) or flt(pay.draft_net),
+		"payroll_is_draft": not flt(pay.net) and flt(pay.draft_net) > 0,
+		"payroll_draft_count": int(pay.draft_count or 0),
+		"payroll_submitted_count": int(pay.submitted_count or 0),
+		"pay_trend": pay_trend,
+		"pay_by_dept": pay_by_dept,
+		"moments": moments,
+		"pending_ffs": pending_ffs,
+	}
+
+
+@frappe.whitelist()
+def get_hr_months(count=12):
+	"""Month options for the dashboard picker — newest first."""
+	frappe.only_for(HR_ROLES)
+	first = get_first_day(getdate(nowdate()))
+	out = []
+	for i in range(int(count)):
+		d = get_first_day(add_months(first, -i))
+		out.append({"value": str(d), "label": d.strftime("%b %Y")})
+	return out

@@ -31,6 +31,7 @@ class IBHrmsDashboard {
 		this._active_tab  = "attendance";
 		this._month       = frappe.datetime.get_today().slice(0, 7) + "-01";
 		this._data        = null;
+		this._overview    = null;
 		this._fetching    = false;
 		this._auto_refresh = null;
 		this._filters = {
@@ -126,21 +127,60 @@ class IBHrmsDashboard {
 		document.head.appendChild(s);
 	}
 
+	_month_options() {
+		const first = frappe.datetime.get_today().slice(0, 7) + "-01";
+		const out = [];
+		for (let i = 0; i < 12; i++) {
+			const m = frappe.datetime.add_months(first, -i).slice(0, 7) + "-01";
+			out.push({ value: m, label: frappe.datetime.str_to_obj(m).toLocaleString("en-IN", { month: "short", year: "numeric" }) });
+		}
+		return out;
+	}
+
 	_build_layout() {
-		const $pc = $(this.wrapper).find(".page-content");
-		this.$wrap = $(`<div class="ib-hr-wrap"></div>`).appendTo($pc);
+		this.$wrap = ibUI.mount(this.page);
 		this.$wrap.html(`
-			<div class="ib-hr-top-bar">
-				<button class="btn btn-xs btn-default" id="ib-hr-refresh">↻ Refresh</button>
-				<span class="ib-hr-ts" id="ib-hr-ts"></span>
+			<div class="ib-ui-filter-note" id="ib-hr-note"></div>
+			<div class="ib-dash-cards" data-cards>
+				<div data-card="kpis" class="ib-dash-c--12" id="ib-hr-kpis"></div>
+				<div data-card="attendance" class="ib-dash-c--8">
+					${ibUI.chartCard({ id: "ib-hr-att-trend", kind: "ATTENDANCE", title: __("Day by day"), height: 220 })}
+				</div>
+				<div data-card="att_mix" class="ib-dash-c--4">
+					${ibUI.chartCard({ id: "ib-hr-att-mix", kind: "MONTH", title: __("Attendance mix"), height: 220 })}
+				</div>
+				<div data-card="departments" class="ib-dash-c--6">
+					<div class="ib-ui-card"><div class="ib-ui-card-h"><span class="k">PEOPLE</span>
+						<span class="t">${__("Headcount by department")}</span></div>
+						<div id="ib-hr-dept"></div></div>
+				</div>
+				<div data-card="payroll" class="ib-dash-c--6">
+					${ibUI.chartCard({ id: "ib-hr-pay", kind: "PAYROLL", title: __("Salary cost — last 6 months"), height: 230 })}
+				</div>
+				<div data-card="moments" class="ib-dash-c--4">
+					<div class="ib-ui-card"><div class="ib-ui-card-h"><span class="k">NEXT 30 DAYS</span>
+						<span class="t">${__("Birthdays & anniversaries")}</span></div>
+						<div id="ib-hr-moments"></div></div>
+				</div>
+				<div data-card="absentees" class="ib-dash-c--4">
+					<div class="ib-ui-card"><div class="ib-ui-card-h"><span class="k">WATCH</span>
+						<span class="t">${__("Most absent this month")}</span></div>
+						<div id="ib-hr-absentees"></div></div>
+				</div>
+				<div data-card="leave_mix" class="ib-dash-c--4">
+					${ibUI.chartCard({ id: "ib-hr-leave", kind: "LEAVE", title: __("Leave taken by type"), height: 200 })}
+				</div>
+				<div data-card="lists" class="ib-dash-c--12">
+					<div class="ib-ui-card">
+						<div class="ib-hr-tabs">
+							<button class="ib-hr-tab active" data-tab="attendance">${__("Attendance")}</button>
+							<button class="ib-hr-tab" data-tab="leaves">${__("Leaves")}</button>
+							<button class="ib-hr-tab" data-tab="payroll">${__("Payroll")}</button>
+						</div>
+						<div id="ib-hr-content"></div>
+					</div>
+				</div>
 			</div>
-			<div class="ib-hr-kpi-row" id="ib-hr-kpis"></div>
-			<div class="ib-hr-tabs">
-				<button class="ib-hr-tab active" data-tab="attendance">Attendance</button>
-				<button class="ib-hr-tab" data-tab="leaves">Leaves</button>
-				<button class="ib-hr-tab" data-tab="payroll">Payroll</button>
-			</div>
-			<div class="ib-hr-card" id="ib-hr-content"></div>
 		`);
 
 		this.$wrap.find(".ib-hr-tab").on("click", (e) => {
@@ -151,23 +191,82 @@ class IBHrmsDashboard {
 			this._render_tab();
 		});
 
-		this.$wrap.find("#ib-hr-refresh").on("click", () => this.refresh());
+		this.filters = ibDash.filters(this.page, {
+			key: "hr-dash",
+			fields: [
+				{ fieldname: "month", label: __("Month"), fieldtype: "Select",
+					options: this._month_options(), default: this._month, width: "130px" },
+				ibDash.F.link("Department", "department"),
+				ibDash.F.link("Branch", "branch"),
+			],
+			onChange: (v) => {
+				this._month = v.month || this._month;
+				this._page = { att: 1, leave: 1, pay: 1 };
+				this.refresh();
+			},
+		});
+		this.cards = ibDash.personalise(this.page, {
+			key: "hr-dash",
+			cards: [
+				{ id: "kpis", label: __("Headline numbers"), locked: 1 },
+				{ id: "attendance", label: __("Attendance day by day") },
+				{ id: "att_mix", label: __("Attendance mix") },
+				{ id: "departments", label: __("Headcount by department") },
+				{ id: "payroll", label: __("Salary cost trend") },
+				{ id: "moments", label: __("Birthdays & anniversaries") },
+				{ id: "absentees", label: __("Most absent") },
+				{ id: "leave_mix", label: __("Leave by type") },
+				{ id: "lists", label: __("Attendance / leave / payroll lists"), locked: 1 },
+			],
+			container: () => this.$wrap.find("[data-cards]"),
+		});
+		this.cards.apply();
 	}
 
 	_bind_toolbar() {
-		// Month picker removed 2026-08-13 — this dashboard always shows the
-		// current month now, no historical browsing. this._month stays fixed
-		// at whatever the constructor set it to (today's month).
-		this.page.add_button(__("Go to Employees"), () => frappe.set_route("List", "Employee"));
-		this.page.add_button(__("New Leave"), () => frappe.new_doc("Leave Application"));
+		this.page.set_secondary_action(__("Refresh"), () => this.refresh(), "refresh");
+		this.page.add_menu_item(__("Employees"), () => frappe.set_route("List", "Employee"));
+		this.page.add_menu_item(__("New Leave Application"), () => frappe.new_doc("Leave Application"));
+		this.page.add_menu_item(__("Payroll Summary"), () => frappe.set_route("query-report", "IB Payroll Summary"));
 	}
 
 	_set_ts(text) {
-		this.$wrap.find("#ib-hr-ts").text(text);
+		this.$wrap.find("#ib-hr-note .ts").text(text);
+	}
+
+	_note() {
+		const f = (this.filters && this.filters.get()) || {};
+		const label = (this._overview && this._overview.meta.month_label) || "";
+		this.$wrap.find("#ib-hr-note").html(
+			`${ibUI.icon("calendar", 13)}<b>${ibUI.esc(label)}</b>` +
+			`${f.department ? `<span>·</span><span>${ibUI.esc(f.department)}</span>` : ""}` +
+			`${f.branch ? `<span>·</span><span>${ibUI.esc(f.branch)}</span>` : ""}` +
+			`<span style="margin-left:auto" class="ts"></span>`,
+		);
 	}
 
 	refresh() {
 		const req_month = this._month;
+		const f = (this.filters && this.filters.get()) || {};
+
+		// Overview (analytics) and the operational lists are independent — a
+		// slow list query should not hold up the numbers at the top.
+		frappe.call({
+			method: "instabiz.instabiz.page.ib_hrms_dashboard.ib_hrms_dashboard.get_hr_overview",
+			args: { month: req_month, department: f.department, branch: f.branch },
+			callback: (r) => {
+				if (!r.message || this._month !== req_month) return;
+				this._overview = r.message;
+				this._note();
+				this._render_kpis(r.message);
+				this._render_charts(r.message);
+				this._render_side(r.message);
+				this._set_ts(__("Updated") + " " + frappe.datetime.now_time());
+				this.cards.apply();
+			},
+			error: () => this._set_ts(__("Could not load")),
+		});
+
 		const opts = ib_guarded_call(this, {
 			method: "instabiz.instabiz.page.ib_hrms_dashboard.ib_hrms_dashboard.get_hrms_data",
 			args: {
@@ -180,67 +279,170 @@ class IBHrmsDashboard {
 			callback: (r) => {
 				if (!r.message || this._month !== req_month) return;
 				this._data = r.message;
-				this._render_kpis(r.message);
 				this._render_tab();
-				this._set_ts("Updated " + frappe.datetime.now_time());
-				ib_countup_all && ib_countup_all(this.$wrap);
-			},
-			error: () => {
-				if (this._month === req_month) this._set_ts("Error — click Refresh");
 			},
 		});
-		if (opts) {
-			this._set_ts("Loading…");
-			this.$wrap.find("#ib-hr-kpis").html(window.ib_skel_kpis ? ib_skel_kpis(4) : "");
-			frappe.call(opts);
-		}
+		if (opts) frappe.call(opts);
 	}
 
 	_render_kpis(d) {
-		const fmt = (v) => "₹" + Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
-		const today = frappe.datetime.get_today();
-		const month_start = this._month;
-		const attend_pct = d.total_emp ? Math.round(d.present_today / d.total_emp * 100) : 0;
-		const payrollLabel = d.payroll_is_draft
-			? "Payroll MTD (draft)"
-			: (d.payroll_draft_count ? `Payroll MTD +${d.payroll_draft_count} drafts` : "Payroll MTD");
+		const pending = (d.pending_leaves || 0) + (d.ot_pending || 0) + (d.pending_ffs || 0);
 		const kpis = [
 			{
-				label: "Active Employees", val: d.total_emp, rawNum: d.total_emp, color: "#06b6d4",
-				click() { frappe.route_options = { status: "Active" }; frappe.set_route("List", "Employee"); },
+				key: "headcount", l: __("Active people"), icon: "users", tone: "brand", v: d.headcount,
+				sub: `${d.joiners} ${__("joined")} · ${d.exits} ${__("left")}`,
 			},
 			{
-				label: "Present Today", val: `${d.present_today} (${attend_pct}%)`, rawNum: null, color: "#10b981",
-				click() { frappe.route_options = { attendance_date: today, status: "Present", docstatus: 1 }; frappe.set_route("List", "Attendance"); },
+				key: "present", l: __("In today"), icon: "check-circle", tone: "ok", v: d.present_today,
+				sub: `${d.on_leave_today} ${__("on leave")}`,
 			},
 			{
-				label: "Absent Today", val: d.absent_today, rawNum: d.absent_today, color: "#ef4444",
-				click() { frappe.route_options = { attendance_date: today, status: "Absent", docstatus: 1 }; frappe.set_route("List", "Attendance"); },
+				key: "absent", l: __("Absent today"), icon: "alert-triangle",
+				tone: d.absent_today ? "warn" : "ok", v: d.absent_today,
+				sub: d.headcount ? `${Math.round((d.absent_today / d.headcount) * 100)}% ${__("of the team")}` : "",
 			},
 			{
-				label: "Pending Leaves", val: d.pending_leaves, rawNum: d.pending_leaves, color: "#f59e0b",
-				click() { frappe.route_options = { status: "Open", docstatus: 0 }; frappe.set_route("List", "Leave Application"); },
+				key: "att_rate", l: __("Attendance rate"), icon: "activity",
+				tone: d.att_rate >= 85 ? "ok" : d.att_rate >= 70 ? "warn" : "danger",
+				v: `${d.att_rate}%`, delta: d.att_delta, deltaSuffix: __("pts vs last month"),
+				sub: `${d.att_marked} ${__("days marked")}`,
 			},
 			{
-				label: payrollLabel, val: fmt(d.payroll_mtd), rawNum: d.payroll_mtd, isInr: true, color: "#d97757",
-				click() { frappe.route_options = { start_date: month_start }; frappe.set_route("List", "Salary Slip"); },
+				key: "pending", l: __("Waiting on you"), icon: "clock", tone: pending ? "warn" : "ok",
+				v: pending, sub: `${d.pending_leaves} ${__("leave")} · ${d.ot_pending} ${__("OT")} · ${d.pending_ffs} ${__("F&F")}`,
+			},
+			{
+				key: "payroll", l: d.payroll_is_draft ? __("Payroll (draft)") : __("Payroll"), icon: "wallet",
+				tone: "info", v: ibUI.moneyShort(d.payroll_net), title: ibUI.moneyFull(d.payroll_net),
+				sub: `${d.payroll_submitted_count} ${__("submitted")} · ${d.payroll_draft_count} ${__("draft")}`,
+			},
+			{
+				key: "overtime", l: __("Overtime"), icon: "clock", tone: "neutral",
+				v: `${ibUI.shortNum(d.ot_hours, 1)} ${__("hrs")}`, sub: `${d.late_count} ${__("late arrivals")}`,
+			},
+			{
+				key: "attrition", l: __("Attrition (12 mo)"), icon: "git-branch",
+				tone: d.attrition >= 20 ? "danger" : d.attrition >= 10 ? "warn" : "ok",
+				v: `${d.attrition}%`, sub: __("leavers against headcount"),
 			},
 		];
-		const $kpis = this.$wrap.find("#ib-hr-kpis").html(kpis.map((k, i) => {
-			const rawNum = typeof k.rawNum !== "undefined" ? k.rawNum : null;
-			const cuAttr = rawNum !== null
-				? (k.isInr ? `data-countup="${rawNum}" data-cu-inr="1"` : `data-countup="${rawNum}"`)
-				: "";
-			return `
-			<div class="ib-hr-kpi ib-hr-kpi--link" data-kpi="${i}" style="border-top-color:${k.color};cursor:pointer">
-				<div class="ib-hr-kpi-val" style="color:${k.color}" ${cuAttr}>${k.val}</div>
-				<div class="ib-hr-kpi-lbl">${k.label}</div>
-				<div style="position:absolute;bottom:8px;right:10px;font-size:10px;color:${k.color};opacity:.5">→</div>
-			</div>`;
-		}).join(""));
-		$kpis.find(".ib-hr-kpi--link").on("click", (e) => {
-			kpis[parseInt($(e.currentTarget).data("kpi"), 10)].click();
+		this.$wrap.find("#ib-hr-kpis").html(ibUI.kpiGrid(kpis, { min: 170 })).find("[data-kpi]").on("click", (e) => {
+			e.stopPropagation();
+			this._drill($(e.currentTarget).attr("data-kpi"));
 		});
+	}
+
+	_drill(key) {
+		const today = frappe.datetime.get_today();
+		const go = (dt, filters) => { frappe.route_options = filters; frappe.set_route("List", dt); };
+		switch (key) {
+			case "headcount": return go("Employee", { status: "Active" });
+			case "present": return go("Attendance", { attendance_date: today, status: "Present", docstatus: 1 });
+			case "absent": return go("Attendance", { attendance_date: today, status: "Absent", docstatus: 1 });
+			case "att_rate": return go("Attendance", { attendance_date: ["between", [this._month, this._overview.meta.period_end]] });
+			case "pending": return go("Leave Application", { status: "Open", docstatus: 0 });
+			case "payroll": return go("Salary Slip", { start_date: this._month });
+			case "overtime": return go("IB Overtime Request", { date: ["between", [this._month, this._overview.meta.period_end]] });
+			case "attrition": return go("Employee", { status: "Left" });
+		}
+	}
+
+	_render_charts(d) {
+		const t = d.att_trend || [];
+		ibDash.chart(this.$wrap.find("#ib-hr-att-trend"), {
+			type: "bar", stacked: true, height: 220, currency: false, xIsSeries: 1,
+			labels: t.map((r) => r.label),
+			datasets: [
+				{ name: __("Present"), values: t.map((r) => parseFloat(r.present || 0)) },
+				{ name: __("Absent"), values: t.map((r) => parseFloat(r.absent || 0)) },
+				{ name: __("On leave"), values: t.map((r) => parseFloat(r.leave_ || 0)) },
+			],
+			colors: ["#10b981", "#ef4444", "#f59e0b"],
+			empty: __("No attendance marked this month"), emptyIcon: "calendar",
+		});
+
+		const mix = d.att_mix || [];
+		ibDash.chart(this.$wrap.find("#ib-hr-att-mix"), {
+			type: "donut", height: 220, currency: false, xIsSeries: 0,
+			labels: mix.map((r) => r.status),
+			datasets: [{ name: __("Days"), values: mix.map((r) => parseFloat(r.c || 0)) }],
+			empty: __("Nothing marked yet"), emptyIcon: "calendar",
+		});
+
+		const pay = d.pay_trend || [];
+		ibDash.chart(this.$wrap.find("#ib-hr-pay"), {
+			type: "line", height: 230, currency: true,
+			labels: pay.map((r) => r.label),
+			datasets: [
+				{ name: __("Net pay"), values: pay.map((r) => parseFloat(r.net || 0)) },
+				{ name: __("Gross"), values: pay.map((r) => parseFloat(r.gross || 0)) },
+			],
+			dots: 1, empty: __("No salary slips yet"), emptyIcon: "wallet",
+		});
+
+		const lv = d.leave_by_type || [];
+		ibDash.chart(this.$wrap.find("#ib-hr-leave"), {
+			type: "donut", height: 200, currency: false, xIsSeries: 0,
+			labels: lv.map((r) => r.label),
+			datasets: [{ name: __("Days"), values: lv.map((r) => parseFloat(r.days || 0)) }],
+			empty: __("No leave taken"), emptyIcon: "calendar",
+		});
+	}
+
+	_render_side(d) {
+		// Department names here are long ("Factory Administration - IB") — a bar
+		// chart truncates every x label to "...", so this reads as a ranked list.
+		const dept = (d.by_department || []).slice(0, 10);
+		const $d = this.$wrap.find("#ib-hr-dept");
+		if (!dept.length) {
+			$d.html(ibUI.empty(__("No departments set"), "users"));
+		} else {
+			const dmax = Math.max(...dept.map((r) => r.c)) || 1;
+			$d.html(
+				`<div class="ib-dash-rank">${dept
+					.map(
+						(r) => `<div class="row">
+							<span class="nm" title="${ibUI.esc(r.label)}">${ibUI.esc(r.label)}</span>
+							${ibUI.bar((r.c / dmax) * 100, { showLabel: false })}
+							<span class="amt">${r.c}</span></div>`,
+					)
+					.join("")}</div>`,
+			);
+		}
+		const $m = this.$wrap.find("#ib-hr-moments");
+		const moments = d.moments || [];
+		if (!moments.length) {
+			$m.html(ibUI.empty(__("Nothing in the next 30 days"), "calendar"));
+		} else {
+			$m.html(
+				`<div class="ib-hr-people">${moments
+					.map((p) => {
+						const when = p.in_days === 0 ? __("Today") : p.in_days === 1 ? __("Tomorrow") : `${__("in")} ${p.in_days}d`;
+						return `<div class="row" data-route="app/employee/${encodeURIComponent(p.name)}">
+							<span class="ib-ui-pill ib-ui-pill--${p.kind === "Birthday" ? "info" : "ok"}">${p.kind === "Birthday" ? "🎂" : "🎉"}</span>
+							<span class="nm">${ibUI.esc(p.employee_name)}<span class="sub">${ibUI.esc(p.department || "")}</span></span>
+							<span class="when">${ibUI.esc(when)}</span></div>`;
+					})
+					.join("")}</div>`,
+			);
+			ibUI.wireRoutes($m);
+		}
+
+		const $a = this.$wrap.find("#ib-hr-absentees");
+		const abs = d.absentees || [];
+		if (!abs.length) return $a.html(ibUI.empty(__("Nobody absent this month"), "check-circle"));
+		const max = Math.max(...abs.map((r) => r.days)) || 1;
+		$a.html(
+			`<div class="ib-dash-rank">${abs
+				.map(
+					(r) => `<div class="row" data-route="app/employee/${encodeURIComponent(r.employee)}">
+						<span class="nm" title="${ibUI.esc(r.employee_name)}">${ibUI.esc(r.employee_name)}</span>
+						${ibUI.bar((r.days / max) * 100, { showLabel: false })}
+						<span class="amt">${r.days} ${__("d")}</span></div>`,
+				)
+				.join("")}</div>`,
+		);
+		ibUI.wireRoutes($a);
 	}
 
 	_render_tab() {
