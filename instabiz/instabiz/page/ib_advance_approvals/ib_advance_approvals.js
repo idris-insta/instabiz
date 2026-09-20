@@ -4,89 +4,52 @@ frappe.pages["ib-advance-approvals"].on_page_load = function (wrapper) {
 		title: "Advance Approvals",
 		single_column: true,
 	});
-	wrapper._ib_aa = new IBAdvanceApprovals(wrapper, page);
+	wrapper._ib_aa = new IBAdvanceApprovals(page);
 };
 
 frappe.pages["ib-advance-approvals"].on_page_show = function (wrapper) {
 	if (wrapper._ib_aa) wrapper._ib_aa.refresh();
 };
 
+// Rebuilt on the IB Design System (window.ibUI / .ib-ui-* components), 2026-09-21.
 class IBAdvanceApprovals {
-	constructor(wrapper, page) {
-		this.wrapper = wrapper;
+	constructor(page) {
 		this.page = page;
+		this.$el = ibUI.mount(page);
 		this._inject_styles();
 		this._build_layout();
 		page.add_inner_button(__("Refresh"), () => this.refresh());
 		this.refresh();
 	}
 
+	// Reject action needs a danger-toned button — ib-ui only ships primary/
+	// ghost variants, layered here rather than adding a new global variant
+	// for one page's one button.
 	_inject_styles() {
 		if (document.getElementById("ib-aa-page-styles")) return;
 		const s = document.createElement("style");
 		s.id = "ib-aa-page-styles";
 		s.textContent = `
-.ib-aap-wrap { padding: 4px 2px; max-width: 1200px; }
-
-.ib-aap-top-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
-.ib-aap-ts { font-size: 11px; color: var(--text-muted); margin-left: auto; }
-
-.ib-aap-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
-.ib-aap-kpi { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;
-  padding: 14px; border-top: 4px solid; position: relative; overflow: hidden; }
-.ib-aap-kpi-icon { position: absolute; right: 10px; top: 10px; opacity: .25; }
-.ib-aap-kpi-val { font-size: 26px; font-weight: 800; color: var(--heading-color); margin-bottom: 2px; }
-.ib-aap-kpi-lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
-@media(max-width:900px){ .ib-aap-kpi-row{grid-template-columns:repeat(2,1fr);} }
-@media(max-width:540px){ .ib-aap-kpi-row{grid-template-columns:1fr;} }
-
-.ib-aap-section-title { font-size: 13px; font-weight: 700; color: var(--heading-color);
-  margin: 0 0 8px; display: flex; align-items: center; gap: 6px; }
-.ib-aap-section-title .count { font-weight: 500; color: var(--text-muted); }
-.ib-aap-card { background: var(--card-bg); border: 1px solid var(--border-color);
-  border-radius: 8px; overflow: hidden; margin-bottom: 22px; }
-.ib-aap-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.ib-aap-table th { text-align: left; padding: 9px 12px; font-size: 10.5px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .3px; color: var(--text-muted);
-  border-bottom: 1px solid var(--border-color); background: var(--bg-color); }
-.ib-aap-table td { padding: 10px 12px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
-.ib-aap-table tr:last-child td { border-bottom: none; }
-.ib-aap-table tr:hover td { background: var(--bg-color); }
-.ib-aap-amount { font-weight: 700; color: #d97757; }
-.ib-aap-empty { padding: 30px; text-align: center; color: var(--text-muted); font-size: 12px; }
-.ib-aap-chip { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 10.5px; font-weight: 700; }
-.ib-aap-chip--approved { background:#d1fae5; color:#065f46; }
-.ib-aap-chip--rejected { background:#fee2e2; color:#991b1b; }
-.ib-aap-chip--pending  { background:#fef3c7; color:#92400e; }
-.ib-aap-age { font-size: 10.5px; color: var(--text-muted); }
+.ib-aa-btn-danger { border-color: var(--ib-danger-fg); color: var(--ib-danger-fg); }
+.ib-aa-btn-danger:hover { background: var(--ib-danger-bg); color: var(--ib-danger-fg); }
+.ib-aa-amount { font-weight: 700; color: var(--ib-primary); }
+.ib-aa-age { font-size: 10.5px; color: var(--text-muted); }
 `;
 		document.head.appendChild(s);
 	}
 
 	_build_layout() {
-		const $pc = $(this.wrapper).find(".page-content");
-		this.$wrap = $(`<div class="ib-aap-wrap"></div>`).appendTo($pc);
-		this.$wrap.html(`
-			<div class="ib-aap-top-bar">
-				<span class="ib-aap-ts" id="ib-aap-ts"></span>
-			</div>
-			<div class="ib-aap-kpi-row" id="ib-aap-kpis"></div>
-			<div class="ib-aap-section-title">
-				<iconify-icon icon="lucide:clock" width="14" height="14"></iconify-icon>
-				Pending Approval <span class="count" id="ib-aap-pending-count"></span>
-			</div>
-			<div class="ib-aap-card"><div id="ib-aap-pending"></div></div>
-			<div class="ib-aap-section-title">
-				<iconify-icon icon="lucide:history" width="14" height="14"></iconify-icon>
-				Recent Decisions
-			</div>
-			<div class="ib-aap-card"><div id="ib-aap-history"></div></div>
+		this.$el.html(`
+			${ibUI.toolbar([`<span id="ib-aa-ts" class="ib-ui-hint" style="margin-left:auto"></span>`])}
+			<div id="ib-aa-kpis"></div>
+			${ibUI.section("Pending Approval", `<div id="ib-aa-pending"></div>`, { action: '<span id="ib-aa-pending-count" class="ib-ui-hint"></span>' })}
+			${ibUI.section("Recent Decisions", `<div id="ib-aa-history"></div>`)}
 		`);
 	}
 
 	refresh() {
-		this.$wrap.find("#ib-aap-kpis").html(window.ib_skel_kpis ? ib_skel_kpis(4) : "");
-		this.$wrap.find("#ib-aap-ts").text("Loading…");
+		this.$el.find("#ib-aa-kpis").html(ibUI.skeleton(4));
+		this.$el.find("#ib-aa-ts").text("Loading…");
 		frappe.call({
 			method: "instabiz.overrides.advance_approval.get_advance_approval_queue",
 			callback: (r) => {
@@ -94,35 +57,24 @@ class IBAdvanceApprovals {
 				this._render_kpis(d.pending, d.history);
 				this._render_pending(d.pending);
 				this._render_history(d.history);
-				this.$wrap.find("#ib-aap-ts").text("Updated " + frappe.datetime.now_time());
-				window.ib_countup_all && ib_countup_all(this.$wrap);
+				this.$el.find("#ib-aa-ts").text("Updated " + frappe.datetime.now_time());
 			},
-			error: () => this.$wrap.find("#ib-aap-ts").text("Error — click Refresh"),
+			error: () => this.$el.find("#ib-aa-ts").text("Error — click Refresh"),
 		});
-	}
-
-	_fmt(v, ccy) {
-		return "₹" + Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 }) + (ccy && ccy !== "INR" ? ` ${ccy}` : "");
 	}
 
 	_render_kpis(pending, history) {
 		const today = frappe.datetime.get_today();
 		const total_pending_amt = pending.reduce((s, r) => s + (parseFloat(r.advance_paid) || 0), 0);
-		const approved_today = history.filter(r => r.status === "Approved" && (r.modified || "").slice(0, 10) === today).length;
-		const rejected_today = history.filter(r => r.status === "Rejected" && (r.modified || "").slice(0, 10) === today).length;
+		const approved_today = history.filter((r) => r.status === "Approved" && (r.modified || "").slice(0, 10) === today).length;
+		const rejected_today = history.filter((r) => r.status === "Rejected" && (r.modified || "").slice(0, 10) === today).length;
 
-		const kpis = [
-			{ label: "Pending Requests", val: pending.length, rawNum: pending.length, color: "#d97706", icon: "lucide:clock" },
-			{ label: "Pending Amount", val: this._fmt(total_pending_amt), rawNum: total_pending_amt, color: "#d97757", icon: "lucide:indian-rupee", inr: true },
-			{ label: "Approved Today", val: approved_today, rawNum: approved_today, color: "#15803d", icon: "lucide:check-circle" },
-			{ label: "Rejected Today", val: rejected_today, rawNum: rejected_today, color: "#b91c1c", icon: "lucide:x-circle" },
-		];
-		this.$wrap.find("#ib-aap-kpis").html(kpis.map(k => `
-			<div class="ib-aap-kpi" style="border-top-color:${k.color}">
-				<iconify-icon class="ib-aap-kpi-icon" icon="${k.icon}" width="34" height="34" style="color:${k.color}"></iconify-icon>
-				<div class="ib-aap-kpi-val" data-countup="${k.rawNum}" ${k.inr ? 'data-cu-inr="1"' : ""}>${k.val}</div>
-				<div class="ib-aap-kpi-lbl">${k.label}</div>
-			</div>`).join(""));
+		this.$el.find("#ib-aa-kpis").html(ibUI.statGrid([
+			{ v: pending.length, l: "Pending Requests" },
+			{ v: ibUI.money(total_pending_amt), l: "Pending Amount" },
+			{ v: approved_today, l: "Approved Today" },
+			{ v: rejected_today, l: "Rejected Today" },
+		]));
 	}
 
 	_days_ago(dt) {
@@ -133,48 +85,35 @@ class IBAdvanceApprovals {
 	}
 
 	_render_pending(rows) {
-		this.$wrap.find("#ib-aap-pending-count").text(rows.length ? `(${rows.length})` : "");
+		this.$el.find("#ib-aa-pending-count").text(rows.length ? `(${rows.length})` : "");
 		if (!rows.length) {
-			this.$wrap.find("#ib-aap-pending").html(`
-				<div class="ib-aap-empty">
-					<iconify-icon icon="lucide:inbox" width="22" height="22" style="opacity:.4;display:block;margin:0 auto 8px"></iconify-icon>
-					Nothing waiting on you right now.
-				</div>`);
+			this.$el.find("#ib-aa-pending").html(ibUI.empty("Nothing waiting on you right now.", "clock"));
 			return;
 		}
-		const rows_html = rows.map((r) => `
-			<tr data-so="${frappe.utils.escape_html(r.name)}">
-				<td><a href="/app/sales-order/${encodeURIComponent(r.name)}">${frappe.utils.escape_html(r.name)}</a></td>
-				<td>${frappe.utils.escape_html(r.customer_name || "")}</td>
-				<td>${frappe.utils.escape_html(r.sales_person_name || "—")}</td>
-				<td class="ib-aap-amount">${this._fmt(r.advance_paid, r.currency)}</td>
-				<td><span class="ib-aap-chip ib-aap-chip--pending">Pending</span><br><span class="ib-aap-age">${this._days_ago(r.creation)}</span></td>
-				<td style="white-space:nowrap">
-					<button class="btn btn-xs btn-primary ib-aap-approve">
-						<iconify-icon icon="lucide:check" width="11" height="11" style="vertical-align:middle"></iconify-icon> Approve
-					</button>
-					<button class="btn btn-xs btn-danger ib-aap-reject">
-						<iconify-icon icon="lucide:x" width="11" height="11" style="vertical-align:middle"></iconify-icon> Reject
-					</button>
-				</td>
-			</tr>`).join("");
-		this.$wrap.find("#ib-aap-pending").html(`
-			<table class="ib-aap-table">
-				<thead><tr><th>Sales Order</th><th>Customer</th><th>Sales Person</th><th>Advance</th><th>Status</th><th>Decide</th></tr></thead>
-				<tbody>${rows_html}</tbody>
-			</table>`);
+		this.$el.find("#ib-aa-pending").html(ibUI.table({
+			head: ["Sales Order", "Customer", "Sales Person", "Advance", "Status", "Decide"],
+			rows: rows.map((r) => [
+				`<a data-so="${ibUI.esc(r.name)}" href="/app/sales-order/${encodeURIComponent(r.name)}">${ibUI.esc(r.name)}</a>`,
+				ibUI.esc(r.customer_name || ""),
+				ibUI.esc(r.sales_person_name || "—"),
+				`<span class="ib-aa-amount">${this._fmt(r.advance_paid, r.currency)}</span>`,
+				`${ibUI.pill("Pending", "warn")}<br><span class="ib-aa-age">${this._days_ago(r.creation)}</span>`,
+				`<span style="white-space:nowrap">
+					${ibUI.btn("Approve", { variant: "primary", icon: "check-circle", attrs: `data-so="${ibUI.esc(r.name)}" class="ib-aa-approve"` })}
+					${ibUI.btn("Reject", { icon: "minus", attrs: `data-so="${ibUI.esc(r.name)}" class="ib-aa-reject ib-aa-btn-danger"` })}
+				</span>`,
+			]),
+		}));
 
-		const self = this;
-		this.$wrap.find(".ib-aap-approve").on("click", function () {
-			self._decide($(this).closest("tr").data("so"), "Approved");
-		});
-		this.$wrap.find(".ib-aap-reject").on("click", function () {
-			self._decide($(this).closest("tr").data("so"), "Rejected");
-		});
+		this.$el.find(".ib-aa-approve").on("click", (e) => this._decide($(e.currentTarget).data("so"), "Approved"));
+		this.$el.find(".ib-aa-reject").on("click", (e) => this._decide($(e.currentTarget).data("so"), "Rejected"));
+	}
+
+	_fmt(v, ccy) {
+		return "₹" + Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 }) + (ccy && ccy !== "INR" ? ` ${ccy}` : "");
 	}
 
 	_decide(sales_order, status) {
-		const self = this;
 		frappe.prompt(
 			[{ fieldname: "remarks", label: __("Remarks"), fieldtype: "Small Text" }],
 			(values) => {
@@ -183,7 +122,7 @@ class IBAdvanceApprovals {
 					args: { sales_order, status, remarks: values.remarks },
 					callback: () => {
 						frappe.show_alert({ message: `${sales_order} ${status.toLowerCase()}`, indicator: status === "Approved" ? "green" : "orange" });
-						self.refresh();
+						this.refresh();
 					},
 				});
 			},
@@ -194,30 +133,20 @@ class IBAdvanceApprovals {
 
 	_render_history(rows) {
 		if (!rows.length) {
-			this.$wrap.find("#ib-aap-history").html(`
-				<div class="ib-aap-empty">
-					<iconify-icon icon="lucide:history" width="22" height="22" style="opacity:.4;display:block;margin:0 auto 8px"></iconify-icon>
-					No decisions yet.
-				</div>`);
+			this.$el.find("#ib-aa-history").html(ibUI.empty("No decisions yet.", "activity"));
 			return;
 		}
-		const rows_html = rows.map((r) => {
-			const chip_cls = r.status === "Approved" ? "ib-aap-chip--approved" : "ib-aap-chip--rejected";
-			return `
-			<tr>
-				<td><a href="/app/sales-order/${encodeURIComponent(r.name)}">${frappe.utils.escape_html(r.name)}</a></td>
-				<td>${frappe.utils.escape_html(r.customer_name || "")}</td>
-				<td>${frappe.utils.escape_html(r.sales_person_name || "—")}</td>
-				<td class="ib-aap-amount">${this._fmt(r.advance_paid, r.currency)}</td>
-				<td><span class="ib-aap-chip ${chip_cls}">${frappe.utils.escape_html(r.status)}</span></td>
-				<td style="color:var(--text-muted)">${frappe.utils.escape_html(r.remarks || "—")}</td>
-				<td class="ib-aap-age">${frappe.datetime.str_to_user(r.modified)}</td>
-			</tr>`;
-		}).join("");
-		this.$wrap.find("#ib-aap-history").html(`
-			<table class="ib-aap-table">
-				<thead><tr><th>Sales Order</th><th>Customer</th><th>Sales Person</th><th>Advance</th><th>Decision</th><th>Remarks</th><th>When</th></tr></thead>
-				<tbody>${rows_html}</tbody>
-			</table>`);
+		this.$el.find("#ib-aa-history").html(ibUI.table({
+			head: ["Sales Order", "Customer", "Sales Person", "Advance", "Decision", "Remarks", "When"],
+			rows: rows.map((r) => [
+				`<a href="/app/sales-order/${encodeURIComponent(r.name)}">${ibUI.esc(r.name)}</a>`,
+				ibUI.esc(r.customer_name || ""),
+				ibUI.esc(r.sales_person_name || "—"),
+				`<span class="ib-aa-amount">${this._fmt(r.advance_paid, r.currency)}</span>`,
+				ibUI.pill(r.status, r.status === "Approved" ? "ok" : "danger"),
+				`<span style="color:var(--text-muted)">${ibUI.esc(r.remarks || "—")}</span>`,
+				`<span class="ib-aa-age">${frappe.datetime.str_to_user(r.modified)}</span>`,
+			]),
+		}));
 	}
 }
