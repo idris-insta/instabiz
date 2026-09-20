@@ -11,7 +11,7 @@
  "is_hidden": 0,
  "label": "Instabiz Production",
  "links": [],
- "modified": "2026-09-10 13:52:41.037215",
+ "modified": "2026-09-20 23:33:32.907549",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "Instabiz Production",
@@ -125,6 +125,13 @@
    "doc_view": "",
    "label": "FG Serials",
    "link_to": "IB FG Serial",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Recipes",
+   "link_to": "IB Production Recipe",
    "type": "DocType"
   }
  ],
