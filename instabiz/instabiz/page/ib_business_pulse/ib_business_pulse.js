@@ -4,7 +4,7 @@ frappe.pages["ib-business-pulse"].on_page_load = function (wrapper) {
 		title: "Business Pulse",
 		single_column: true,
 	});
-	wrapper._ib_pulse = new IBBusinessPulse(wrapper);
+	wrapper._ib_pulse = new IBBusinessPulse(wrapper.page);
 };
 
 frappe.pages["ib-business-pulse"].on_page_show = function (wrapper) {
@@ -21,14 +21,15 @@ frappe.pages["ib-business-pulse"].on_page_hide = function (wrapper) {
 // Each domain card shows real counts/amounts only — no synthetic 0-100 score.
 // Every metric routes to the actual filtered record list it was counted from;
 // the card footer routes to the domain's own dashboard page.
+// Rebuilt on the IB Design System (window.ibUI / .ib-ui-* components), 2026-09-21.
 
 class IBBusinessPulse {
-	constructor(wrapper) {
-		this.wrapper = wrapper;
-		this.page = wrapper.page;
+	constructor(page) {
+		this.page = page;
 		this._data = null;
 		this._trend_chart = null;
 		this._auto_timer = null;
+		this.$el = ibUI.mount(page);
 		this._inject_styles();
 		this._build_layout();
 		this._bind_toolbar();
@@ -40,46 +41,29 @@ class IBBusinessPulse {
 		const s = document.createElement("style");
 		s.id = "ib-bp-styles";
 		s.textContent = `
-.ib-bp-wrap { padding: 16px; max-width: 1400px; }
-.ib-bp-domain-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
-.ib-bp-domain { background: var(--card-bg); border: 1px solid var(--border-color);
-  border-radius: 8px; overflow: hidden; }
-.ib-bp-domain-top { display: flex; align-items: center; gap: 8px; padding: 12px 14px 10px; }
-.ib-bp-domain-icon { display: inline-flex; }
-.ib-bp-domain-name { font-size: 12.5px; font-weight: 600; color: var(--heading-color); }
+.ib-bp-domain { padding: 0; overflow: hidden; }
+.ib-bp-domain .ib-ui-card-h { padding: var(--ib-space-3) var(--ib-space-4) var(--ib-space-2); margin: 0; }
 .ib-bp-metric-row { display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 14px; border-top: 1px solid var(--border-color); cursor: pointer; transition: background .12s; }
-.ib-bp-metric-row:hover { background: var(--subtle-fg, rgba(0,0,0,.03)); }
+  padding: 8px var(--ib-space-4); border-top: 1px solid var(--border-color); cursor: pointer; transition: background .12s; }
+.ib-bp-metric-row:hover { background: var(--control-bg); }
 .ib-bp-metric-lbl { font-size: 11.5px; color: var(--text-muted); }
 .ib-bp-metric-val { font-size: 14px; font-weight: 700; color: var(--heading-color); }
 .ib-bp-metric-badge { font-size: 10px; font-weight: 600; margin-left: 6px; }
-.ib-bp-metric-badge.up { color: #10b981; }
-.ib-bp-metric-badge.down { color: #ef4444; }
-.ib-bp-domain-footer { display: block; padding: 7px 14px; font-size: 10.5px; font-weight: 600;
-  color: var(--ib-primary, #d97757); text-align: right; border-top: 1px solid var(--border-color);
+.ib-bp-metric-badge.up { color: var(--ib-ok-fg); }
+.ib-bp-metric-badge.down { color: var(--ib-danger-fg); }
+.ib-bp-domain-footer { display: block; padding: 7px var(--ib-space-4); font-size: 10.5px; font-weight: 600;
+  color: var(--ib-primary); text-align: right; border-top: 1px solid var(--border-color);
   cursor: pointer; text-transform: uppercase; letter-spacing: .04em; }
 .ib-bp-domain-footer:hover { text-decoration: underline; }
-.ib-bp-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-.ib-bp-card-title { font-size: 12px; font-weight: 600; color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: .5px; margin-bottom: 14px; }
-.ib-bp-trend-wrap { height: 180px; }
-.ib-bp-ts { font-size: 11px; color: var(--text-muted); text-align: right; margin-bottom: 12px; }
-@media(max-width:900px){ .ib-bp-domain-grid{grid-template-columns:1fr 1fr;} }
-@media(max-width:540px){ .ib-bp-domain-grid{grid-template-columns:1fr;} }
-		`;
+`;
 		document.head.appendChild(s);
 	}
 
 	_build_layout() {
-		const $pc = $(this.wrapper).find(".page-content");
-		this.$wrap = $(`<div class="ib-bp-wrap"></div>`).appendTo($pc);
-		this.$wrap.html(`
-			<div class="ib-bp-ts" id="ib-bp-ts">Loading…</div>
-			<div class="ib-bp-domain-grid" id="ib-bp-domains"></div>
-			<div class="ib-bp-card">
-				<div class="ib-bp-card-title">14-Day Revenue Trend</div>
-				<div class="ib-bp-trend-wrap" id="ib-bp-trend"></div>
-			</div>
+		this.$el.html(`
+			<div id="ib-bp-ts" class="ib-ui-hint" style="text-align:right;margin-bottom:var(--ib-space-3)">Loading…</div>
+			<div class="ib-ui-grid ib-ui-grid--3" id="ib-bp-domains" style="margin-bottom:var(--ib-space-5)"></div>
+			${ibUI.section("14-Day Revenue Trend", `<div style="height:180px" id="ib-bp-trend"></div>`)}
 		`);
 	}
 
@@ -90,17 +74,17 @@ class IBBusinessPulse {
 	}
 
 	refresh() {
-		this.$wrap.find("#ib-bp-ts").text("Loading…");
+		this.$el.find("#ib-bp-ts").text("Loading…");
 		frappe.call({
 			method: "instabiz.instabiz.page.ib_business_pulse.ib_business_pulse.get_pulse_data",
 			callback: (r) => {
 				if (r.message) {
 					this._data = r.message;
 					this._render(r.message);
-					this.$wrap.find("#ib-bp-ts").text("Updated " + frappe.datetime.now_time() + " · Auto-refresh every 2 min");
+					this.$el.find("#ib-bp-ts").text("Updated " + frappe.datetime.now_time() + " · Auto-refresh every 2 min");
 				}
 			},
-			error: () => this.$wrap.find("#ib-bp-ts").text("Error loading data"),
+			error: () => this.$el.find("#ib-bp-ts").text("Error loading data"),
 		});
 	}
 
@@ -131,7 +115,7 @@ class IBBusinessPulse {
 
 		return [
 			{
-				key: "Revenue", icon: "lucide:indian-rupee", route: "ib-main-dashboard",
+				key: "Revenue", icon: "wallet", route: "ib-main-dashboard",
 				metrics: [
 					{
 						label: "Revenue MTD", value: this._fmt(d.rev_mtd),
@@ -139,66 +123,42 @@ class IBBusinessPulse {
 							`<span class="ib-bp-metric-badge ${d.rev_change_pct >= 0 ? "up" : "down"}">${d.rev_change_pct >= 0 ? "▲" : "▼"} ${Math.abs(d.rev_change_pct)}% vs last mo</span>`,
 						route: () => frappe.set_route("List", doctype, Object.assign({ docstatus: 1, [`${date_field},Between`]: between }, status_filter)),
 					},
-					{
-						label: "Collection Rate", value: d.collection_rate + "%",
-						route: () => frappe.set_route("query-report", "IB Collections Report"),
-					},
-					{
-						label: "Outstanding AR", value: this._fmt(d.ar),
-						route: () => frappe.set_route("query-report", "IB AR Aging"),
-					},
+					{ label: "Collection Rate", value: d.collection_rate + "%", route: () => frappe.set_route("query-report", "IB Collections Report") },
+					{ label: "Outstanding AR", value: this._fmt(d.ar), route: () => frappe.set_route("query-report", "IB AR Aging") },
 				],
 			},
 			{
-				key: "Sales", icon: "lucide:file-text", route: "ib-customer-board",
+				key: "Sales", icon: "file-text", route: "ib-customer-board",
 				metrics: [
-					{
-						label: "Open Leads", value: d.open_leads,
-						route: () => frappe.set_route("List", "Lead", { status: ["not in", ["Converted", "Do Not Contact"]] }),
-					},
-					{
-						label: "Open Quotations", value: d.open_quotes,
-						route: () => frappe.set_route("List", "Quotation", { docstatus: 1, status: ["not in", ["Ordered", "Lost", "Cancelled", "Expired"]] }),
-					},
+					{ label: "Open Leads", value: d.open_leads, route: () => frappe.set_route("List", "Lead", { status: ["not in", ["Converted", "Do Not Contact"]] }) },
+					{ label: "Open Quotations", value: d.open_quotes, route: () => frappe.set_route("List", "Quotation", { docstatus: 1, status: ["not in", ["Ordered", "Lost", "Cancelled", "Expired"]] }) },
 				],
 			},
 			{
-				key: "Inventory", icon: "lucide:package", route: "ib-stock-dashboard",
+				key: "Inventory", icon: "package", route: "ib-stock-dashboard",
 				metrics: [
 					{ label: "Items In Stock", value: d.total_items, route: () => frappe.set_route("ib-stock-dashboard") },
 					{ label: "Low / Reorder Stock", value: d.low_stock, route: () => frappe.set_route("ib-stock-dashboard") },
 				],
 			},
 			{
-				key: "Procurement", icon: "lucide:shopping-cart", route: "ib-procurement-dashboard",
+				key: "Procurement", icon: "shopping-cart", route: "ib-procurement-dashboard",
 				metrics: [
-					{
-						label: "Open Purchase Orders", value: d.open_po,
-						route: () => frappe.set_route("List", "Purchase Order", { docstatus: 1, status: ["not in", ["Completed", "Cancelled", "Closed"]] }),
-					},
+					{ label: "Open Purchase Orders", value: d.open_po, route: () => frappe.set_route("List", "Purchase Order", { docstatus: 1, status: ["not in", ["Completed", "Cancelled", "Closed"]] }) },
 				],
 			},
 			{
-				key: "HR", icon: "lucide:users", route: "ib-hrms-dashboard",
+				key: "HR", icon: "users", route: "ib-hrms-dashboard",
 				metrics: [
 					{ label: "Active Employees", value: d.total_emp, route: () => frappe.set_route("List", "Employee", { status: "Active" }) },
-					{
-						label: "Present Today", value: d.present_today,
-						route: () => frappe.set_route("List", "Attendance", { attendance_date: d.today, status: "Present", docstatus: 1 }),
-					},
+					{ label: "Present Today", value: d.present_today, route: () => frappe.set_route("List", "Attendance", { attendance_date: d.today, status: "Present", docstatus: 1 }) },
 				],
 			},
 			{
-				key: "Production", icon: "lucide:factory", route: "ib-production-dashboard",
+				key: "Production", icon: "factory", route: "ib-production-dashboard",
 				metrics: [
-					{
-						label: "Active Work Orders", value: d.wo_active,
-						route: () => frappe.set_route("List", "IB Work Order", { status: ["in", ["Pending", "In Progress", "On Hold"]] }),
-					},
-					{
-						label: "Completed This Month", value: d.wo_completed,
-						route: () => frappe.set_route("List", "IB Work Order", { status: "Completed", "completed_at,>=": d.month_start }),
-					},
+					{ label: "Active Work Orders", value: d.wo_active, route: () => frappe.set_route("List", "IB Work Order", { status: ["in", ["Pending", "In Progress", "On Hold"]] }) },
+					{ label: "Completed This Month", value: d.wo_completed, route: () => frappe.set_route("List", "IB Work Order", { status: "Completed", "completed_at,>=": d.month_start }) },
 				],
 			},
 		];
@@ -207,22 +167,19 @@ class IBBusinessPulse {
 	_render_domains(d) {
 		const domains = this._domains(d);
 		const html = domains.map((dom, di) => `
-			<div class="ib-bp-domain">
-				<div class="ib-bp-domain-top">
-					<iconify-icon icon="${dom.icon}" width="18" height="18" class="ib-bp-domain-icon"></iconify-icon>
-					<span class="ib-bp-domain-name">${dom.key}</span>
-				</div>
+			<div class="ib-ui-card ib-bp-domain">
+				<div class="ib-ui-card-h">${ibUI.icon(dom.icon)}<span class="t">${ibUI.esc(dom.key)}</span></div>
 				${dom.metrics.map((m, mi) => `
 					<div class="ib-bp-metric-row" data-domain="${di}" data-metric="${mi}">
-						<span class="ib-bp-metric-lbl">${m.label}</span>
+						<span class="ib-bp-metric-lbl">${ibUI.esc(m.label)}</span>
 						<span><span class="ib-bp-metric-val">${m.value}</span>${m.badge || ""}</span>
 					</div>
 				`).join("")}
-				<div class="ib-bp-domain-footer" data-route="${dom.route}">Open ${dom.key} Dashboard →</div>
+				<div class="ib-bp-domain-footer" data-route="${ibUI.esc(dom.route)}">Open ${ibUI.esc(dom.key)} Dashboard →</div>
 			</div>
 		`).join("");
 
-		const $el = this.$wrap.find("#ib-bp-domains").html(html);
+		const $el = this.$el.find("#ib-bp-domains").html(html);
 		$el.find(".ib-bp-metric-row").on("click", (e) => {
 			const $row = $(e.currentTarget);
 			const dom = domains[$row.data("domain")];
@@ -235,10 +192,10 @@ class IBBusinessPulse {
 	}
 
 	_render_trend(trend) {
-		const $el = this.$wrap.find("#ib-bp-trend")[0];
+		const $el = this.$el.find("#ib-bp-trend")[0];
 		if (!$el) return;
 		if (!trend.length) {
-			$($el).html(`<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:12px">No trend data</div>`);
+			$($el).html(ibUI.empty("No trend data", "trending-up"));
 			return;
 		}
 		if (this._trend_chart) { this._trend_chart.destroy && this._trend_chart.destroy(); this._trend_chart = null; }
@@ -246,8 +203,8 @@ class IBBusinessPulse {
 		this._trend_chart = new frappe.Chart($el, {
 			type: "line",
 			data: {
-				labels: trend.map(r => r.label),
-				datasets: [{ name: "Revenue", values: trend.map(r => parseFloat(r.amount || 0)) }],
+				labels: trend.map((r) => r.label),
+				datasets: [{ name: "Revenue", values: trend.map((r) => parseFloat(r.amount || 0)) }],
 			},
 			colors: ["#d97757"],
 			height: 165,
