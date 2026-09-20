@@ -350,6 +350,35 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 			</td>
 		</tr>`).join("");
 
+	// Redesigned per direct feedback ("too many fields upfront"): the dialog
+	// used to open with 3 full-width form fields (Source Batch, RM Qty
+	// Consumed, Set Stage For All Rows) stacked ABOVE the grid before you
+	// could even see what you're starting. Only Source Batch is something
+	// every run genuinely needs — the other two are quick-fill/override
+	// conveniences, not independent decisions, so they're folded into the
+	// grid itself: "Set all" lives in the Stage column's own header (right
+	// next to the thing it fills in), and the RM-qty override sits behind a
+	// one-line toggle instead of always taking up its own field.
+	const setAllOptions = [""].concat(route).map((s) => `<option value="${s}">${s || "Set all…"}</option>`).join("");
+	const rowsGrid = `
+		<div style="overflow-x:auto"><table class="table table-bordered" style="margin-bottom:0">
+			<thead><tr>
+				<th>Output Item</th>
+				<th style="white-space:nowrap">Stage
+					<select class="ib-sr-set-all" style="font-size:10px;font-weight:400;margin-left:6px;padding:1px 3px;width:auto;display:inline-block" title="Apply one stage to every row">${setAllOptions}</select>
+				</th>
+				<th>Planned Qty</th><th>Pack Count</th><th>Packing (optional)</th>
+			</tr></thead>
+			<tbody>${rows}</tbody>
+		</table></div>
+		<div style="margin-top:8px;font-size:12px">
+			<a href="#" class="ib-sr-qty-toggle">+ Override total RM qty consumed</a>
+			<div class="ib-sr-qty-box" style="display:none;margin-top:6px;max-width:260px">
+				<input type="number" class="form-control input-sm ib-sr-source-qty" step="any" placeholder="RM qty consumed">
+				<div class="text-muted" style="font-size:11px;margin-top:3px">Only applies when every row below ends up in one run (all on the same stage). Leave it closed to use each run's own summed output qty — the only option once rows split across stages.</div>
+			</div>
+		</div>`;
+
 	const d = new frappe.ui.Dialog({
 		title: `Start Production — ${subtitle}`,
 		size: "large",
@@ -357,20 +386,12 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 			{ fieldname: "source_batch", fieldtype: "Link", options: "IB Batch", label: "Source RM Batch", reqd: 1,
 				get_query: () => ({ filters: { kind: "Raw Material", status: "Active" } }),
 				description: "The one raw-material / jumbo batch each run below consumes from." },
-			{ fieldname: "source_qty", fieldtype: "Float", label: "RM Qty Consumed",
-				description: "Only used when every row below ends up in ONE run (all on the same stage). Leave blank to use each run's own summed output quantity — the only option once rows span more than one stage." },
-			{ fieldname: "set_all_stage", fieldtype: "Select", label: "Set Stage For All Rows",
-				options: [""].concat(route).join("\n"),
-				description: "Quick-fill: applies the picked stage to every row's own selector below. Leave blank to keep each row's own default." },
-			{ fieldname: "grid", fieldtype: "HTML", options: `
-				<div style="overflow-x:auto"><table class="table table-bordered" style="margin-bottom:0">
-					<thead><tr><th>Output Item</th><th>Stage</th><th>Planned Qty</th><th>Pack Count</th><th>Packing (optional)</th></tr></thead>
-					<tbody>${rows}</tbody>
-				</table></div>` },
+			{ fieldname: "grid", fieldtype: "HTML", options: rowsGrid },
 		],
 		primary_action_label: "Start Run(s)",
 		primary_action: (v) => {
 			if (!v.source_batch) { frappe.show_alert({ message: "Pick a source RM batch.", indicator: "orange" }); return; }
+			const sourceQtyOverride = flt(d.$wrapper.find(".ib-sr-source-qty").val());
 			const rowData = items.map((it, i) => {
 				const $r = d.$wrapper.find(`tr[data-i="${i}"]`);
 				return {
@@ -417,7 +438,7 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 						// everything collapsed into one run — split across several
 						// stage-groups it's ambiguous, so each group falls back to
 						// its own summed output quantity instead of guessing a split.
-						source_qty: (groups.size === 1 && v.source_qty) ? v.source_qty : null,
+						source_qty: (groups.size === 1 && sourceQtyOverride) ? sourceQtyOverride : null,
 						outputs: JSON.stringify(outputs),
 						start_stage: stage,
 					},
@@ -432,10 +453,20 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 		},
 	});
 	// Quick-fill wiring — applies the picked stage to every row's own select.
-	d.fields_dict.set_all_stage.$input.on("change", () => {
-		const val = d.get_value("set_all_stage");
+	// Now lives inline in the grid's own Stage column header, not a
+	// competing full-width field above it.
+	d.$wrapper.find(".ib-sr-set-all").on("change", (e) => {
+		const val = $(e.currentTarget).val();
 		if (!val) return;
 		d.$wrapper.find(".ib-sr-stage").each((_, el) => { if ($(el).find(`option[value="${val}"]`).length) $(el).val(val); });
+	});
+	// RM-qty override — collapsed behind a one-line toggle instead of an
+	// always-visible field, since it's only relevant once every row lands
+	// on the same stage (see the box's own description).
+	d.$wrapper.find(".ib-sr-qty-toggle").on("click", (e) => {
+		e.preventDefault();
+		d.$wrapper.find(".ib-sr-qty-box").slideDown(120);
+		d.$wrapper.find(".ib-sr-qty-toggle").hide();
 	});
 	d.show();
 }
