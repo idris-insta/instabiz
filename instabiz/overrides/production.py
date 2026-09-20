@@ -407,8 +407,22 @@ def _spec_from_run(doc):
 	core_dia = flt(frappe.get_cached_value("Item", core, "custom_core_diameter_mm")) if core else 0.0
 	adhesive_item = doc.get("source_item") or (outs[0].item_code if outs else "")
 	adhesive = (frappe.get_cached_value("Item", adhesive_item, "custom_adhesive_type") or "") if adhesive_item else ""
+	# Real bug, confirmed live (IB-SGM-SO-01838, 6 outputs 9/11/16/9/11/16mm):
+	# this used to fall back to max(widths) — the LARGEST single OUTPUT
+	# width — whenever the real source batch had no width_mm recorded.
+	# Fabricating "input width 16mm" from an unrelated output, then feeding
+	# it straight into _machine_feasible's sum(ows) > iw - trim check,
+	# guarantees failure for any multi-output slitting job (6 outputs
+	# summing 72mm can never fit inside a fabricated 16mm "input") —
+	# every real Slitting machine got rejected, with a message ("every
+	# machine either doesn't fit it or is already at capacity") that reads
+	# like a real capacity shortage when the actual problem is a batch
+	# missing its own width_mm. Unset/unknown input width should mean "no
+	# constraint known" (0), matching _machine_feasible's own "unset field
+	# => that check passes" rule everywhere else — never guessed from
+	# output data that has no real relationship to the input roll's width.
 	return {
-		"input_width_mm": src_w or (max(widths) if widths else 0.0),
+		"input_width_mm": src_w,
 		"output_widths_mm": widths,
 		"output_length_m": max(lengths) if lengths else 0.0,
 		"output_diameter_mm": flt(doc.get("roll_diameter_mm")),
