@@ -231,3 +231,46 @@ def _trace_from_wo(name):
 		"stages": siblings,
 		"serials": _serials_for({"work_order": name}),
 	}
+
+
+# ---------------------------------------------------------------------------
+# Delete guard (2026-09-20)
+# ---------------------------------------------------------------------------
+# Real incident this closes: IB-CTN-2026-00540::IS-51210V-029TRNANL::1 (a
+# real Raw Material batch, real Container Import) was hard-deleted via
+# frappe.delete_doc() on 2026-09-19 while 9+ real Work Orders — spanning
+# multiple Sales Orders, some already Completed, one still In Progress —
+# still carried it as their `source_batch`. Nothing broke immediately; the
+# dangling Link only surfaced a day later as an opaque core Frappe error
+# ("Could not find Source (RM) Batch: ...") the moment someone tried to
+# Complete/advance one of the affected runs, with zero indication of why or
+# what to do about it. IB Batch has no doc_events wired at all today (no
+# hooks.py entry) — nothing has ever stopped this. Restoring the deleted
+# record (from its own Deleted Document trace) fixed that one incident;
+# this stops the next one at the source instead of after the fact.
+def prevent_delete_if_traced(doc, method=None):
+	"""before_delete hook for IB Batch — refuses to delete a batch that's
+	still real genealogy: the source of a real Work Order, or a parent of a
+	real Finished Good batch. A batch with nothing pointing at it (disposable
+	test data, a genuine data-entry mistake caught immediately) still
+	deletes freely — this only blocks the specific shape of mistake that
+	silently orphans an in-use traceability chain.
+	"""
+	wo_count = frappe.db.count("IB Work Order", {"source_batch": doc.name})
+	if wo_count:
+		sample = frappe.get_all("IB Work Order", filters={"source_batch": doc.name},
+			pluck="name", limit=5, order_by="creation asc")
+		names = ", ".join(sample) + (f", +{wo_count - len(sample)} more" if wo_count > len(sample) else "")
+		frappe.throw(_(
+			"Cannot delete batch {0} — it's still the source batch on {1} Work Order(s) ({2}). "
+			"Deleting it would silently break their traceability the next time one of them "
+			"advances or completes."
+		).format(doc.name, wo_count, names))
+	fg_count = frappe.db.count("IB Batch", {"parent_batches": ["like", f"%{doc.name}%"]})
+	if fg_count:
+		sample = frappe.get_all("IB Batch", filters={"parent_batches": ["like", f"%{doc.name}%"]},
+			pluck="name", limit=5)
+		names = ", ".join(sample) + (f", +{fg_count - len(sample)} more" if fg_count > len(sample) else "")
+		frappe.throw(_(
+			"Cannot delete batch {0} — it's a parent of {1} finished-goods batch(es) ({2})."
+		).format(doc.name, fg_count, names))

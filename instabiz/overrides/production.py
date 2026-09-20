@@ -1627,6 +1627,17 @@ def get_item_wise_view(from_date=None, to_date=None, item_code=None, location=No
 				"sales_order": r.get("sales_order"),
 				"target_qty": r.get("planned_qty"), "completed_qty": r.get("produced_qty"),
 				"machine": "", "target_uom": r.get("uom"),
+				# The real run's own current stage/status/machine — every one of
+				# these per-stage pseudo-rows shares the SAME real work_order id
+				# (this is a WO-per-run model: one real record covers the whole
+				# route), but `status`/`machine` above are per-stage synthesized
+				# display values for the stage chip's own colour (Completed/
+				# current/Pending), not the run's real live state. The frontend
+				# must open the WO panel using these `real_*` fields, not the
+				# chip-specific ones, or it opens showing whichever stage
+				# happened to be last written into a shared id-keyed cache.
+				"real_status": r.get("status"), "real_machine": r.get("machine") or "",
+				"current_stage": cur,
 			})
 	out = []
 	for g in grouped.values():

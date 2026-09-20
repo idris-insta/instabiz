@@ -1472,6 +1472,7 @@ def get_item_wise_board(location=None, item_code=None):
 				"sales_order": row["sales_order"],
 				"customer": row["customer"],
 				"status": row["status"],
+				"machine": row["machine"],
 				"current_stage": row["current_stage"],
 				"route": row["route"],
 			})
@@ -1751,6 +1752,136 @@ def get_run_plan(limit=None, start=0, location=None, search=None, priority=None)
 			"items": rows,
 		})
 	return {"order_wise": out}
+
+
+# ---------------------------------------------------------------------------
+# Command Center — factory-manager live board (2026-09-20)
+# ---------------------------------------------------------------------------
+# create_run() always inserts a run already Started (Pending -> In Progress in
+# one call, see its own docstring) — there is no persisted "Pending, not yet
+# started" IB Work Order under the run model. So the only two real live
+# states a run itself can sit in are In Progress ("Processing") and On Hold
+# ("Halted"); the third card type here ("Ready") isn't a run at all, it's an
+# Order Sheet Item with zero non-Cancelled run ever created against it —
+# i.e. exactly what _plan_item_row's `next_stage_suggestion` branch means,
+# just queried directly/flat instead of per-page-of-25-Order-Sheets.
+
+
+def _command_center_runs(location=None):
+	conds = ["wo.status IN ('In Progress', 'On Hold')"]
+	params = {}
+	if location:
+		conds.append("LOWER(wo.location) = %(loc)s")
+		params["loc"] = location.lower()
+	rows = frappe.db.sql(
+		f"""SELECT wo.name, wo.sales_order, wo.order_sheet, wo.status, wo.priority,
+		           wo.location, wo.current_stage, wo.machine, wo.started_at, wo.notes,
+		           so.customer_name
+		    FROM `tabIB Work Order` wo
+		    LEFT JOIN `tabSales Order` so ON so.name = wo.sales_order
+		    WHERE {' AND '.join(conds)}
+		    ORDER BY FIELD(wo.priority, 'Urgent', 'High', 'Normal', 'Low'), wo.started_at ASC""",
+		params, as_dict=True,
+	)
+	names = [r.name for r in rows]
+	outs_by_wo = {}
+	if names:
+		for o in frappe.get_all(
+			"IB WO Output", filters={"parent": ["in", names]},
+			fields=["parent", "item_code", "item_name", "planned_qty", "produced_qty", "uom"],
+		):
+			outs_by_wo.setdefault(o.parent, []).append(o)
+	out = []
+	for r in rows:
+		outs = outs_by_wo.get(r.name, [])
+		out.append({
+			"work_order": r.name, "sales_order": r.sales_order, "order_sheet": r.order_sheet,
+			"status": r.status, "priority": r.priority or "Normal", "location": r.location,
+			"current_stage": r.current_stage, "machine": r.machine,
+			"started_at": str(r.started_at) if r.started_at else None,
+			"customer": r.customer_name, "notes": r.notes,
+			"item_code": outs[0].item_code if outs else "",
+			"item_name": outs[0].item_name if outs else "",
+			"extra_items": len(outs) - 1 if len(outs) > 1 else 0,
+			"planned_qty": sum(flt(o.planned_qty) for o in outs),
+			"produced_qty": sum(flt(o.produced_qty) for o in outs),
+			"uom": outs[0].uom if outs else "",
+		})
+	return out
+
+
+def _command_center_ready(location=None, limit=60):
+	# "No run" = zero IB WO Output rows for this Order Sheet Item on any
+	# non-Cancelled run, ever — the same condition _plan_item_row's `if not
+	# run:` branch checks via _latest_run_for_osi, just as one set query
+	# across every Order Sheet instead of one _latest_run_for_osi() call per
+	# item (get_run_plan's page-of-25 approach doesn't scale to "every
+	# not-yet-started item company-wide", which is what a control room
+	# actually needs to show as the queue).
+	# IB WO Output has no `order_sheet_item` field at all (real fields:
+	# item_code/planned_qty/produced_qty/.../sales_order_item) — the real,
+	# shared key between an Order Sheet Item and the WO Output row(s) it was
+	# ever produced through is `sales_order_item` (both point at the same
+	# real Sales Order Item). Blank-vs-blank must never count as a match —
+	# an OSI with no sales_order_item set would otherwise look "already
+	# produced" the moment ANY unrelated run also had a blank one.
+	conds = ["os.status != 'Cancelled'", "i.status != 'Completed'", """NOT EXISTS (
+		SELECT 1 FROM `tabIB WO Output` o
+		JOIN `tabIB Work Order` w ON w.name = o.parent
+		WHERE o.sales_order_item = i.sales_order_item
+		  AND i.sales_order_item IS NOT NULL AND i.sales_order_item != ''
+		  AND w.status != 'Cancelled'
+	)"""]
+	params = {}
+	if location:
+		conds.append("LOWER(so.custom_location) = %(loc)s")
+		params["loc"] = location.lower()
+	rows = frappe.db.sql(
+		f"""SELECT i.name, i.item_code, i.item_name, i.qty, i.uom, i.sales_order_item,
+		           os.name AS order_sheet, os.sales_order, os.customer_name, os.priority, os.creation,
+		           so.custom_location AS location
+		    FROM `tabIB Order Sheet Item` i
+		    JOIN `tabIB Order Sheet` os ON os.name = i.parent
+		    JOIN `tabSales Order` so ON so.name = os.sales_order
+		    WHERE {' AND '.join(conds)}
+		    ORDER BY FIELD(os.priority, 'Urgent', 'High', 'Normal', 'Low'), os.creation ASC
+		    LIMIT %(lim)s""",
+		dict(params, lim=cint(limit)), as_dict=True,
+	)
+	out = []
+	for r in rows:
+		loc = (r.location or "").lower() or None
+		route = _get_stage_route(r.item_code, loc)
+		out.append({
+			"order_sheet_item": r.name, "item_code": r.item_code, "item_name": r.item_name,
+			"qty": flt(r.qty), "uom": r.uom, "sales_order_item": r.sales_order_item,
+			"order_sheet": r.order_sheet, "sales_order": r.sales_order, "customer": r.customer_name,
+			"priority": r.priority or "Normal", "location": loc,
+			"next_stage_suggestion": route[0] if route else "",
+		})
+	return out
+
+
+@frappe.whitelist()
+def get_command_center_data(location=None):
+	"""Factory-manager live control board — every genuinely active run
+	(Processing/Halted) plus the queue of items with nothing started yet
+	(Ready), across one or all locations. Drives the Command Center tab;
+	callers should re-poll/re-fetch on the existing "ib_floor_update"
+	realtime event (already published by create_run/hold_run/resume_run/
+	advance_run/skip_stage/_finish_run) rather than a fixed interval.
+	"""
+	_require_production_role()
+	runs = _command_center_runs(location)
+	processing = [r for r in runs if r["status"] == "In Progress"]
+	halted = [r for r in runs if r["status"] == "On Hold"]
+	ready = _command_center_ready(location)
+	return {
+		"processing": processing,
+		"halted": halted,
+		"ready": ready,
+		"counts": {"processing": len(processing), "halted": len(halted), "ready": len(ready)},
+	}
 
 
 @frappe.whitelist()
