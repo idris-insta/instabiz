@@ -145,7 +145,15 @@ class IBMainDashboard {
 	}
 
 	_render() {
-		const d = this._data, m = d.meta;
+		const d = this._data, m = d && d.meta;
+		if (!m) {
+			// An older server answering the new page — say so instead of leaving
+			// the skeletons spinning forever.
+			this.$el.find("#md-kpis").html(ibUI.empty(
+				__("This dashboard needs the latest server code — ask an administrator to restart the app."),
+				"alert-triangle"));
+			return;
+		}
 		this.$el.find("#md-note").html(
 			`${ibUI.icon("calendar", 13)}<b>${ibUI.esc(this.filters.label() || __("This Month"))}</b>` +
 			`<span>·</span><span>${__("compared with")} ${frappe.datetime.str_to_user(m.prev_from)} – ${frappe.datetime.str_to_user(m.prev_to)}</span>` +
