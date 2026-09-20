@@ -36,6 +36,13 @@ _VTYPE_SHORT = {
 @frappe.whitelist()
 def get_ledger(item_code=None, warehouse=None, from_date=None, to_date=None,
                voucher_type=None, customer=None, limit=50, offset=0):
+	# Real gap, fixed: this had NO permission check at all — any authenticated
+	# user could call it directly (bypassing the page's own role restriction,
+	# which only gates the desk UI, not the RPC) and pull real cost/valuation
+	# data (incoming_rate/outgoing_rate/stock_value) plus customer names off
+	# every delivery, company-wide. Matches the page's own `roles` list
+	# (ib_stock_dashboard.json) exactly — same audience, now actually enforced.
+	frappe.only_for(["Sales Manager", "System Manager", "Stock User", "Stock Manager"])
 	limit  = int(limit)
 	offset = int(offset)
 

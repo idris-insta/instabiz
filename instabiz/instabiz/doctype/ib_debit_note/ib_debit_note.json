@@ -21,6 +21,7 @@
   "total",
   "grand_total",
   "outstanding_amount",
+  "posted_ap_account",
   "section_remarks",
   "remarks",
   "amended_from",
@@ -136,6 +137,15 @@
    "fieldtype": "Currency",
    "label": "Outstanding Amount",
    "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "posted_ap_account",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Posted AP Account",
+   "no_copy": 1,
+   "print_hide": 1,
    "read_only": 1
   },
   {

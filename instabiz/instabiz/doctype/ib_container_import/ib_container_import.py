@@ -57,13 +57,37 @@ class IBContainerImport(Document):
 			_make_batch(self, row)
 
 	def on_cancel(self) -> None:
+		batches = frappe.get_all("IB Batch", {"container_import": self.name}, pluck="name")
+		# Real bug, fixed — same incident class as the real-life one this
+		# morning (a batch hard-deleted while real Work Orders still
+		# referenced it, silently orphaning them until Complete/advance broke
+		# with an opaque error days later). This cancel path used to null out
+		# `source_batch` on EVERY Work Order pointing at the batch — even a
+		# Completed, already-shipped one — then delete the batch outright,
+		# with no check on whether real production already happened. Now
+		# refuses to cancel at all if any NON-Cancelled Work Order still
+		# depends on this container's material; cancelling a genuinely
+		# unused import (nothing built from it yet) still works exactly as
+		# before.
+		if batches:
+			blocking = frappe.get_all(
+				"IB Work Order",
+				filters={"source_batch": ["in", batches], "status": ["!=", "Cancelled"]},
+				pluck="name", limit=5,
+			)
+			if blocking:
+				frappe.throw(_(
+					"Cannot cancel {0} — its material is already the source batch on {1}. "
+					"Cancel/reassign those Work Orders first if this import genuinely needs to be undone."
+				).format(self.name, ", ".join(blocking)))
 		if self.stock_entry:
 			se = frappe.get_doc("Stock Entry", self.stock_entry)
 			if se.docstatus == 1:
 				se.cancel()
-		for b in frappe.get_all("IB Batch", {"container_import": self.name}, pluck="name"):
-			# Don't leave Work Orders pointing at a batch that's about to vanish —
-			# a dangling source_batch Link blocks the WO from ever starting again.
+		for b in batches:
+			# Only Cancelled Work Orders can still reference this batch at
+			# this point (the guard above already ruled out anything live) —
+			# clear those dangling links same as before, then remove the batch.
 			for wo in frappe.get_all("IB Work Order", {"source_batch": b}, pluck="name"):
 				frappe.db.set_value("IB Work Order", wo, "source_batch", None, update_modified=False)
 			frappe.delete_doc("IB Batch", b, ignore_permissions=True, force=True)

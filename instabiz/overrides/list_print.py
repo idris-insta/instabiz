@@ -137,6 +137,13 @@ def get_gl_entries(filters=None, from_date=None, to_date=None,
 @frappe.whitelist()
 def get_customer_outstanding_letter(customer):
     """Generate outstanding reminder letter HTML for a customer (used by the report Print Reminder button)."""
+    # Real gap, fixed: no permission check at all -- any authenticated user
+    # could call this directly for any customer and get real outstanding
+    # invoice amounts/dates + billing address. Customer's own
+    # permission_query_conditions hook (customer_query_conditions) already
+    # scopes a non-privileged Sales User to their own customers -- reuse it
+    # here instead of inventing a separate rule.
+    frappe.has_permission("Customer", "read", customer, throw=True)
     from frappe.utils import today as today_fn, getdate, date_diff, flt, formatdate
 
     def _esc(v):

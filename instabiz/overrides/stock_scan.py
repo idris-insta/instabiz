@@ -249,16 +249,29 @@ def adjust_batch_stock(batch: str, warehouse: str, qty: float, direction: str = 
 	qty = flt(qty)
 	if qty <= 0:
 		frappe.throw(_("Qty must be greater than 0"))
-	if direction == "Deduct" and qty > flt(b.qty):
-		frappe.throw(_("Batch {0} only has {1} left").format(b.name, flt(b.qty)))
+	# Real race, fixed: this used to read b.qty once, then write
+	# old_qty +/- delta via a plain db.set_value — a stale check-then-act.
+	# Two concurrent scans against the same batch (two people shipping loose
+	# rolls off one produced lot at once, a real scenario at a scan station)
+	# could both pass the qty>b.qty check and both post a real Stock Entry
+	# (real warehouse stock correctly decremented twice), but the LAST
+	# db.set_value write wins — silently losing one deduction from the
+	# batch's own qty tracker, which then overstates what's really left.
+	# Same atomic UPDATE...WHERE qty>=  pattern create_run() already uses
+	# for this exact reason when reserving from a Raw Material batch.
+	if direction == "Deduct":
+		frappe.db.sql(
+			"UPDATE `tabIB Batch` SET qty = qty - %s WHERE name = %s AND qty >= %s",
+			(qty, b.name, qty),
+		)
+		if frappe.db._cursor.rowcount == 0:
+			frappe.throw(_("Batch {0} only has {1} left").format(b.name, flt(b.qty)))
+	else:
+		frappe.db.sql("UPDATE `tabIB Batch` SET qty = qty + %s WHERE name = %s", (qty, b.name))
 
 	se = _post_stock_entry(
 		b.item, qty, warehouse, direction,
 		_("Scan {0} FG batch {1}").format(direction, b.name),
-	)
-	frappe.db.set_value(
-		"IB Batch", b.name, "qty",
-		flt(b.qty) + (qty if direction == "Add" else -qty), update_modified=True,
 	)
 	new_qty = frappe.db.get_value("Bin", {"item_code": b.item, "warehouse": warehouse}, "actual_qty") or 0
 	return {"stock_entry": se.name, "batch": b.name, "item_code": b.item, "new_qty": flt(new_qty)}

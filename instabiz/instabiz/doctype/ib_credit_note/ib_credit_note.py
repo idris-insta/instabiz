@@ -219,7 +219,19 @@ class IBCreditNote(AccountsController):
     def _make_gl_entries(self, cancel: bool = False) -> None:
         if not getattr(self, "company_gstin", None):
             self.company_gstin = self._get_company_gstin()
-        ar_account = get_party_account("Customer", self.customer, self.company)
+        # Real bug, fixed: get_party_account() is a LIVE lookup of the
+        # customer's current receivable account — re-run on both submit and
+        # cancel. If that mapping changes between the two (a real, separate
+        # document a customer's own AR account can be repointed on at any
+        # time), cancel's reversal posts against the NEW account instead of
+        # the one actually debited/credited at submit, leaving the original
+        # entry unreversed — a real GL imbalance. Cancel now reads back what
+        # was actually posted; only submit re-derives fresh. (Same fix
+        # applied to IB Expense / IB Debit Note for the identical gap.)
+        if cancel and getattr(self, "posted_ar_account", None):
+            ar_account = self.posted_ar_account
+        else:
+            ar_account = get_party_account("Customer", self.customer, self.company)
         cost_center = self._location_cost_center()
         remark = (self.remarks or "").strip() or (
             "Credit Note {name} against {si}".format(
@@ -306,6 +318,9 @@ class IBCreditNote(AccountsController):
                 )
 
         make_gl_entries(gl, cancel=cancel, adv_adj=False)
+
+        if not cancel:
+            frappe.db.set_value(self.doctype, self.name, "posted_ar_account", ar_account)
 
     # ── Stock Ledger Entries ──────────────────────────────────────────────────
 

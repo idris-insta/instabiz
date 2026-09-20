@@ -59,6 +59,11 @@ def _find_header_row(lines):
 @frappe.whitelist()
 def get_csv_headers(csv_text):
 	"""Return raw column headers + a few sample rows, for the column-mapping UI."""
+	# Every other RPC in this file guards on Bank Transaction/IB Bank Import
+	# Profile permission — this one didn't. Low real impact (csv_text is
+	# caller-supplied, nothing server-side is disclosed), but any
+	# authenticated user could call it; guarded for consistency.
+	frappe.has_permission("Bank Transaction", "create", throw=True)
 	lines = csv_text.splitlines()
 	hdr_idx = _find_header_row(lines)
 	reader = csv.DictReader(io.StringIO("\n".join(lines[hdr_idx:])))

@@ -12,6 +12,12 @@ WAREHOUSES = {
 
 @frappe.whitelist()
 def get_stock_data(item_group=None, uom=None, warehouse=None, hide_zero_stock=1, show_zero_only=0):
+	# Real gap, fixed: no permission check at all — flagged once before (see
+	# project history) as "plausibly intentional, low confidence" and left
+	# alone, but its own sibling on this same merged page (get_ledger, the
+	# Ledger tab) turned out to leak real cost/valuation + customer data with
+	# the identical gap. Matches the page's own `roles` list exactly.
+	frappe.only_for(["Sales Manager", "System Manager", "Stock User", "Stock Manager"])
 	conditions = ["i.disabled = 0", "i.is_stock_item = 1"]
 	values = {}
 

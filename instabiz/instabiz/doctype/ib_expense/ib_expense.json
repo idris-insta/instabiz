@@ -22,6 +22,7 @@
   "mode_of_payment",
   "column_break_payment",
   "payable_account",
+  "posted_credit_account",
   "section_remarks",
   "remarks",
   "amended_from"
@@ -139,6 +140,15 @@
    "label": "Payable Account",
    "mandatory_depends_on": "eval:doc.payment_status==\"Unpaid\"",
    "options": "Account"
+  },
+  {
+   "fieldname": "posted_credit_account",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Posted Credit Account",
+   "no_copy": 1,
+   "print_hide": 1,
+   "read_only": 1
   },
   {
    "fieldname": "section_remarks",

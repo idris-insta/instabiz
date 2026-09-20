@@ -32,7 +32,7 @@ def _columns():
     ]
 
 
-def _calc(base, structure, gender, pf_opt_in=True, esic_opt_in=True):
+def _calc(base, structure, pf_opt_in=True, esic_opt_in=True):
     ctx = {"base": base}
 
     if structure == "IB Payroll":
@@ -43,10 +43,14 @@ def _calc(base, structure, gender, pf_opt_in=True, esic_opt_in=True):
 
         PF = round((min(B + CA, 15000)) * 0.12) if pf_opt_in else 0
         ESIC = round((B + HRA) * 0.0075) if (esic_opt_in and base <= 21000) else 0
-        # Mirrors the real "Professional Tax" Salary Component condition exactly:
-        # (gender == "Male" and base >= 7500) or (gender == "Female" and base > 25000)
-        pt_eligible = (gender == "Male" and base >= 7500) or (gender == "Female" and base > 25000)
-        PT = (175 if base <= 10000 else 200) if pt_eligible else 0
+        # Real bug, fixed: this claimed to mirror the real "Professional Tax"
+        # Salary Component but didn't — the live component (checked directly,
+        # `Salary Component.formula`/`.condition`) is a flat 200 whenever
+        # `base >= 7500`, with NO gender split and NO 175/200 tiering. The
+        # old tiered/gendered version here understated PT for every female
+        # employee earning >=7500 (showed 0, real deduction is 200) and for
+        # every employee in the 7500-10000 band (showed 175, real is 200).
+        PT = 200 if base >= 7500 else 0
 
     elif structure == "Astro Payroll":
         if base > 21000:
@@ -63,8 +67,10 @@ def _calc(base, structure, gender, pf_opt_in=True, esic_opt_in=True):
 
         PF = round((min(B + HRA, 15000)) * 0.12) if pf_opt_in else 0
         ESIC = round((B + HRA) * 0.0075) if (esic_opt_in and base <= 21000) else 0
-        # Mirrors the real Salary Component condition: gender == "Male" and (B+HRA+CA) >= 10000
-        PT = 200 if (gender == "Male" and (B + HRA + CA) >= 10000) else 0
+        # Real bug, fixed — see IB Payroll's own PT comment above for the
+        # full story: the live "Professional Tax" component is shared across
+        # both structures, flat 200 when base >= 7500, no gender check.
+        PT = 200 if base >= 7500 else 0
 
     else:
         return None
@@ -183,7 +189,7 @@ def _data(filters):
     rows = frappe.db.sql(f"""
         SELECT
             ssa.employee, ssa.employee_name, ssa.salary_structure, ssa.base,
-            e.designation, e.department, e.gender,
+            e.designation, e.department,
             e.provident_fund_account, e.health_insurance_no,
             ROW_NUMBER() OVER (PARTITION BY ssa.employee ORDER BY ssa.from_date DESC) AS rn
         FROM `tabSalary Structure Assignment` ssa
@@ -204,7 +210,7 @@ def _data(filters):
         seen.add(r.employee)
 
         calc = _calc(
-            flt(r.base), r.salary_structure, r.gender,
+            flt(r.base), r.salary_structure,
             pf_opt_in=bool(r.provident_fund_account),
             esic_opt_in=bool(r.health_insurance_no),
         )
