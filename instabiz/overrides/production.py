@@ -295,6 +295,77 @@ def _machine_feasible(m, stage, spec):
 	return True  # Packing / Quality Control / Despatch
 
 
+def _machine_infeasible_reason(m, stage, spec):
+	"""Same checks as _machine_feasible, but returns a human reason for the
+	FIRST one that fails (or None if the machine is feasible) — used only to
+	build the "no machine can run this" error message, never on the hot
+	assignment path. Kept as a parallel function rather than having
+	_machine_feasible itself return a reason, so its own simple bool
+	contract (and every existing caller) is untouched."""
+	spec = spec or {}
+
+	def le(val, cap):
+		return not flt(cap) or flt(val) <= flt(cap)
+
+	def ge(val, floor):
+		return not flt(floor) or flt(val) >= flt(floor)
+
+	iw = flt(spec.get("input_width_mm"))
+	ows = [flt(w) for w in (spec.get("output_widths_mm") or []) if flt(w) > 0]
+	dia = flt(spec.get("output_diameter_mm"))
+	core_dia = flt(spec.get("core_diameter_mm"))
+	length = flt(spec.get("output_length_m"))
+	gsm = flt(spec.get("gsm"))
+	n_out = len(ows)
+
+	if stage == "Coating":
+		if not le(iw, m.get("max_input_width_mm")):
+			return _("input width {0}mm exceeds its max input width {1}mm").format(int(iw), int(flt(m["max_input_width_mm"])))
+		if flt(m.get("gsm_min")) and gsm and gsm < flt(m["gsm_min"]):
+			return _("GSM {0} is below its minimum {1}").format(gsm, flt(m["gsm_min"]))
+		if flt(m.get("gsm_max")) and gsm and gsm > flt(m["gsm_max"]):
+			return _("GSM {0} exceeds its maximum {1}").format(gsm, flt(m["gsm_max"]))
+		return None
+	if stage == "Slitting":
+		if not le(iw, m.get("max_input_width_mm")):
+			return _("input width {0}mm exceeds its max input width {1}mm").format(int(iw), int(flt(m["max_input_width_mm"])))
+		if cint(m.get("knife_positions")) and n_out > cint(m["knife_positions"]):
+			return _("needs {0} knives, it only has {1}").format(n_out, cint(m["knife_positions"]))
+		if ows and not ge(min(ows), m.get("min_slit_width_mm")):
+			return _("output width {0}mm is below its minimum slit width {1}mm").format(int(min(ows)), int(flt(m["min_slit_width_mm"])))
+		is_passthrough = n_out == 1 and iw and abs(ows[0] - iw) < 0.01
+		if not is_passthrough and iw and ows and sum(ows) > iw - _ASSUMED_TRIM_MM:
+			return _("outputs sum to {0}mm, more than its {1}mm input allows after trim").format(int(sum(ows)), int(iw))
+		if not le(dia, m.get("max_roll_diameter_mm")):
+			return _("roll diameter {0}mm exceeds its max {1}mm").format(int(dia), int(flt(m["max_roll_diameter_mm"])))
+		if not le(core_dia, m.get("max_core_diameter_mm")):
+			return _("core diameter {0}mm exceeds its max {1}mm").format(int(core_dia), int(flt(m["max_core_diameter_mm"])))
+		if not ge(core_dia, m.get("min_core_diameter_mm")):
+			return _("core diameter {0}mm is below its min {1}mm").format(int(core_dia), int(flt(m["min_core_diameter_mm"])))
+		return None
+	if stage == "Rewinding":
+		if ows and not le(max(ows), m.get("max_input_width_mm")):
+			return _("output width {0}mm exceeds its max input width {1}mm").format(int(max(ows)), int(flt(m["max_input_width_mm"])))
+		if not le(dia, m.get("max_roll_diameter_mm")):
+			return _("roll diameter {0}mm exceeds its max {1}mm").format(int(dia), int(flt(m["max_roll_diameter_mm"])))
+		if not le(core_dia, m.get("max_core_diameter_mm")):
+			return _("core diameter {0}mm exceeds its max {1}mm").format(int(core_dia), int(flt(m["max_core_diameter_mm"])))
+		if not ge(core_dia, m.get("min_core_diameter_mm")):
+			return _("core diameter {0}mm is below its min {1}mm").format(int(core_dia), int(flt(m["min_core_diameter_mm"])))
+		return None
+	if stage == "Cutting":
+		if ows and not le(max(ows), m.get("max_output_width_mm")):
+			return _("output width {0}mm exceeds its max output width {1}mm").format(int(max(ows)), int(flt(m["max_output_width_mm"])))
+		if flt(m.get("min_length_m")) and length and length < flt(m["min_length_m"]):
+			return _("length {0}m is below its minimum {1}m").format(length, flt(m["min_length_m"]))
+		if flt(m.get("max_length_m")) and length and length > flt(m["max_length_m"]):
+			return _("length {0}m exceeds its maximum {1}m").format(length, flt(m["max_length_m"]))
+		if cint(m.get("knife_positions")) and n_out > cint(m["knife_positions"]):
+			return _("needs {0} knives, it only has {1}").format(n_out, cint(m["knife_positions"]))
+		return None
+	return None
+
+
 def _machine_queued_minutes(machine_name, speed):
 	"""Rough load: planned output over the machine's active/held runs / speed.
 	Falls back to (run count x 60) when speed is unset — today's behaviour scaled."""
@@ -375,11 +446,29 @@ def _assign_machine(stage, location=None, spec=None):
 		ows = [flt(w) for w in (spec.get("output_widths_mm") or []) if flt(w) > 0]
 		if ows:
 			bits.append(_("{0} output(s): {1}mm").format(len(ows), "/".join(str(int(w)) for w in ows)))
+		# Real gap, found investigating a live report (IB-SGM-SO-01838): this
+		# message used to just dump the job's own dimensions and say "check
+		# the machine masters" — it never said WHICH machine failed WHICH
+		# check, so a genuine "SM-01's min slit width is narrower than 2 of
+		# your outputs" reason read identically to a real bug (a fabricated
+		# input width, since fixed above). Per-machine breakdown so the real
+		# reason is visible without having to go compare masters by hand.
+		reasons = []
+		for m in pool:
+			why = _machine_infeasible_reason(m, stage, spec)
+			if why is None:
+				cap = flt(m.get("capacity"))
+				if cap > 0:
+					load = frappe.db.count(
+						"IB Work Order", filters={"machine": m["name"], "status": ["in", ("Pending", "In Progress")]}
+					)
+					why = _("at capacity ({0}/{1} runs)").format(load, int(cap))
+			if why:
+				reasons.append(_("{0} — {1}").format(m["name"], why))
+		detail = ("<br>" + "<br>".join(reasons)) if reasons else ""
 		frappe.throw(_(
-			"No active {0} machine at {1} can run this job ({2}) — every machine that could either "
-			"doesn't fit it or is already at capacity. Check the Physical Capability limits and "
-			"Capacity on the machine masters."
-		).format(machine_type, location or _("any location"), ", ".join(bits) or _("given dimensions")))
+			"No active {0} machine at {1} can run this job ({2}).{3}"
+		).format(machine_type, location or _("any location"), ", ".join(bits) or _("given dimensions"), detail))
 
 	if len(feasible) == 1:
 		return feasible[0]["name"]
