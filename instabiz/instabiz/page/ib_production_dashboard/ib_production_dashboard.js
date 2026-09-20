@@ -339,6 +339,7 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 	};
 	const rows = items.map((it, i) => `
 		<tr data-i="${i}">
+			<td><input type="checkbox" class="ib-sr-row-check"></td>
 			<td style="white-space:nowrap"><strong>${frappe.utils.escape_html(it.item_code || "")}</strong>
 				<div class="text-muted" style="font-size:11px">${it.uom || ""}</div></td>
 			<td><select class="form-control input-sm ib-sr-stage" style="width:120px">${rowOptions(it)}</select></td>
@@ -356,21 +357,32 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 	// could even see what you're starting. Only Source Batch is something
 	// every run genuinely needs — the other two are quick-fill/override
 	// conveniences, not independent decisions, so they're folded into the
-	// grid itself: "Set all" lives in the Stage column's own header (right
+	// grid itself: "Set stage" lives in the Stage column's own header (right
 	// next to the thing it fills in), and the RM-qty override sits behind a
 	// one-line toggle instead of always taking up its own field.
-	const setAllOptions = [""].concat(route).map((s) => `<option value="${s}">${s || "Set all…"}</option>`).join("");
+	//
+	// Row checkboxes (added per direct follow-up ask: items on one order
+	// often need DIFFERENT stages in different-sized groups — not "one
+	// shared stage for everyone" and not "click each row's dropdown one at
+	// a time" either. Check a subset, pick a stage, it applies to just that
+	// subset; check a different subset, pick a different stage; repeat.
+	// With nothing checked, it still falls back to applying to every row —
+	// the original one-click "these are all the same" case stays just as
+	// fast as before this existed.
+	const setAllOptions = [""].concat(route).map((s) => `<option value="${s}">${s || "Set stage…"}</option>`).join("");
 	const rowsGrid = `
 		<div style="overflow-x:auto"><table class="table table-bordered" style="margin-bottom:0">
 			<thead><tr>
+				<th><input type="checkbox" class="ib-sr-check-all" title="Select all rows"></th>
 				<th>Output Item</th>
 				<th style="white-space:nowrap">Stage
-					<select class="ib-sr-set-all" style="font-size:10px;font-weight:400;margin-left:6px;padding:1px 3px;width:auto;display:inline-block" title="Apply one stage to every row">${setAllOptions}</select>
+					<select class="ib-sr-set-all" style="font-size:10px;font-weight:400;margin-left:6px;padding:1px 3px;width:auto;display:inline-block" title="Applies to checked rows, or every row if none are checked">${setAllOptions}</select>
 				</th>
 				<th>Planned Qty</th><th>Pack Count</th><th>Packing (optional)</th>
 			</tr></thead>
 			<tbody>${rows}</tbody>
 		</table></div>
+		<div class="text-muted" style="font-size:11px;margin-top:4px">Tick rows to set a stage for just that subset — pick a stage with nothing ticked to apply it to every row.</div>
 		<div style="margin-top:8px;font-size:12px">
 			<a href="#" class="ib-sr-qty-toggle">+ Override total RM qty consumed</a>
 			<div class="ib-sr-qty-box" style="display:none;margin-top:6px;max-width:260px">
@@ -452,13 +464,24 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 			runNext();
 		},
 	});
-	// Quick-fill wiring — applies the picked stage to every row's own select.
-	// Now lives inline in the grid's own Stage column header, not a
-	// competing full-width field above it.
+	// Quick-fill wiring — applies the picked stage to either the checked
+	// rows, or every row when nothing's checked. Lives inline in the grid's
+	// own Stage column header, not a competing full-width field above it.
 	d.$wrapper.find(".ib-sr-set-all").on("change", (e) => {
-		const val = $(e.currentTarget).val();
+		const $select = $(e.currentTarget);
+		const val = $select.val();
 		if (!val) return;
-		d.$wrapper.find(".ib-sr-stage").each((_, el) => { if ($(el).find(`option[value="${val}"]`).length) $(el).val(val); });
+		const $checked = d.$wrapper.find(".ib-sr-row-check:checked");
+		const $targetRows = $checked.length
+			? $checked.closest("tr")
+			: d.$wrapper.find("tbody tr");
+		$targetRows.find(".ib-sr-stage").each((_, el) => {
+			if ($(el).find(`option[value="${val}"]`).length) $(el).val(val);
+		});
+		$select.val(""); // reset so picking the same stage again still fires "change"
+	});
+	d.$wrapper.find(".ib-sr-check-all").on("change", (e) => {
+		d.$wrapper.find(".ib-sr-row-check").prop("checked", $(e.currentTarget).prop("checked"));
 	});
 	// RM-qty override — collapsed behind a one-line toggle instead of an
 	// always-visible field, since it's only relevant once every row lands
@@ -469,6 +492,33 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 		d.$wrapper.find(".ib-sr-qty-toggle").hide();
 	});
 	d.show();
+
+	// Auto-suggest the Source RM Batch instead of always starting blank —
+	// direct ask: this shouldn't need picking by hand every time. Only
+	// fills it in when there's exactly ONE real match (Active, Raw
+	// Material, same item_code as the first row) — never guesses between
+	// several candidates, since a batch is a real material reservation and
+	// picking the wrong one silently is worse than leaving it blank. Still
+	// a plain editable field either way — this is a suggestion, not a lock.
+	if (items[0] && items[0].item_code) {
+		frappe.call({
+			method: "frappe.client.get_list",
+			args: {
+				doctype: "IB Batch",
+				filters: { kind: "Raw Material", status: "Active", item: items[0].item_code },
+				fields: ["name", "qty"],
+				limit_page_length: 2,
+			},
+			callback: (r) => {
+				const matches = r.message || [];
+				if (matches.length === 1) {
+					d.set_value("source_batch", matches[0].name);
+					d.set_df_property("source_batch", "description",
+						`Auto-picked — the only Active batch of ${items[0].item_code} (${matches[0].qty} remaining). Change it if that's wrong.`);
+				}
+			},
+		});
+	}
 }
 
 
