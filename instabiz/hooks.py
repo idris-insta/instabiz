@@ -183,6 +183,7 @@ after_migrate = [
     "instabiz.overrides.print_families.after_migrate",  # default letterhead for standard prints
     "instabiz.overrides.so_gst.after_migrate",  # Sales Order: GST on invoice + total incl. GST
     "instabiz.overrides.stock_dims.after_migrate",  # thickness / colour / width / length on stock + purchase rows
+    "instabiz.overrides.dashboards.after_migrate",  # standard charts: fill the filters ERPNext ships without
     "instabiz.overrides.workspace_merge.merge_modules",  # one tab per module (Instabiz + ERPNext)
 ]
 

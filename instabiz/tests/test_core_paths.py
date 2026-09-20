@@ -196,3 +196,60 @@ class TestSettingsAndHelpers(FrappeTestCase):
 
 		self.assertEqual(ib_settings.get_int("no_such_field_xyz", 48), 48)
 		self.assertTrue(ib_settings.get_check("no_such_field_xyz", True))
+
+class TestDashboards(FrappeTestCase):
+	"""Every dashboard has to answer when called — a signature that drifted out
+	of step with its page is invisible until someone opens it."""
+
+	RPCS = [
+		("instabiz.instabiz.page.ib_main_dashboard.ib_main_dashboard", "get_dashboard_data", {}),
+		("instabiz.instabiz.page.ib_hrms_dashboard.ib_hrms_dashboard", "get_hr_overview", {}),
+		("instabiz.instabiz.page.ib_finance_dashboard.ib_finance_dashboard", "get_finance_data", {}),
+		("instabiz.instabiz.page.ib_procurement_dashboard.ib_procurement_dashboard", "get_procurement_data", {}),
+		("instabiz.instabiz.page.ib_collections_dashboard.ib_collections_dashboard", "get_collections_data", {"limit": 5}),
+		("instabiz.instabiz.page.ib_customer_health.ib_customer_health", "get_customer_health", {"limit": 5}),
+		("instabiz.instabiz.page.ib_business_pulse.ib_business_pulse", "get_pulse_data", {}),
+	]
+
+	FILTERED = [
+		("instabiz.instabiz.page.ib_main_dashboard.ib_main_dashboard", "get_dashboard_data"),
+		("instabiz.instabiz.page.ib_finance_dashboard.ib_finance_dashboard", "get_finance_data"),
+		("instabiz.instabiz.page.ib_procurement_dashboard.ib_procurement_dashboard", "get_procurement_data"),
+	]
+
+	def test_every_dashboard_rpc_answers(self):
+		for module, method, kwargs in self.RPCS:
+			with self.subTest(rpc=f"{module}.{method}"):
+				result = frappe.get_attr(f"{module}.{method}")(**kwargs)
+				self.assertIsInstance(result, dict)
+				self.assertTrue(result)
+
+	def test_filters_are_accepted_end_to_end(self):
+		args = {"from_date": add_days(nowdate(), -30), "to_date": nowdate(), "location": "GUJARAT"}
+		for module, method in self.FILTERED:
+			with self.subTest(rpc=f"{module}.{method}"):
+				self.assertIsInstance(frappe.get_attr(f"{module}.{method}")(**args), dict)
+
+	def test_dashboards_workspace_targets_exist(self):
+		from instabiz.overrides.dashboards import build_dashboards_workspace
+
+		build_dashboards_workspace()
+		ws = frappe.get_doc("Workspace", "Dashboards")
+		self.assertTrue(ws.links)
+		for row in ws.links:
+			if row.type == "Card Break":
+				continue
+			self.assertTrue(frappe.db.exists(row.link_type, row.link_to), f"{row.link_type} {row.link_to}")
+		for row in ws.shortcuts:
+			self.assertTrue(frappe.db.exists(row.type, row.link_to), f"{row.type} {row.link_to}")
+
+	def test_no_native_dashboard_is_listed_twice(self):
+		from instabiz.overrides.dashboards import IB_EQUIVALENT, usable_dashboards
+
+		for name in usable_dashboards():
+			self.assertNotIn(name, IB_EQUIVALENT, f"{name} duplicates an Instabiz dashboard")
+
+	def test_number_cards_all_compute(self):
+		from instabiz.overrides.dashboards import smoke_dashboards
+
+		self.assertEqual(smoke_dashboards()["failures"]["cards"], [])

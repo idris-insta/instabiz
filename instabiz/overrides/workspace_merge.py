@@ -181,7 +181,7 @@ SHOW_TABS = {
 	"CRM": [],
 	"Accounting": ["Payables", "Receivables", "Financial Reports"],
 }
-SIDEBAR_ORDER = ["Selling", "CRM", "Buying", "Stock", "Manufacturing", "Accounting", "Instabiz Finance", "HR",
+SIDEBAR_ORDER = ["Dashboards", "Selling", "CRM", "Buying", "Stock", "Manufacturing", "Accounting", "Instabiz Finance", "HR",
 	"Reports", "GST India"]
 
 NATIVE_REPORTS = {
@@ -311,6 +311,9 @@ def show_tabs():
 				frappe.db.set_value("Workspace", child, {"is_hidden": 0, "parent_page": tab, "public": 1},
 					update_modified=False)
 	build_reports_workspace()
+	from instabiz.overrides.dashboards import build_dashboards_workspace
+
+	build_dashboards_workspace()
 	for name in frappe.get_all("Workspace", filters={"public": 1, "is_hidden": 0}, pluck="name"):
 		dedupe_workspace(name)
 	for i, name in enumerate(SIDEBAR_ORDER, 1):
