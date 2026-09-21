@@ -594,28 +594,30 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 	d.show();
 
 	// Auto-suggest the Source RM Batch instead of always starting blank —
-	// direct ask: this shouldn't need picking by hand every time. Only
-	// fills it in when there's exactly ONE real match (Active, Raw
-	// Material, same item_code as the first row) — never guesses between
-	// several candidates, since a batch is a real material reservation and
-	// picking the wrong one silently is worse than leaving it blank. Still
-	// a plain editable field either way — this is a suggestion, not a lock.
+	// direct ask: this shouldn't need picking by hand every time. Calls the
+	// same recipe-then-item_group matching create_run() itself now enforces
+	// (production_run.suggest_source_batches) — the OLD version here only
+	// matched a batch whose own item_code was IDENTICAL to the item being
+	// produced, which real data shows is rare (one jumbo/RM batch legitimately
+	// becomes many different finished SKUs of the same material family), so
+	// it almost never actually fired. Picks the top (largest-qty) candidate
+	// when one exists; still a plain editable field either way — a
+	// suggestion, not a lock, since picking the wrong physical batch matters.
+	const totalNeeded = items.reduce((sum, it) => sum + (flt(it.qty) || 0), 0);
 	if (items[0] && items[0].item_code) {
 		frappe.call({
-			method: "frappe.client.get_list",
-			args: {
-				doctype: "IB Batch",
-				filters: { kind: "Raw Material", status: "Active", item: items[0].item_code },
-				fields: ["name", "qty"],
-				limit_page_length: 2,
-			},
+			method: "instabiz.overrides.production_run.suggest_source_batches",
+			args: { item_code: items[0].item_code, needed_qty: totalNeeded || null },
 			callback: (r) => {
 				const matches = r.message || [];
-				if (matches.length === 1) {
-					d.set_value("source_batch", matches[0].name);
-					d.set_df_property("source_batch", "description",
-						`Auto-picked — the only Active batch of ${items[0].item_code} (${matches[0].qty} remaining). Change it if that's wrong.`);
-				}
+				if (!matches.length) return;
+				const top = matches[0];
+				d.set_value("source_batch", top.name);
+				const basis = top.match_basis === "recipe" ? "matches this item's recipe" : "same material family";
+				const alt = matches.length > 1 ? ` (${matches.length - 1} other candidate${matches.length > 2 ? "s" : ""} available)` : "";
+				const warn = top.sufficient ? "" : " — may not have enough qty, check before starting";
+				d.set_df_property("source_batch", "description",
+					`Auto-picked — ${top.qty} remaining, ${basis}${alt}${warn}. Change it if that's wrong.`);
 			},
 		});
 	}

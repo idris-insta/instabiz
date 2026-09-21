@@ -245,6 +245,62 @@ def get_osi_context_batch(order_sheet_items):
 
 
 @frappe.whitelist()
+def suggest_source_batches(item_code, needed_qty=None):
+	"""Candidate Active RM batches for producing `item_code`, best first — powers
+	the Start Production dialog's auto-suggested Source RM Batch.
+
+	Direct ask, after the item-mismatch validation added to create_run(): the
+	dialog's old auto-suggest only ever matched a batch whose OWN item_code was
+	IDENTICAL to the item being produced — real data shows that's rare (one
+	jumbo/RM batch legitimately becomes many different finished SKUs of the
+	same material family; confirmed live, one real batch is the source for a
+	dozen different real finished item codes), so the old suggestion almost
+	never fired and every Start felt fully manual. Matches the SAME two-tier
+	rule create_run() now enforces, so a suggestion is never something
+	create_run would then reject: (1) an exact IB Production Recipe pairing
+	when one exists, else (2) any Active batch sharing the output item's
+	item_group. Still just a suggestion — the field stays editable, and an
+	empty result here just means nothing auto-fills, not that the item can't
+	be produced (a legitimate batch may simply not exist yet).
+
+	Ordered by qty remaining, descending — no stock-rotation/FIFO signal
+	exists anywhere else in this app to prefer instead, and a bigger batch is
+	the safer single suggestion (less likely to fall short of `needed_qty`).
+	"""
+	_require_production_role()
+	output_group = frappe.db.get_value("Item", item_code, "item_group")
+	if not output_group:
+		return []
+
+	recipe_item = frappe.db.get_value(
+		"IB Production Recipe", {"finished_item": item_code}, "recipe_item"
+	)
+	if recipe_item:
+		candidates = frappe.get_all(
+			"IB Batch",
+			filters={"kind": "Raw Material", "status": "Active", "item": recipe_item},
+			fields=["name", "item", "qty", "width_mm"],
+			order_by="qty desc",
+		)
+		match_basis = "recipe"
+	else:
+		candidates = frappe.db.sql(
+			"""SELECT b.name, b.item, b.qty, b.width_mm FROM `tabIB Batch` b
+			   JOIN `tabItem` i ON i.name = b.item
+			   WHERE b.kind='Raw Material' AND b.status='Active' AND i.item_group=%s
+			   ORDER BY b.qty DESC""",
+			(output_group,), as_dict=True,
+		)
+		match_basis = "item_group"
+
+	needed = flt(needed_qty)
+	for c in candidates:
+		c["match_basis"] = match_basis
+		c["sufficient"] = (not needed) or flt(c.qty) >= needed
+	return candidates
+
+
+@frappe.whitelist()
 def propose_runs(order_sheet, source_batches):
 	"""Bin-pack an Order Sheet's not-yet-produced lines onto slitting passes.
 
