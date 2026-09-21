@@ -352,9 +352,51 @@ def custom_make_delivery_note(source_name, target_doc=None, item_code=None, orde
         item_postprocess(source_item, target_item, source_doc)
         if _dn_warehouse:
             target_item.warehouse = _dn_warehouse
+        # Real gap, closed: this used to copy the SO line's full original
+        # `qty` unconditionally (get_mapped_doc's default same-fieldname
+        # copy) — a second call for the same order_sheet_item/whole order
+        # produced another full-qty draft DN with zero awareness that a
+        # prior Delivery Note already shipped against this exact row.
+        # Confirmed live (2026-09-21, disposable SO/Order Sheet): calling
+        # this twice for the same completed order_sheet_item produced two
+        # independent 3180-qty drafts, no guard anywhere. Native ERPNext's
+        # own make_delivery_note has always reduced by delivered_qty for
+        # exactly this reason — this override never replicated it. Fixed
+        # by mapping the REMAINING qty instead of the full ordered qty;
+        # combined with the matching `remaining > 0` condition below, a
+        # fully-already-delivered row is now excluded entirely rather than
+        # producing a phantom zero/duplicate-qty row.
+        target_item.qty = flt(source_item.qty) - flt(source_item.delivered_qty)
         note = _dn_qty_adjustment_note(source_item.name)
         if note:
             target_item.custom_qty_adjustment_note = note
+
+    # Real gap, closed: the whole-order path (order_sheet_item and item_code
+    # both blank — the SO form's own native "Create > Delivery Note" button)
+    # never checked production status at all. get_order_dn_readiness()
+    # already computes the correct answer (IB Order Sheet fully Completed)
+    # and gates the Stages-tab WO panel's own Create-DN button on it — but
+    # that check only ever lived in JS, never enforced server-side.
+    # Confirmed live (2026-09-21, disposable SO/Order Sheet): with item2
+    # still In Progress and item1 Completed, a direct whole-order RPC call
+    # (bypassing the JS gate entirely — same as any other frappe.call/API
+    # caller) happily mapped BOTH items at full ordered qty into one DN.
+    # Blocked here for the one case that matters (an Order Sheet exists and
+    # isn't Completed yet) — an SO with no Order Sheet at all (production
+    # module never used for it) is left exactly as before, unblocked.
+    if not order_sheet_item and not item_code:
+        os_name, os_status = frappe.db.get_value(
+            "IB Order Sheet",
+            {"sales_order": source_name, "status": ["!=", "Cancelled"]},
+            ["name", "status"],
+        ) or (None, None)
+        if os_name and os_status != "Completed":
+            frappe.throw(_(
+                "Cannot create a whole-order Delivery Note — production ({0}) "
+                "is not yet Completed for every item on this order. Use the "
+                "per-item Create Delivery Note button on a finished item "
+                "instead, or wait until the whole order is Completed."
+            ).format(os_name))
 
     return get_mapped_doc(
         "Sales Order",
@@ -373,9 +415,9 @@ def custom_make_delivery_note(source_name, target_doc=None, item_code=None, orde
                 "doctype": "Delivery Note Item",
                 "postprocess": dn_item_postprocess,
                 "condition": (
-                    (lambda row: row.qty != 0 and row.name == sales_order_item_row) if sales_order_item_row
-                    else (lambda row: row.qty != 0 and row.item_code == item_code) if item_code
-                    else (lambda row: row.qty != 0)
+                    (lambda row: flt(row.qty) - flt(row.delivered_qty) > 0 and row.name == sales_order_item_row) if sales_order_item_row
+                    else (lambda row: flt(row.qty) - flt(row.delivered_qty) > 0 and row.item_code == item_code) if item_code
+                    else (lambda row: flt(row.qty) - flt(row.delivered_qty) > 0)
                 ),
                 "field_map": {
                     **COMMON_CHILD_FIELD_MAP,
