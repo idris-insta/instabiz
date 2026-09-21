@@ -4636,6 +4636,22 @@ class IBProductionStages {
 					],
 					primary_action_label: "Save",
 					primary_action: (vals) => {
+						// Real bug, fixed: the field's own `default: current` is 0 the
+						// very first time this dialog opens for a WO (no prior
+						// pcs_to_make/logs_to_make set yet) — reqd:1 only blocks an
+						// EMPTY field, not a literal 0, and the backend
+						// (update_production_qty) only rejects negative values, not
+						// zero. A manager opening this dialog and clicking Save
+						// without noticing the default would silently write "0" as
+						// the reconciled qty, which then prints "Pieces to Make: 0"
+						// on the Job Order — meaningless for the floor, with no
+						// warning shown anywhere. Block it client-side instead of
+						// relying on the backend, which intentionally still allows 0
+						// via direct API calls.
+						if (!vals[fieldname] || vals[fieldname] <= 0) {
+							frappe.show_alert({ message: __("{0} must be greater than 0.", [label]), indicator: "red" });
+							return;
+						}
 						const args = { work_order: wo.name };
 						args[fieldname] = vals[fieldname];
 						frappe.call({
