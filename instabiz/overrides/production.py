@@ -1207,9 +1207,32 @@ def assign_machine(work_order, machine):
 
 @frappe.whitelist()
 def start_work_order(work_order):
-	"""Transition status Pending/On Hold -> In Progress via the IB Work Order
-	Workflow (action "Start"/"Resume"), record started_at."""
+	"""Transition status Pending -> In Progress, record started_at. On Hold ->
+	In Progress (Resume) is delegated to the run model's own resume_run()
+	instead of handled here.
+
+	Real gap, closed: this used to run "Resume" through the same bare
+	apply_workflow(doc, "Resume") call as "Start", with no machine
+	reassignment — while Command Center's Resume button (production_run.
+	resume_run) explicitly re-picks a fresh load-balanced machine on resume
+	(a held run's machine was cleared by hold_run — see put_on_hold's own
+	docstring — so something has to re-assign one). The exact same Work
+	Order resumed differently depending on which UI surface was used: via
+	the Stages tab's WO panel, it came back with NO machine at all (silently
+	blank, since nothing here ever set one); via Command Center, it got a
+	real one. This also incidentally stopped overwriting `started_at` on
+	every resume (it should record the run's original start, not the most
+	recent resume — resume_run already never touched it, so this now
+	matches that, not the other way around).
+	"""
 	_require_production_role()
+	current_status = frappe.db.get_value("IB Work Order", work_order, "status")
+	if current_status == "In Progress":
+		return {"status": "ok", "started_at": frappe.db.get_value("IB Work Order", work_order, "started_at")}
+	if current_status == "On Hold":
+		from instabiz.overrides.production_run import resume_run
+		r = resume_run(work_order)
+		return {"status": "ok" if r.get("ok") else "error", "machine": r.get("machine")}
 	# Advisory lock prevents two concurrent calls (e.g. double-click, two tabs)
 	# from both passing the status check before either write lands — same
 	# pattern already used for Order Sheet creation.
@@ -1221,7 +1244,7 @@ def start_work_order(work_order):
 		doc = frappe.get_doc("IB Work Order", work_order)
 		if doc.status == "In Progress":
 			return {"status": "ok", "started_at": doc.started_at}
-		if doc.status not in ("Pending", "On Hold"):
+		if doc.status != "Pending":
 			frappe.throw(
 				_("Work Order {0} cannot be started from status '{1}'. Expected: Pending or On Hold.").format(
 					work_order, doc.status
@@ -1229,7 +1252,7 @@ def start_work_order(work_order):
 			)
 		started_at = now()
 		doc.started_at = started_at
-		apply_workflow(doc, "Resume" if doc.status == "On Hold" else "Start")
+		apply_workflow(doc, "Start")
 		# Same fix as complete_work_order()/advance_to_next_stage(): apply_workflow's
 		# internal load_from_db() discards the started_at set above before its own
 		# doc.save(), so it must be persisted explicitly or it silently stays NULL.
@@ -1273,23 +1296,22 @@ def complete_work_order(work_order, actual_qty=None):
 
 @frappe.whitelist()
 def put_on_hold(work_order):
-	"""Set status=On Hold."""
-	_require_production_role()
-	lock_name = f"IB-WO-{work_order}"
-	locked = frappe.db.sql("SELECT GET_LOCK(%s, 5)", lock_name)[0][0]
-	if not locked:
-		frappe.throw(_("Could not acquire lock for Work Order {0}. Please try again.").format(work_order))
-	try:
-		doc = frappe.get_doc("IB Work Order", work_order)
-		if doc.status == "On Hold":
-			frappe.throw(_("Work Order {0} is already On Hold.").format(work_order))
-		apply_workflow(doc, "Hold")
-		_notify_production_hold(doc)
-		frappe.db.commit()
-		_notify_floor_update()
-		return {"status": "ok"}
-	finally:
-		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name)
+	"""Compat shim -> run model hold_run(). Real bug this replaces, confirmed
+	live: this used to be its own independent Hold implementation — same
+	class of drift as complete_work_order/cancel_work_order/
+	skip_work_order_stage before those were shimmed. It never cleared
+	`machine` on hold (hold_run does — "free the machine while held"), so
+	the exact same Work Order behaved differently depending on which UI
+	surface (Stages tab vs Command Center) was used to hold it. Delegating
+	here means there is only one real Hold implementation, reachable from
+	either surface, with identical machine/lock/notification behavior."""
+	from instabiz.overrides.production_run import hold_run
+	if frappe.db.get_value("IB Work Order", work_order, "status") == "On Hold":
+		frappe.throw(_("Work Order {0} is already On Hold.").format(work_order))
+	r = hold_run(work_order)
+	r = dict(r or {})
+	r["status"] = "ok" if r.pop("ok", False) else "error"
+	return r
 
 
 # ---------------------------------------------------------------------------
@@ -1680,9 +1702,17 @@ def get_item_wise_view(from_date=None, to_date=None, item_code=None, location=No
 	return out
 
 
-@frappe.whitelist()
 def _get_available_hours_per_day(shift_hours=None):
 	"""Planned available hours/day, used as the Utilization/OEE Availability denominator.
+
+	Real gap, closed: this was decorated @frappe.whitelist() despite having
+	exactly one caller, internal (get_machine_wise_dashboard, below) — no JS
+	anywhere calls it directly. That made it a real, reachable, ungated RPC
+	endpoint (any authenticated user, no _require_production_role() check)
+	for no reason at all; every other function in this module that's
+	actually meant to be called from the client has the guard. Removed the
+	decorator instead of adding a redundant guard — it was never meant to be
+	an endpoint.
 
 	IB Machine has no machine-to-shift link field at all (confirmed: zero
 	Custom Fields on IB Machine, and no "shift" fieldname in its own JSON) —
@@ -2639,7 +2669,15 @@ def update_production_qty(work_order, pcs_to_make=None, logs_to_make=None):
 
 def _notify_production_hold(doc):
 	"""Alert the sales person when one of their order's items goes On Hold —
-	a real delivery-delay risk they'd otherwise only discover by asking."""
+	a real delivery-delay risk they'd otherwise only discover by asking.
+
+	Real bug fixed: read `doc.stage`, a field that no longer exists on
+	`IB Work Order` under the WO-per-run schema (only `current_stage` does).
+	Frappe Document attribute access on an undefined field silently returns
+	None instead of raising — confirmed live — so every hold notification
+	ever sent by this function said "... — None on hold" instead of the
+	real stage name, with no error anywhere to surface it.
+	"""
 	if not doc.order_sheet:
 		return
 	so_name = frappe.db.get_value("IB Order Sheet", doc.order_sheet, "sales_order")
@@ -2657,10 +2695,10 @@ def _notify_production_hold(doc):
 	notes = frappe.utils.escape_html(doc.notes) if doc.notes else ""
 	frappe.get_doc({
 		"doctype": "Notification Log",
-		"subject": f"Production Paused: {so_name} — {doc.stage} on hold {marker}"[:140],
+		"subject": f"Production Paused: {so_name} — {doc.current_stage} on hold {marker}"[:140],
 		"email_content": (
 			f"<p>Sales Order <strong>{so_name}</strong> for <strong>{customer}</strong> "
-			f"has been placed <strong>On Hold</strong> at the <strong>{doc.stage}</strong> stage."
+			f"has been placed <strong>On Hold</strong> at the <strong>{doc.current_stage}</strong> stage."
 			f"{f' Note: {notes}' if notes else ''} This may affect the delivery date.</p>"
 		),
 		"for_user": sales_person_user,

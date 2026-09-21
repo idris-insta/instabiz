@@ -929,6 +929,16 @@ def hold_run(work_order, reason=None):
 			doc.save(ignore_permissions=True)
 		# free the machine while held
 		_wf(doc, "Hold", {"machine": ""})
+		# Real gap, closed: this is the Command Center Hold button's own RPC
+		# (called directly, not via production.put_on_hold) — the sales-
+		# person delivery-risk alert (_notify_production_hold) only ever
+		# fired from put_on_hold's own implementation, so holding a run from
+		# Command Center never notified anyone, while holding the exact same
+		# run from the Stages tab's WO panel did. Both surfaces now funnel
+		# through this one real Hold implementation (put_on_hold is a compat
+		# shim onto this function — see its own docstring), so there is only
+		# one notification path to keep correct.
+		_notify_production_hold(doc)
 		frappe.db.commit()
 		_notify_floor_update()
 		return {"ok": True, "status": "On Hold"}
