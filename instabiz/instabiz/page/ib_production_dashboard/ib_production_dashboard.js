@@ -5567,6 +5567,8 @@ class IBCommandCenter {
 		// Shared with Dashboard/Stages' own location filter (item 128/145) so
 		// picking a location on any tab carries over to the others.
 		this.location_filter = localStorage.getItem("ib_prod_location") || "";
+		this.search = "";
+		this.priority_filter = "All";
 		this._data = null;
 		this._loading = false;
 		this._build_layout();
@@ -5590,6 +5592,19 @@ class IBCommandCenter {
 					</div>
 					<span class="ib-refresh-time" id="ib-cc-refresh-ts"></span>
 				</div>
+				<div class="ib-ps-os-toolbar" style="margin-bottom:14px">
+					<div class="ib-ps-filter-group ib-ps-filter-group--search">
+						<iconify-icon icon="lucide:search" width="13" height="13" style="color:var(--text-muted)"></iconify-icon>
+						<input type="text" id="ib-cc-search" class="ib-ps-search-input form-control"
+							placeholder="Search item, order, customer, machine…" value="${frappe.utils.escape_html(this.search)}">
+					</div>
+					<div class="ib-ps-filter-group">
+						<label>Priority</label>
+						<select id="ib-cc-priority" class="ib-ps-select form-control">
+							${["All", "Urgent", "High", "Normal", "Low"].map((p) => `<option value="${p}" ${p === this.priority_filter ? "selected" : ""}>${p}</option>`).join("")}
+						</select>
+					</div>
+				</div>
 				<div class="ib-pd-kpi-row" id="ib-cc-kpis"></div>
 				<div class="ib-cc-board" id="ib-cc-board"></div>
 			</div>`);
@@ -5599,6 +5614,15 @@ class IBCommandCenter {
 				this.location_filter = e.target.value;
 				localStorage.setItem("ib_prod_location", this.location_filter);
 				this.refresh();
+			})
+			.on("input", "#ib-cc-search", (e) => {
+				clearTimeout(this._search_debounce);
+				const val = e.target.value;
+				this._search_debounce = setTimeout(() => { this.search = val; this._render(); }, 250);
+			})
+			.on("change", "#ib-cc-priority", (e) => {
+				this.priority_filter = e.target.value;
+				this._render();
 			})
 			.on("click", ".ib-cc-hold-btn", (e) => this._act(e, "hold_run", "held"))
 			.on("click", ".ib-cc-resume-btn", (e) => this._act(e, "resume_run", "resumed"))
@@ -5721,30 +5745,64 @@ class IBCommandCenter {
 		// limit=60 — a live board doesn't need 300+ cards) but the real queue
 		// can be much bigger; say so explicitly rather than letting the
 		// column header quietly under-report against the KPI card above it.
-		const readyRows = d.ready || [];
+		const readyRowsFetched = d.ready || [];
 		const readyTotal = counts.ready || 0;
-		const readyLabel = readyTotal > readyRows.length ? `${readyRows.length} of ${readyTotal}` : readyRows.length;
+
+		const hasFilter = !!(this.search || (this.priority_filter && this.priority_filter !== "All"));
+		const processingRows = this._apply_filters(d.processing || []);
+		const haltedRows = this._apply_filters(d.halted || []);
+		const readyRows = this._apply_filters(readyRowsFetched);
+
+		// Search/priority only ever filter what's already on the client — for
+		// Processing/Halted that's the real, complete set (no server cap), but
+		// Ready to Run only ever has its own first-60-by-priority fetched. A
+		// filtered "3 of 347" would wrongly imply the other 344 were searched
+		// too; say what actually happened instead.
+		const readyLabel = hasFilter
+			? `${readyRows.length} of ${readyRowsFetched.length} shown`
+			: (readyTotal > readyRowsFetched.length ? `${readyRowsFetched.length} of ${readyTotal}` : readyRowsFetched.length);
+		const procLabel = hasFilter && processingRows.length !== (d.processing || []).length
+			? `${processingRows.length} of ${(d.processing || []).length}` : null;
+		const haltLabel = hasFilter && haltedRows.length !== (d.halted || []).length
+			? `${haltedRows.length} of ${(d.halted || []).length}` : null;
 
 		// Consolidated by Sales Order, not one card per item/run — a single
 		// order with several items in flight used to show as that many
 		// separate, disconnected cards (a factory manager working one real
 		// order had to piece it back together across the board). One group
 		// card per order now holds all its items as compact rows.
-		const processingGroups = this._group_by_so(d.processing || []);
-		const haltedGroups = this._group_by_so(d.halted || []);
+		const processingGroups = this._group_by_so(processingRows);
+		const haltedGroups = this._group_by_so(haltedRows);
 		const readyGroups = this._group_by_so(readyRows);
 
+		const noMatchMsg = "No matches for this search/filter.";
 		this.$mount.find("#ib-cc-board").html(
-			col("Processing", "activity", (d.processing || []).length,
+			col("Processing", "activity", processingRows.length,
 				processingGroups.map((g) => this._order_group_card(g, "processing")).join(""),
-				"Nothing running right now.") +
-			col("Halted", "pause-circle", (d.halted || []).length,
+				hasFilter ? noMatchMsg : "Nothing running right now.", procLabel) +
+			col("Halted", "pause-circle", haltedRows.length,
 				haltedGroups.map((g) => this._order_group_card(g, "halted")).join(""),
-				"Nothing on hold.") +
+				hasFilter ? noMatchMsg : "Nothing on hold.", haltLabel) +
 			col("Ready to Run", "list-checks", readyRows.length,
 				readyGroups.map((g) => this._order_group_card(g, "ready")).join(""),
-				"Nothing queued.", readyLabel)
+				hasFilter && !readyRows.length ? noMatchMsg : "Nothing queued.", readyLabel)
 		);
+	}
+
+	// Search matches item code, Sales Order, customer, or machine — the same
+	// fields a floor manager would actually know off the top of their head.
+	// Client-side only: Processing/Halted are always the real complete set
+	// (no server cap), Ready to Run filters within whatever was fetched (see
+	// readyLabel's own comment on why that's disclosed, not hidden).
+	_apply_filters(rows) {
+		let out = rows;
+		if (this.priority_filter && this.priority_filter !== "All") {
+			out = out.filter((r) => (r.priority || "Normal") === this.priority_filter);
+		}
+		if (this.search) {
+			out = window.ib_multi_token_filter(out, ["item_code", "sales_order", "customer", "machine"], this.search);
+		}
+		return out;
 	}
 
 	// Groups already arrive roughly priority-sorted per row (both
@@ -5895,6 +5953,24 @@ class IBCommandCenter {
 }
 .ib-pd-select:focus { outline: none; border-color: var(--ib-primary, #d97757); }
 .ib-refresh-time { font-size: 11px; color: var(--text-muted, #6b7280); }
+/* Search/priority toolbar — same classes Stages' own Order-wise toolbar
+   uses (.ib-ps-os-toolbar etc, defined in IBProductionStages' own style
+   block), duplicated here for the same "might be the first tab opened"
+   reason as everything else in this block. Real bug this fixes: without
+   this, landing on Command Center directly rendered the toolbar as
+   unstyled stacked full-width rows (Stages' stylesheet was never injected
+   since that class was never constructed) instead of a compact inline bar. */
+.ib-ps-os-toolbar { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; flex-wrap: wrap; }
+.ib-ps-filter-group { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted, #6b7280); }
+.ib-ps-filter-group--search {
+	flex: 1; min-width: 200px; max-width: 320px; background: var(--card-bg, #fff);
+	border: 1px solid var(--border-color, #e2e8f0); border-radius: 6px; padding: 5px 10px;
+}
+.ib-ps-filter-group--search input { border: none; background: none; outline: none; flex: 1; font-size: 13px; color: var(--text-color, #1e293b); padding: 0; }
+.ib-ps-select {
+	padding: 5px 10px; border: 1px solid var(--border-color, #e2e8f0); border-radius: 6px;
+	background: var(--card-bg, #fff); font-size: 13px; font-family: inherit; color: var(--text-color, #1e293b);
+}
 .ib-pd-kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 22px; }
 .ib-pd-kpi-card {
 	background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb);
