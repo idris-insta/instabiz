@@ -4586,9 +4586,14 @@ class IBProductionStages {
 		const is_pcs = wo.target_uom === "PCS";
 		const fieldname = is_pcs ? "pcs_to_make" : "logs_to_make";
 		const label = is_pcs ? "Pieces to Make" : "Logs to Make";
+		// Real bug, fixed: frappe.client.get_value meta-validates its
+		// fieldname and rejects pcs_to_make/logs_to_make outright (orphaned
+		// DB columns the WO-per-run schema no longer declares — see
+		// get_production_qty's own docstring) — threw "Field not permitted
+		// in query" before this dialog could even open, on every tab.
 		frappe.call({
-			method: "frappe.client.get_value",
-			args: { doctype: "IB Work Order", filters: wo.name, fieldname },
+			method: "instabiz.overrides.production.get_production_qty",
+			args: { work_order: wo.name },
 			callback: (r) => {
 				const current = (r.message && r.message[fieldname]) || 0;
 				const d = new frappe.ui.Dialog({

@@ -2543,6 +2543,27 @@ _PROGRESS_MILESTONES = [25, 50, 75, 100]
 
 
 @frappe.whitelist()
+def get_production_qty(work_order):
+	"""Real bug, fixed: the Adjust Qty dialog pre-filled its current value via
+	the generic frappe.client.get_value — which meta-validates every
+	fieldname it's given (frappe/desk/reportview.py validate_fields) and
+	throws "Field not permitted in query: pcs_to_make" for any field not on
+	the doctype's CURRENT JSON schema. pcs_to_make/logs_to_make are exactly
+	that: real, physically-still-present DB columns (never dropped) that the
+	WO-per-run rewrite's schema no longer declares — same orphaned-column
+	shape already documented elsewhere in this file (item_code/stage/
+	target_qty etc). update_production_qty() below already reads/writes them
+	via frappe.db.get_value/set_value (raw SQL, no meta gate) with no issue;
+	only the frontend's separate pre-fill GET went through the gated generic
+	endpoint. Reproduced live: clicking Adjust Qty from any tab's WO panel
+	threw this error immediately, before the dialog even opened."""
+	_require_production_role()
+	return frappe.db.get_value(
+		"IB Work Order", work_order, ["pcs_to_make", "logs_to_make"], as_dict=True
+	) or {}
+
+
+@frappe.whitelist()
 def update_production_qty(work_order, pcs_to_make=None, logs_to_make=None):
 	"""Factory manager reconciliation: set pcs_to_make / logs_to_make on a WO to
 	account for wastage and plan how many pieces/logs to actually make from the
