@@ -1829,8 +1829,17 @@ def get_run_plan(limit=None, start=0, location=None, search=None, priority=None)
 	per Order Sheet Item, each row carrying its run's stage_map. Same
 	{order_wise: [...]} contract as the old production.get_production_plan."""
 	_require_production_role()
-	limit = cint(limit) or 25
-	start = cint(start)
+	# Real bug, fixed: `cint(limit) or 25` only replaces a falsy (0/None)
+	# limit — a negative one (or a negative `start`) passed straight through
+	# into a raw `LIMIT %(lim)s OFFSET %(off)s`, producing a MariaDB syntax
+	# error (confirmed live: LIMIT -5 OFFSET 0) instead of a clean result or
+	# validation message. Not reachable through this page's own UI (its
+	# pagination always computes a non-negative page*pageSize), but this is
+	# a whitelisted RPC any Factory-role user can call directly with
+	# arbitrary args.
+	limit = cint(limit)
+	limit = limit if limit > 0 else 25
+	start = max(cint(start), 0)
 
 	conds = ["os.status != 'Cancelled'"]
 	params = {}
