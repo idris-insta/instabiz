@@ -5685,13 +5685,13 @@ class IBCommandCenter {
 			</div>
 		`).join(""));
 
-		const col = (title, icon, rows, renderRow, emptyMsg, countLabel) => `
+		const col = (title, icon, itemCount, cardsHtml, emptyMsg, countLabel) => `
 			<div class="ib-cc-col">
 				<div class="ib-pd-section-title ib-cc-col-title">
 					<iconify-icon icon="lucide:${icon}" width="13" height="13" style="vertical-align:middle;margin-right:5px"></iconify-icon>
-					${title}<span class="ib-cc-col-count">${countLabel != null ? countLabel : rows.length}</span>
+					${title}<span class="ib-cc-col-count">${countLabel != null ? countLabel : itemCount}</span>
 				</div>
-				${rows.length ? rows.map(renderRow).join("") : `<div class="ib-pd-empty ib-cc-empty">${frappe.utils.escape_html(emptyMsg)}</div>`}
+				${itemCount ? cardsHtml : `<div class="ib-pd-empty ib-cc-empty">${frappe.utils.escape_html(emptyMsg)}</div>`}
 			</div>`;
 
 		// Ready to Run's rendered list is capped (_command_center_ready's own
@@ -5702,31 +5702,82 @@ class IBCommandCenter {
 		const readyTotal = counts.ready || 0;
 		const readyLabel = readyTotal > readyRows.length ? `${readyRows.length} of ${readyTotal}` : readyRows.length;
 
+		// Consolidated by Sales Order, not one card per item/run — a single
+		// order with several items in flight used to show as that many
+		// separate, disconnected cards (a factory manager working one real
+		// order had to piece it back together across the board). One group
+		// card per order now holds all its items as compact rows.
+		const processingGroups = this._group_by_so(d.processing || []);
+		const haltedGroups = this._group_by_so(d.halted || []);
+		const readyGroups = this._group_by_so(readyRows);
+
 		this.$mount.find("#ib-cc-board").html(
-			col("Processing", "activity", d.processing || [], (r) => this._run_card(r, "processing"), "Nothing running right now.") +
-			col("Halted", "pause-circle", d.halted || [], (r) => this._run_card(r, "halted"), "Nothing on hold.") +
-			col("Ready to Run", "list-checks", readyRows, (r) => this._ready_card(r), "Nothing queued.", readyLabel)
+			col("Processing", "activity", (d.processing || []).length,
+				processingGroups.map((g) => this._order_group_card(g, "processing")).join(""),
+				"Nothing running right now.") +
+			col("Halted", "pause-circle", (d.halted || []).length,
+				haltedGroups.map((g) => this._order_group_card(g, "halted")).join(""),
+				"Nothing on hold.") +
+			col("Ready to Run", "list-checks", readyRows.length,
+				readyGroups.map((g) => this._order_group_card(g, "ready")).join(""),
+				"Nothing queued.", readyLabel)
 		);
 	}
 
-	_run_card(r, kind) {
-		const isProcessing = kind === "processing";
+	// Groups already arrive roughly priority-sorted per row (both
+	// _command_center_runs and _command_center_ready order by it) — take the
+	// most urgent item's priority as the group's own, re-sort groups by that,
+	// so one Urgent item doesn't get buried inside a card sorted by whatever
+	// its Normal siblings' position happened to be.
+	_group_by_so(rows) {
+		const rank = { Urgent: 0, High: 1, Normal: 2, Low: 3 };
+		const groups = [];
+		const byKey = new Map();
+		rows.forEach((r) => {
+			const key = r.sales_order || `—:${r.work_order || r.order_sheet_item || groups.length}`;
+			let g = byKey.get(key);
+			if (!g) {
+				g = { sales_order: r.sales_order || "", customer: r.customer || "", priority: r.priority || "Normal", rows: [] };
+				byKey.set(key, g);
+				groups.push(g);
+			}
+			g.rows.push(r);
+			if ((rank[r.priority] ?? 2) < (rank[g.priority] ?? 2)) g.priority = r.priority;
+		});
+		groups.sort((a, b) => (rank[a.priority] ?? 2) - (rank[b.priority] ?? 2));
+		return groups;
+	}
+
+	_order_group_card(g, kind) {
+		const soLine = g.sales_order
+			? `<a href="#" data-so-nav="${frappe.utils.escape_html(g.sales_order)}" class="ib-pd-plan-so-link">${frappe.utils.escape_html(g.sales_order)}</a>`
+			: "—";
+		const cls = kind === "processing" ? " ib-cc-card--live" : kind === "halted" ? " ib-cc-card--halted" : " ib-cc-card--ready";
+		return `
+			<div class="ib-pd-plan-card ib-cc-card ib-cc-group${cls}">
+				<div class="ib-cc-card-body">
+					<div class="ib-cc-group-head">
+						<span class="ib-pd-tag ib-pd-tag--so">SO</span>${soLine}
+						<span class="ib-cc-group-customer">${frappe.utils.escape_html(g.customer || "—")}</span>
+						${_ib_status_pill(g.priority, "sm")}
+						<span class="ib-cc-group-count">${g.rows.length} item${g.rows.length === 1 ? "" : "s"}</span>
+					</div>
+					<div class="ib-cc-group-items">
+						${g.rows.map((r) => kind === "ready" ? this._ready_item_row(r) : this._run_item_row(r, kind === "processing")).join("")}
+					</div>
+				</div>
+			</div>`;
+	}
+
+	_run_item_row(r, isProcessing) {
 		const isLast = (r.current_stage || "").toLowerCase() === "packing";
 		const pct = r.planned_qty > 0 ? Math.min(100, Math.round((r.produced_qty / r.planned_qty) * 100)) : 0;
-		// Big faint stage icon behind the card content — direct ask, previewed
-		// as an artifact first (icon+color reused from IB_STAGES, same as
-		// the stage chip — no new icon set). Processing only, per the ask;
-		// a Halted card already reads as "not this stage's business right
-		// now" via its own desaturated look.
 		const stageInfo = IB_STAGES.find((s) => s.label === r.current_stage);
 		const watermark = (isProcessing && stageInfo)
 			? `<div class="ib-cc-card-watermark" style="color:${stageInfo.color}">
 					<iconify-icon icon="lucide:${stageInfo.icon}"></iconify-icon>
 				</div>`
 			: "";
-		const soLine = r.sales_order
-			? `<a href="#" data-so-nav="${frappe.utils.escape_html(r.sales_order)}" class="ib-pd-plan-so-link">${frappe.utils.escape_html(r.sales_order)}</a>`
-			: "—";
 		const stageCls = isProcessing ? "ib-pd-stg--inprog ib-pd-stg--live" : "ib-pd-stg--pending";
 		const actions = isProcessing
 			? `<button class="ib-pd-row-btn ib-cc-hold-btn" data-wo="${frappe.utils.escape_html(r.work_order)}">
@@ -5742,20 +5793,14 @@ class IBCommandCenter {
 					<iconify-icon icon="lucide:play" width="11" height="11" style="vertical-align:middle;margin-right:3px"></iconify-icon>Resume
 				</button>`;
 		return `
-			<div class="ib-pd-plan-card ib-cc-card${isProcessing ? " ib-cc-card--live" : " ib-cc-card--halted"}" title="${frappe.utils.escape_html(r.work_order || "")}">
+			<div class="ib-cc-item-row" title="${frappe.utils.escape_html(r.work_order || "")}">
 				${watermark}
-				<div class="ib-cc-card-body">
-					<div class="ib-cc-card-top">
+				<div class="ib-cc-item-body">
+					<div class="ib-cc-item-top">
 						<span class="ib-pd-stg-chip ${stageCls}">${frappe.utils.escape_html(r.current_stage || "—")}</span>
 						${isProcessing ? _live_pulse_svg("Processing right now") : `<iconify-icon icon="lucide:snowflake" width="12" height="12" class="ib-cc-halt-icon"></iconify-icon>`}
-						${_ib_status_pill(r.priority, "sm")}
-					</div>
-					<div class="ib-pd-plan-title">
-						<span class="ib-pd-plan-customer">${frappe.utils.escape_html(r.item_code || "—")}</span>
+						<span class="ib-cc-item-code">${frappe.utils.escape_html(r.item_code || "—")}</span>
 						${r.extra_items ? `<span class="text-muted" style="font-size:11px">+${r.extra_items} more</span>` : ""}
-					</div>
-					<div class="ib-pd-plan-subline">
-						<span class="ib-pd-tag ib-pd-tag--so">SO</span>${soLine} · ${frappe.utils.escape_html(r.customer || "—")}
 					</div>
 					<div class="ib-cc-card-machine">
 						<iconify-icon icon="lucide:cog" width="11" height="11"></iconify-icon>
@@ -5770,22 +5815,15 @@ class IBCommandCenter {
 			</div>`;
 	}
 
-	_ready_card(r) {
+	_ready_item_row(r) {
 		return `
-			<div class="ib-pd-plan-card ib-cc-card ib-cc-card--ready">
-				<div class="ib-cc-card-body">
-					<div class="ib-cc-card-top">
+			<div class="ib-cc-item-row">
+				<div class="ib-cc-item-body">
+					<div class="ib-cc-item-top">
 						<span class="ib-pd-stg-chip ib-pd-stg--pending">${frappe.utils.escape_html(r.next_stage_suggestion || "—")}</span>
-						${_ib_status_pill(r.priority, "sm")}
+						<span class="ib-cc-item-code">${frappe.utils.escape_html(r.item_code || "—")}</span>
+						<span class="ib-cc-item-qty">${r.qty || 0} ${frappe.utils.escape_html(r.uom || "")}</span>
 					</div>
-					<div class="ib-pd-plan-title">
-						<span class="ib-pd-plan-customer">${frappe.utils.escape_html(r.item_code || "—")}</span>
-					</div>
-					<div class="ib-pd-plan-subline">
-						${r.sales_order ? `<span class="ib-pd-tag ib-pd-tag--so">SO</span><a href="#" data-so-nav="${frappe.utils.escape_html(r.sales_order)}" class="ib-pd-plan-so-link">${frappe.utils.escape_html(r.sales_order)}</a>` : "—"}
-						· ${frappe.utils.escape_html(r.customer || "—")}
-					</div>
-					<div class="ib-pd-plan-subline">${r.qty || 0} ${frappe.utils.escape_html(r.uom || "")}</div>
 				</div>
 				<div class="ib-pd-row-actions ib-cc-card-actions">
 					<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-cc-run-btn"
@@ -5913,6 +5951,24 @@ class IBCommandCenter {
 }
 .ib-cc-card { position: relative; margin-bottom: 10px; padding: 13px 15px; display: flex; flex-direction: column; gap: 10px; }
 .ib-cc-card-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* Order-consolidated group card — one per Sales Order, several item rows
+   inside, instead of one flat card per item/run (a real order with 3
+   in-flight items used to scatter as 3 disconnected cards on the board). */
+.ib-cc-group-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ib-cc-group-customer { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+.ib-cc-group-count { margin-left: auto; font-size: 10.5px; font-weight: 700; color: var(--text-muted); background: var(--subtle-fg, #f1f5f9); border-radius: 999px; padding: 1px 8px; }
+.ib-cc-group-items { display: flex; flex-direction: column; gap: 8px; }
+.ib-cc-item-row {
+	position: relative; overflow: hidden; display: flex; align-items: flex-end; justify-content: space-between;
+	gap: 8px; padding: 9px 10px; border-radius: 9px; background: var(--subtle-fg, #f8fafc);
+	border: 1px solid var(--border-color, #eef1f5);
+}
+.ib-cc-item-body { position: relative; z-index: 1; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.ib-cc-item-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ib-cc-item-code { font-size: 12.5px; font-weight: 650; color: var(--heading-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ib-cc-item-qty { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+.ib-cc-item-row .ib-cc-card-watermark { right: -18px; bottom: -18px; width: 64px; height: 64px; opacity: .1; }
+.ib-cc-item-row .ib-cc-card-actions { flex-shrink: 0; }
 .ib-cc-card-machine { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-color, #1e293b); }
 /* Buttons sit bottom-right, the same corner the watermark anchors to —
    needs its own stacking context or the (visually behind, but DOM-later,
