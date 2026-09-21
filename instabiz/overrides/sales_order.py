@@ -1,7 +1,7 @@
 """instabiz.overrides.sales_order"""
 import frappe
 from frappe import _
-from frappe.utils import add_days, nowdate
+from frappe.utils import add_days, flt, nowdate
 from frappe.model.mapper import get_mapped_doc  # pyright: ignore[reportMissingImports]
 from erpnext.selling.doctype.sales_order.sales_order import SalesOrder  # pyright: ignore[reportMissingImports]
 
@@ -234,15 +234,36 @@ def reopen_sales_order(name):
 # ── Mapper: Sales Order → Delivery Note ──────────────────────────────────────
 
 def _dn_qty_adjustment_note(sales_order_item):
-    """If production's Adjust Qty reconciliation (pcs_to_make/logs_to_make,
-    see production.py's update_production_qty) set a value different from
-    what was originally planned for this SO Item's Work Orders, return a
-    human note describing it ("Packing: 100 → 95 PCS") so it isn't invisible
-    on the Delivery Note — same "from → to" language the Production
-    Dashboard's own adj badge already uses (_render_plan in
-    ib_production_dashboard.js), just surfaced here too. Does not change the
-    DN's own delivered qty — informational only. Returns None if this SO
-    Item has no linked production, or nothing was ever adjusted."""
+    """If what was actually produced for this SO Item differs from what the
+    Sales Order line ordered, return a human note describing it, so a real,
+    possibly large gap isn't invisible on the Delivery Note. Does not change
+    the DN's own delivered qty (target_item.qty) — informational only, same
+    "human reviews before submit" design this function has always had.
+    Returns None if this SO Item has no linked production yet, or nothing
+    meaningful to flag.
+
+    Real bug, fixed: this used to compare `IB Work Order.pcs_to_make`/
+    `logs_to_make` against `target_qty` — none of those three fields exist
+    on IB Work Order under the WO-per-run schema (confirmed against the
+    doctype's own field list: only `total_output_qty`/`total_wastage_qty`
+    live at the parent level now; per-output qty is on the `outputs` child
+    table). `frappe.db.get_all()` with a filter/field referencing a
+    nonexistent column doesn't error — it silently returns no rows (same
+    meta-validation-bypass class as this app's other raw-SQL-vs-generic-RPC
+    bugs) — so this note has said nothing on every Delivery Note since the
+    rewrite, for either a small floor adjustment OR a run that only ever
+    produced a fraction of what the order line asked for. The second case
+    is the serious one: confirmed live via a stress test that an Order
+    Sheet Item flips "Completed" (by design — _recompute_osi_status only
+    requires one non-cancelled run to reach Completed, not that produced
+    qty covers the ordered qty) the moment its first run finishes, even
+    when that run's own planned/produced output was a small fraction of
+    the line's real ordered qty — and the whole-order Create Delivery Note
+    button was, and remains, happy to map the FULL original ordered qty
+    into the DN regardless. This note is the one safety net standing
+    between that and a human submitting a DN that overstates what's
+    physically in the warehouse; it needs to actually fire.
+    """
     osi = frappe.db.get_value(
         "IB Order Sheet Item", {"sales_order_item": sales_order_item}, "name"
     )
@@ -264,22 +285,26 @@ def _dn_qty_adjustment_note(sales_order_item):
     if not osi:
         return None
 
-    wos = frappe.db.get_all(
-        "IB Work Order",
-        filters={"order_sheet_item": osi, "status": ["!=", "Cancelled"]},
-        fields=["stage", "target_qty", "target_uom", "pcs_to_make", "logs_to_make"],
+    outputs = frappe.db.sql(
+        """SELECT o.planned_qty, o.produced_qty, o.uom, w.status
+           FROM `tabIB WO Output` o
+           JOIN `tabIB Work Order` w ON w.name = o.parent
+           WHERE o.sales_order_item = %s AND w.status != 'Cancelled'""",
+        (sales_order_item,), as_dict=True,
     )
-    lines = []
-    for wo in wos:
-        # UOM-agnostic — the Adjust Qty dialog writes pcs_to_make OR logs_to_make
-        # per the item's UOM; either one being set and different from target is
-        # an adjustment worth surfacing (KG / ROLL / any UOM, not just PCS/SQMT).
-        adjusted = wo.pcs_to_make or wo.logs_to_make or None
-        if adjusted and adjusted != wo.target_qty:
-            lines.append(f"{wo.stage}: {wo.target_qty} → {adjusted} {wo.target_uom or ''}".strip())
-    if not lines:
+    if not outputs:
         return None
-    return "Qty adjusted in production — " + " | ".join(lines)
+
+    total_produced = sum(flt(o.produced_qty) for o in outputs)
+    uom = outputs[0].uom or ""
+    ordered = frappe.db.get_value("Sales Order Item", sales_order_item, "qty")
+
+    if abs(flt(total_produced) - flt(ordered)) < 0.01:
+        return None
+    return (
+        f"Produced {total_produced:g} {uom} in production — order line qty is "
+        f"{flt(ordered):g} {uom}. Verify quantity before shipping."
+    )
 
 
 @frappe.whitelist()
