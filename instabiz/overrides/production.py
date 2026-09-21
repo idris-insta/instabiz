@@ -1306,8 +1306,8 @@ def put_on_hold(work_order):
 	here means there is only one real Hold implementation, reachable from
 	either surface, with identical machine/lock/notification behavior."""
 	from instabiz.overrides.production_run import hold_run
-	if frappe.db.get_value("IB Work Order", work_order, "status") == "On Hold":
-		frappe.throw(_("Work Order {0} is already On Hold.").format(work_order))
+	# The already-On-Hold check now lives in hold_run() itself (same
+	# reasoning as the rest of this docstring — one real implementation).
 	r = hold_run(work_order)
 	r = dict(r or {})
 	r["status"] = "ok" if r.pop("ok", False) else "error"

@@ -414,6 +414,20 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 			"Start these as separate runs instead."
 		).format(", ".join(sorted(u for u in resolved_uoms if u))))
 
+	# Real gap, closed: no output row was ever checked for a positive
+	# planned_qty. Confirmed live (stress test): a negative planned_qty
+	# created a real, started IB Work Order with no error anywhere — every
+	# downstream consumer of planned_qty (source_qty's sum default just
+	# above, _finish_run's proportional output split, Order Sheet Item
+	# progress %, the Order-wise/Item-wise UI's percentage bars) silently
+	# produced nonsense (negative/garbage percentages) rather than failing
+	# loudly at the one place that could have caught it before any batch
+	# reservation happened. Zero is equally meaningless (a run producing
+	# nothing isn't a run) so it's rejected too, not just negative.
+	bad_qty = [o for o in outputs if flt(o.get("planned_qty")) <= 0]
+	if bad_qty:
+		frappe.throw(_("Every output needs a planned quantity greater than zero."))
+
 	os_row = frappe.db.get_value(
 		"IB Order Sheet", order_sheet, ["name", "sales_order", "priority", "status"], as_dict=True
 	)
@@ -924,6 +938,16 @@ def hold_run(work_order, reason=None):
 		frappe.throw(_("Could not acquire lock for run {0}. Please try again.").format(work_order))
 	try:
 		doc = frappe.get_doc("IB Work Order", work_order)
+		# Real gap, closed: with no pre-check here, double-holding (a stale
+		# tab, a fast double-click on Command Center's own Hold button —
+		# unlike Run/Advance it had no debounce) fell straight through to
+		# apply_workflow's raw engine error ("Not a valid Workflow Action"),
+		# confirmed live via stress test — meaningless to whoever reads it.
+		# put_on_hold (the Stages-tab entry point) used to catch this with a
+		# clear message before it became a shim onto this function; moved
+		# here instead of duplicated, so both surfaces get the same message.
+		if doc.status == "On Hold":
+			frappe.throw(_("Work Order {0} is already On Hold.").format(work_order))
 		if reason:
 			doc.notes = (doc.notes or "") + f"\n[Hold] {reason}"
 			doc.save(ignore_permissions=True)
@@ -954,6 +978,16 @@ def resume_run(work_order):
 		frappe.throw(_("Could not acquire lock for run {0}. Please try again.").format(work_order))
 	try:
 		doc = frappe.get_doc("IB Work Order", work_order)
+		# Same reasoning as hold_run's own pre-check just above it in this
+		# file — confirmed live via stress test: resuming an already
+		# In-Progress run fell through to apply_workflow's raw
+		# "Not a valid Workflow Action" instead of a clear message.
+		if doc.status == "In Progress":
+			return {"ok": True, "status": "In Progress", "machine": doc.machine}
+		if doc.status != "On Hold":
+			frappe.throw(_("Work Order {0} cannot be resumed from status '{1}'. Expected: On Hold.").format(
+				work_order, doc.status
+			))
 		machine = _assign_machine(doc.current_stage, _run_location(doc), _spec_from_run(doc)) or ""
 		_wf(doc, "Resume", {"machine": machine})
 		frappe.db.commit()
