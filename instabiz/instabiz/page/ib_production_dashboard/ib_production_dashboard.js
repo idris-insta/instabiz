@@ -5593,6 +5593,16 @@ class IBCommandCenter {
 			.on("click", ".ib-cc-run-btn", (e) => {
 				const $btn = $(e.currentTarget);
 				if ($btn.prop("disabled")) return;
+				// Real bug, fixed: Hold/Resume/Advance all disable their own
+				// button immediately (see _act/_advance) — Run didn't, so a
+				// fast double-click opened _ibStartRunDialog twice (it has no
+				// singleton guard of its own, each call builds a fresh
+				// frappe.ui.Dialog). A short debounce instead of a persistent
+				// disable, since the dialog this opens can be cancelled
+				// without ever calling onDone/refresh() — a disable tied to
+				// that would leave the button stuck forever on cancel.
+				$btn.prop("disabled", true);
+				setTimeout(() => $btn.prop("disabled", false), 800);
 				_start_production_flow($btn.data("osi"), $btn.data("item"), $btn.data("suggestion"), () => this.refresh());
 			})
 			.on("click", "[data-so-nav]", (e) => {
