@@ -1292,9 +1292,22 @@ class IBProductionDashboard {
 				if (woName && (curInfo.status === "Pending" || curInfo.status === "On Hold")) {
 					primaryBtn = `<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-pd-row-start" data-wo="${frappe.utils.escape_html(woName)}" title="${curInfo.status === "On Hold" ? "Resume work on this stage" : "Begin work on this stage"}">${curInfo.status === "On Hold" ? "Resume" : "Start"}</button>`;
 				} else if (woName && curInfo.status === "In Progress" && isLastStage) {
-					primaryBtn = `<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-pd-row-advance" data-wo="${frappe.utils.escape_html(woName)}" data-target-qty="${item.qty || 0}" data-target-uom="${frappe.utils.escape_html(item.uom || "")}" title="Mark this item as fully produced">Finish</button>`;
+					// Real bug, fixed (QC pass, subagent-confirmed live): this used
+					// to default to item.qty — the Order Sheet Item's FULL ordered
+					// quantity — not what THIS run actually started with. A run is
+					// routinely a partial fulfillment (length-split, multi-output,
+					// partial hold — all real live flows), so item.qty can be wildly
+					// larger than the run's real source_qty. curInfo.target_qty
+					// (== run.source_qty, computed server-side in
+					// production_run._stage_map_for_run) is the number every other
+					// part of this same row already uses (stage-pill tooltip, adj
+					// badge, WO side-panel's own copy of this dialog) — using it
+					// here too keeps the wastage-capture dialog's default/label
+					// correct instead of producing nonsensical negative "wastage"
+					// when an operator doesn't override it.
+					primaryBtn = `<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-pd-row-advance" data-wo="${frappe.utils.escape_html(woName)}" data-target-qty="${curInfo.target_qty || 0}" data-target-uom="${frappe.utils.escape_html(curInfo.target_uom || "")}" title="Mark this item as fully produced">Finish</button>`;
 				} else if (woName && curInfo.status === "In Progress") {
-					primaryBtn = `<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-pd-row-advance" data-wo="${frappe.utils.escape_html(woName)}" data-target-qty="${item.qty || 0}" data-target-uom="${frappe.utils.escape_html(item.uom || "")}" title="Complete this stage and move to the next">Next Stage →</button>`;
+					primaryBtn = `<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-pd-row-advance" data-wo="${frappe.utils.escape_html(woName)}" data-target-qty="${curInfo.target_qty || 0}" data-target-uom="${frappe.utils.escape_html(curInfo.target_uom || "")}" title="Complete this stage and move to the next">Next Stage →</button>`;
 				} else if (!woName && !isFullyDone) {
 					// JIT stage model (2026-08-13): the normal resting state now —
 					// nothing active/pending for this item (never started, or its

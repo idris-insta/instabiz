@@ -1613,7 +1613,8 @@ def _all_runs_for_osi(soi, item_code, os_name):
 	return frappe.db.sql(
 		"""SELECT w.name, w.status, w.current_stage, w.machine, w.priority,
 		          w.source_batch, w.source_qty, w.posting_date, w.started_at,
-		          w.completed_at, w.fg_batch, o.uom, o.planned_qty, o.produced_qty
+		          w.completed_at, w.fg_batch, w.pcs_to_make, w.logs_to_make,
+		          o.uom, o.planned_qty, o.produced_qty
 		   FROM `tabIB Work Order` w
 		   JOIN `tabIB WO Output` o ON o.parent = w.name
 		   WHERE w.order_sheet = %(os)s AND w.status != 'Cancelled'
@@ -1664,7 +1665,16 @@ def _stage_map_for_run(run):
 			"completed_qty": flt(ev.output_qty) if (r.done and ev and not ev.skipped) else 0,
 			"target_qty": flt(run.get("source_qty")) or flt(run.get("planned_qty")),
 			"target_uom": tgt_uom,
-			"pcs_to_make": 0, "logs_to_make": 0,
+			# Real bug, fixed (QC pass, subagent-confirmed live): hardcoded to
+			# 0 unconditionally — since 0 is falsy, the Dashboard's "adj →"
+			# badge (which only renders when pcs_to_make/logs_to_make differ
+			# from target_qty) could never show, regardless of what a manager
+			# actually set via the (separately correct) Adjust Qty dialog /
+			# update_production_qty(). _all_runs_for_osi's own SELECT now
+			# carries these two real columns through; read them here instead
+			# of a literal 0.
+			"pcs_to_make": cint(run.get("pcs_to_make")) or 0,
+			"logs_to_make": cint(run.get("logs_to_make")) or 0,
 		}
 	return smap, route
 
@@ -1976,7 +1986,10 @@ def get_order_sheet_detail(order_sheet):
 					"target_qty": info["target_qty"],
 					"target_uom": info["target_uom"],
 					"creation": str(run.posting_date) if run.posting_date else None,
-					"pcs_to_make": 0, "logs_to_make": 0,
+					# Same fix as _stage_map_for_run's own copy of this —
+					# hardcoded 0 made the Order-wise/WO-panel "adj" indicator
+					# blind to whatever a manager actually set via Adjust Qty.
+					"pcs_to_make": info.get("pcs_to_make", 0), "logs_to_make": info.get("logs_to_make", 0),
 					# Every one of a run's 5 stage chips describes the SAME
 					# real Work Order (one run, expanded per route stage for
 					# the pill row) — only one is ever actually actionable.
@@ -2010,7 +2023,7 @@ def get_order_sheet_detail(order_sheet):
 				"target_uom": cur_info.get("target_uom") or run.uom,
 				"creation": str(run.posting_date) if run.posting_date else None,
 				"delivery_date": str(os_doc.delivery_date) if os_doc.delivery_date else None,
-				"pcs_to_make": 0, "logs_to_make": 0,
+				"pcs_to_make": cur_info.get("pcs_to_make", 0), "logs_to_make": cur_info.get("logs_to_make", 0),
 			})
 
 		if runs:
