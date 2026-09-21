@@ -32,6 +32,13 @@ function _go_to_production_stages(route_options) {
 	shell._activate("stages");
 }
 
+function _go_to_command_center() {
+	const shell = frappe.pages["ib-production-dashboard"]._shell;
+	if (!shell) return;
+	frappe.set_route("ib-production-dashboard", "command");
+	shell._activate("command");
+}
+
 /* ─── Outer shell — tabs between Dashboard and Stages ────────────────────── */
 class IBProductionShell {
 	constructor(page, wrapper) {
@@ -1065,14 +1072,22 @@ class IBProductionDashboard {
 				},
 			},
 			{
-				label: "Pending", value: s.pending ?? 0, color: "#d97706", icon: "clock",
-				sub: "Awaiting start",
+				// Real bug, fixed: this card used to read s.pending (IB Work
+				// Order.status == "Pending"), which is structurally always 0
+				// under the WO-per-run model (create_run never leaves a run
+				// Pending) and routed to Item-wise filtered by that same dead
+				// status — a view that can never show anything either, since
+				// an item with zero runs doesn't appear in Item-wise at all.
+				// Confirmed live: "Pending" showed 0 while the real
+				// not-yet-started backlog was 346. Now reads the same real
+				// ready-to-run count Command Center shows, and routes there
+				// — the actual view built for this queue.
+				label: "Ready to Run", value: s.ready_to_run ?? 0, color: "#d97706", icon: "list-checks",
+				sub: "Queued, not started",
 				// Only metric that gets a colour cue — an amber status dot when
 				// there's a real backlog. Everything else stays monochrome.
-				attention: (s.pending ?? 0) > 0,
-				click: () => {
-					_go_to_production_stages({ tab: "item_wise", status: "Pending" });
-				},
+				attention: (s.ready_to_run ?? 0) > 0,
+				click: () => _go_to_command_center(),
 			},
 			{
 				label: "Completed Today", value: s.completed_today ?? 0, color: "#059669", icon: "check-circle",
@@ -5670,19 +5685,27 @@ class IBCommandCenter {
 			</div>
 		`).join(""));
 
-		const col = (title, icon, rows, renderRow, emptyMsg) => `
+		const col = (title, icon, rows, renderRow, emptyMsg, countLabel) => `
 			<div class="ib-cc-col">
 				<div class="ib-pd-section-title ib-cc-col-title">
 					<iconify-icon icon="lucide:${icon}" width="13" height="13" style="vertical-align:middle;margin-right:5px"></iconify-icon>
-					${title}<span class="ib-cc-col-count">${rows.length}</span>
+					${title}<span class="ib-cc-col-count">${countLabel != null ? countLabel : rows.length}</span>
 				</div>
 				${rows.length ? rows.map(renderRow).join("") : `<div class="ib-pd-empty ib-cc-empty">${frappe.utils.escape_html(emptyMsg)}</div>`}
 			</div>`;
 
+		// Ready to Run's rendered list is capped (_command_center_ready's own
+		// limit=60 — a live board doesn't need 300+ cards) but the real queue
+		// can be much bigger; say so explicitly rather than letting the
+		// column header quietly under-report against the KPI card above it.
+		const readyRows = d.ready || [];
+		const readyTotal = counts.ready || 0;
+		const readyLabel = readyTotal > readyRows.length ? `${readyRows.length} of ${readyTotal}` : readyRows.length;
+
 		this.$mount.find("#ib-cc-board").html(
 			col("Processing", "activity", d.processing || [], (r) => this._run_card(r, "processing"), "Nothing running right now.") +
 			col("Halted", "pause-circle", d.halted || [], (r) => this._run_card(r, "halted"), "Nothing on hold.") +
-			col("Ready to Run", "list-checks", d.ready || [], (r) => this._ready_card(r), "Nothing queued.")
+			col("Ready to Run", "list-checks", readyRows, (r) => this._ready_card(r), "Nothing queued.", readyLabel)
 		);
 	}
 

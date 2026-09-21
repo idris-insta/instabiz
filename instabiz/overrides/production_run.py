@@ -1386,6 +1386,16 @@ def get_production_kpis(location=None):
 		"summary": {
 			"active_work_orders": in_progress + pending + on_hold,
 			"pending": pending,
+			# Real bug, fixed: the Dashboard tab's "Pending" KPI used to read
+			# `pending` above (IB Work Order.status == "Pending") — under
+			# this WO-per-run model create_run() never leaves a run Pending
+			# (inserted already Started), so that's structurally always 0.
+			# Confirmed live: 0 of 29 real Work Orders were ever Pending,
+			# while the real not-yet-started backlog (Order Sheet Items with
+			# no run yet — the same "Ready to Run" queue Command Center
+			# shows) was 346. `pending` is kept above for anything else that
+			# reads it; the Dashboard KPI now reads this instead.
+			"ready_to_run": get_ready_to_run_count(loc),
 			"in_progress": in_progress,
 			"runs_on_hold": on_hold,
 			"completed_today": completed_today,
@@ -1810,7 +1820,7 @@ def _command_center_runs(location=None):
 	return out
 
 
-def _command_center_ready(location=None, limit=60):
+def _ready_to_run_conds(location=None):
 	# "No run" = zero IB WO Output rows for this Order Sheet Item on any
 	# non-Cancelled run, ever — the same condition _plan_item_row's `if not
 	# run:` branch checks via _latest_run_for_osi, just as one set query
@@ -1836,6 +1846,35 @@ def _command_center_ready(location=None, limit=60):
 	if location:
 		conds.append("LOWER(so.custom_location) = %(loc)s")
 		params["loc"] = location.lower()
+	return conds, params
+
+
+def get_ready_to_run_count(location=None):
+	"""Real total — NOT capped by _command_center_ready's own LIMIT 60 (that
+	limit bounds how many cards a live board renders, not how many items are
+	actually queued). Real bug this fixes: get_command_center_data's own
+	`counts.ready` was `len(ready)` — always <= 60 by construction, so the
+	Command Center KPI showed "60" when the real queue (confirmed live) was
+	346 — a silent 5.7x understatement with no indication anything was
+	capped. Also backs the Dashboard tab's own KPI (see get_production_kpis)
+	— that card used to read IB Work Order.status == 'Pending', which is
+	structurally always 0 under this WO-per-run model (create_run never
+	leaves a WO Pending — it's inserted already Started), a dead metric
+	confirmed live: 0 of 29 real Work Orders were ever Pending, while the
+	real ready-to-start backlog was 346. Both cards now read this same real
+	count, cheap on its own (a plain COUNT(*), same WHERE as the capped list)."""
+	conds, params = _ready_to_run_conds(location)
+	return cint(frappe.db.sql(
+		f"""SELECT COUNT(*) FROM `tabIB Order Sheet Item` i
+		    JOIN `tabIB Order Sheet` os ON os.name = i.parent
+		    JOIN `tabSales Order` so ON so.name = os.sales_order
+		    WHERE {' AND '.join(conds)}""",
+		params,
+	)[0][0])
+
+
+def _command_center_ready(location=None, limit=60):
+	conds, params = _ready_to_run_conds(location)
 	rows = frappe.db.sql(
 		f"""SELECT i.name, i.item_code, i.item_name, i.qty, i.uom, i.sales_order_item,
 		           os.name AS order_sheet, os.sales_order, os.customer_name, os.priority, os.creation,
@@ -1876,11 +1915,17 @@ def get_command_center_data(location=None):
 	processing = [r for r in runs if r["status"] == "In Progress"]
 	halted = [r for r in runs if r["status"] == "On Hold"]
 	ready = _command_center_ready(location)
+	ready_total = get_ready_to_run_count(location)
 	return {
 		"processing": processing,
 		"halted": halted,
 		"ready": ready,
-		"counts": {"processing": len(processing), "halted": len(halted), "ready": len(ready)},
+		# "ready" (the rendered list) stays capped at _command_center_ready's
+		# own limit=60 -- a live board doesn't need 300+ cards on screen --
+		# but the count must be the real total, not len(ready). See
+		# get_ready_to_run_count's own docstring for the live bug this fixes.
+		"counts": {"processing": len(processing), "halted": len(halted), "ready": ready_total},
+		"ready_shown": len(ready),
 	}
 
 
