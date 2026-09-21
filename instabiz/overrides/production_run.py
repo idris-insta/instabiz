@@ -43,6 +43,7 @@ from instabiz.overrides.production import (
 	_check_so_production_access,
 	_get_stage_route,
 	_notify_floor_update,
+	_notify_production_hold,
 	_priority_from_delivery_date,
 	_require_production_role,
 	_serial_stamp,
@@ -499,6 +500,27 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 			item_code = o.get("item_code")
 			if not item_code or not frappe.db.exists("Item", item_code):
 				frappe.throw(_("Output item {0} does not exist").format(item_code))
+
+			# Real gap, closed: sales_order_item is the ONLY link IB WO Output
+			# carries back to an Order Sheet Item (the doctype has no
+			# order_sheet_item field at all — see _recompute_osi_status, which
+			# joins purely on sales_order_item). Every caller today happens to
+			# resolve it correctly before calling (get_osi_context_batch for
+			# the Start dialog, os_doc.items directly for propose_runs), but
+			# nothing here ever verified that — a caller that supplies
+			# order_sheet_item without sales_order_item (a future UI path, a
+			# direct API call, a regression in either existing caller) would
+			# silently reproduce the exact IB-WO-2026-25500 class of bug
+			# get_osi_context_batch's own docstring describes: the item can
+			# NEVER reach Completed no matter how many real stages finish,
+			# permanently blocking that order's Create Delivery Note gate,
+			# with no error anywhere. Resolved server-side from the one
+			# source of truth instead of trusting the caller.
+			if o.get("order_sheet_item") and not o.get("sales_order_item"):
+				o["sales_order_item"] = frappe.db.get_value(
+					"IB Order Sheet Item", o["order_sheet_item"], "sales_order_item"
+				)
+
 			im = frappe.db.get_value(
 				"Item", item_code, ["item_name", "stock_uom", "width_mm", "length_mtr", "gsm"], as_dict=True
 			) or {}
@@ -1258,7 +1280,20 @@ def _roll_up_order_sheet_status(order_sheet):
 	ways (Completed can also revert back to In Progress), shared by both
 	call sites that need it after changing an item's status (a run
 	finishing via _settle_order_sheet, a run being cancelled via
-	cancel_run) so the two can't drift into different rollup rules."""
+	cancel_run) so the two can't drift into different rollup rules.
+
+	Real gap, closed: create_run() flips a Draft Order Sheet to In Progress
+	the moment its first run is created — but nothing ever flipped it back.
+	Cancelling that one run (a real, expected action — wrong batch, wrong
+	item, operator mistake) already reverts every one of its items back to
+	Pending via _recompute_osi_status; the Order Sheet itself stayed stuck
+	In Progress forever, permanently misrepresenting an order that has
+	genuinely never had a single real production step happen on it. Confirmed
+	live: create -> cancel one run on a fresh Draft Order Sheet left every
+	item Pending but the sheet In Progress. Only reverts to Draft — never
+	auto-promotes TO Draft from Completed, and never touches a sheet a user
+	explicitly holds at some other real state — so this can't fight any
+	other status this function or a human sets."""
 	states = frappe.get_all(
 		"IB Order Sheet Item", filters={"parent": order_sheet}, pluck="status"
 	)
@@ -1268,6 +1303,8 @@ def _roll_up_order_sheet_status(order_sheet):
 			frappe.db.set_value("IB Order Sheet", order_sheet, "status", "Completed")
 	elif current == "Completed":
 		frappe.db.set_value("IB Order Sheet", order_sheet, "status", "In Progress")
+	elif states and all(s == "Pending" for s in states) and current == "In Progress":
+		frappe.db.set_value("IB Order Sheet", order_sheet, "status", "Draft")
 
 
 def _settle_order_sheet(doc):
