@@ -390,6 +390,29 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 	if not outputs:
 		frappe.throw(_("A run needs at least one output item."))
 
+	# Real gap, closed: nothing anywhere in create_run/_finish_run checked
+	# that a run's outputs share one UOM. A run's `source_qty` default sums
+	# every output's planned_qty (line below, unchanged), and _finish_run
+	# later splits ONE operator-entered scalar (output_qty from the Advance
+	# dialog) across outputs proportionally by that same planned_qty ratio —
+	# both are meaningless the moment two outputs are in different units.
+	# This is reachable, not theoretical: several real item groups here mix
+	# stock_uom within the group (PLASTIC/PVC/FOIL all have both KG and SQMT
+	# members), and the Start Run dialog's own bulk-group key is the route
+	# sequence only, not item_code/uom — two same-route items with different
+	# UOM would otherwise silently land in one run. Caught here, before any
+	# batch-qty reservation or doc insert, so it's a clean abort.
+	resolved_uoms = set()
+	for o in outputs:
+		item_code = o.get("item_code")
+		u = o.get("uom") or (item_code and frappe.db.get_value("Item", item_code, "stock_uom"))
+		resolved_uoms.add(u)
+	if len(resolved_uoms) > 1:
+		frappe.throw(_(
+			"This run's outputs mix units ({0}) — a run can only produce output in one UOM. "
+			"Start these as separate runs instead."
+		).format(", ".join(sorted(u for u in resolved_uoms if u))))
+
 	os_row = frappe.db.get_value(
 		"IB Order Sheet", order_sheet, ["name", "sales_order", "priority", "status"], as_dict=True
 	)

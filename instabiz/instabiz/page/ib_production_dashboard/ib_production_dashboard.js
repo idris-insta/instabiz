@@ -512,9 +512,17 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 			// a run is one physical pass through the machines, so a partial
 			// overlap (one row skipping Rewinding, another not) can't be
 			// merged into one route without lying about one of them.
+			//
+			// UOM is part of the same key, not just route: a run's outputs must
+			// share one unit (server now enforces this — create_run throws on a
+			// mixed-UOM group). Several real item groups mix stock_uom (PLASTIC/
+			// PVC/FOIL all have both KG and SQMT members) and share one route,
+			// so two such rows could otherwise land in the same bulk-start group
+			// and hit that throw instead of silently becoming two separate runs
+			// the way every other route-only split already does.
 			const groups = new Map();
 			for (const { route: r, output } of rowData) {
-				const key = r.join("→");
+				const key = r.join("→") + "‖" + (output.uom || "");
 				if (!groups.has(key)) groups.set(key, { route: r, outputs: [] });
 				groups.get(key).outputs.push(output);
 			}
