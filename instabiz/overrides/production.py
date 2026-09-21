@@ -1080,14 +1080,20 @@ def get_order_sheet_stage_workflow(order_sheet):
 				"is_current": is_current,
 			})
 
-		# pcs_to_make/logs_to_make (the old per-stage-WO manager-reconciliation
-		# fields) are no longer written anywhere under the WO-per-run model
-		# (confirmed: production_run.py hardcodes both to 0 at every call
-		# site) — kept as 0 here too, consistent with the rest of the app
-		# rather than reading a column that was never a real thing on this
-		# doctype to begin with.
-		pcs_to_make = 0
-		logs_to_make = 0
+		# Real bug, fixed (QC pass, subagent-confirmed): this comment's own
+		# claim — "no longer written anywhere under the WO-per-run model" —
+		# was wrong. update_production_qty() (this same file) DOES write
+		# real values to these columns; _stage_map_for_run()/_all_runs_for_osi()
+		# were the ones hardcoding 0 (now fixed to read the real columns),
+		# and `run` here already carries them through since it comes from
+		# _latest_run_for_osi -> _all_runs_for_osi's own SELECT. Real
+		# consequence this had: the printed "IB Job Order Summary" — whose
+		# own template explicitly treats an Adjust Qty value as THE number
+        # the floor should work to — always fell back to the plain ordered
+		# qty instead, silently defeating the whole feature for the one
+		# place it matters most (the document actually handed to the floor).
+		pcs_to_make = cint(run.get("pcs_to_make")) if run else 0
+		logs_to_make = cint(run.get("logs_to_make")) if run else 0
 		target_uom = (run.uom if run else None) or item.uom
 
 		result.append({

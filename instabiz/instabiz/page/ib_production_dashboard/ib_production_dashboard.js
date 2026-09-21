@@ -5644,7 +5644,23 @@ class IBCommandCenter {
 			})
 			.on("click", ".ib-cc-hold-btn", (e) => this._act(e, "hold_run", "held"))
 			.on("click", ".ib-cc-resume-btn", (e) => this._act(e, "resume_run", "resumed"))
-			.on("click", ".ib-cc-advance-btn", (e) => this._advance(e))
+			.on("click", ".ib-cc-advance-btn", (e) => {
+				// Real bug, fixed (QC pass, subagent-confirmed live): same
+				// double-click race already fixed on .ib-cc-run-btn — this
+				// button opens a confirm dialog (_prompt_actual_output)
+				// before ever disabling itself (_advance() only disables
+				// AFTER the dialog is confirmed), so a fast double-click
+				// stacked 2+ "Complete Stage" modals (confirmed live: 3
+				// clicks -> 3 simultaneous dialogs on a real WO). Short
+				// debounce, not a persistent disable, for the same reason
+				// as Run — the dialog can be cancelled without ever
+				// re-enabling a persistently-disabled button.
+				const $btn = $(e.currentTarget);
+				if ($btn.prop("disabled")) return;
+				$btn.prop("disabled", true);
+				setTimeout(() => $btn.prop("disabled", false), 800);
+				this._advance(e);
+			})
 			.on("click", ".ib-cc-run-btn", (e) => {
 				const $btn = $(e.currentTarget);
 				if ($btn.prop("disabled")) return;
@@ -5693,8 +5709,11 @@ class IBCommandCenter {
 	// prompt + length-split-aware advance already wired on the WO panel
 	// (_advance_wo) — never duplicated ad hoc here.
 	_advance(e) {
+		// No disabled-check here — the click handler that calls this already
+		// checked+disabled the button (short debounce) before invoking us;
+		// checking again here would see disabled===true and bail out on
+		// every legitimate click, never opening the dialog at all.
 		const $btn = $(e.currentTarget);
-		if ($btn.prop("disabled")) return;
 		const wo = $btn.data("wo");
 		const wo_shim = { name: wo, target_qty: $btn.data("qty"), target_uom: $btn.data("uom") };
 		_prompt_actual_output(wo_shim, (actual_qty) => {
