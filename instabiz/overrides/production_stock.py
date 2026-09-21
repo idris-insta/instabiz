@@ -67,6 +67,30 @@ def _recipe_ratio(rm_item, fg_item):
 	)
 
 
+def _real_uom_conversion_factor(item_code, uom, stock_uom):
+	"""How many `stock_uom` one `uom` unit of item_code is worth, or None if
+	there's no REAL UOM Conversion Detail row for this exact pair. Never
+	falls back to a generic UOM-category conversion or a silent 1.0 the way
+	ERPNext's own `get_item_details.get_conversion_factor` does — confirmed
+	live (2026-09-21) that every real run's UOM WO Output row whose `uom`
+	differs from its Item's `stock_uom` (11 of 11 sampled, e.g. produced_qty
+	in PCS against an item stock-tracked in SQMT) has zero UOM Conversion
+	Detail row for that pair. Posting `produced_qty` straight into a Stock
+	Entry Item row with no explicit uom/conversion_factor silently defaults
+	conversion_factor to 1.0 — i.e. "144 PCS produced" would post as "144
+	SQMT received", an item-specific, unbounded, silently-wrong stock
+	quantity the moment ib_production_posts_stock is switched on. Real fix:
+	resolve every output row's conversion explicitly before posting; a row
+	with no real conversion blocks the whole finish-transfer post (see
+	post_run_finish_transfer) rather than posting a subset at a guessed
+	factor."""
+	if not uom or uom == stock_uom:
+		return 1.0
+	return frappe.db.get_value(
+		"UOM Conversion Detail", {"parent": item_code, "uom": uom}, "conversion_factor"
+	) or None
+
+
 def post_run_start_transfer(doc):
 	"""RM warehouse -> WIP, for the run's full source_qty. Called from
 	create_run(), inside its existing per-order-sheet lock, right after the
@@ -83,9 +107,15 @@ def post_run_start_transfer(doc):
 	se.stock_entry_type = "Material Transfer"
 	se.company = _company()
 	se.posting_date = nowdate()
+	# IB Batch has no separate uom field — batch.qty (source_qty's origin) is
+	# always in the source item's own stock_uom, so this is a defensive
+	# explicit statement of what's already true, not a conversion — same
+	# reasoning as the explicit uom now set in post_run_finish_transfer below.
 	se.append("items", {
 		"item_code": doc.source_item,
 		"qty": flt(doc.source_qty),
+		"uom": frappe.get_cached_value("Item", doc.source_item, "stock_uom"),
+		"conversion_factor": 1.0,
 		"s_warehouse": doc.source_warehouse,
 		"t_warehouse": wip,
 	})
@@ -109,31 +139,80 @@ def post_run_finish_transfer(doc):
 	if not wip or not fg or not doc.get("start_stock_entry"):
 		return None
 
+	# Real bug, fixed here: an IB WO Output row's `uom` (the unit the operator
+	# actually recorded produced_qty in — PCS/KG/SQMT, independent per row)
+	# can differ from its Item's `stock_uom`. Confirmed live: every real run
+	# where that happens has zero real UOM Conversion Detail for the pair, so
+	# posting `qty=produced_qty` with no explicit uom/conversion_factor would
+	# have Frappe silently default conversion_factor to 1.0 — crediting FG
+	# stock in the WRONG unit at face value (144 PCS posted as 144 SQMT).
+	# Resolve every row's real conversion factor up front; if even one
+	# output row can't be safely converted, refuse the whole finish-transfer
+	# post rather than posting some rows correctly and silently dropping/
+	# mis-posting others (which would also desync WIP-consumed vs FG-credited
+	# qty). Matches this module's own no-guessing convention (_recipe_ratio).
+	plan = []
+	for o in doc.outputs:
+		qty = flt(o.produced_qty)
+		if qty <= 0:
+			continue
+		stock_uom = frappe.get_cached_value("Item", o.item_code, "stock_uom")
+		factor = _real_uom_conversion_factor(o.item_code, o.uom, stock_uom)
+		if factor is None:
+			frappe.log_error(
+				"IB production_stock: unresolvable UOM",
+				f"IB Work Order {doc.name}, output item {o.item_code}: produced_qty is in "
+				f"'{o.uom}' but Item's stock_uom is '{stock_uom}' and there's no real UOM "
+				f"Conversion Detail row for that pair. Refusing to post the finish transfer "
+				f"— would have silently posted the wrong quantity into FG stock.",
+			)
+			return None
+		plan.append({"item_code": o.item_code, "qty": qty, "uom": o.uom or stock_uom,
+		             "conversion_factor": factor})
+
+	if not plan:
+		return None
+
 	se = frappe.new_doc("Stock Entry")
 	se.stock_entry_type = "Repack"
 	se.company = _company()
 	se.posting_date = nowdate()
+	source_stock_uom = frappe.get_cached_value("Item", doc.source_item, "stock_uom")
 	se.append("items", {
 		"item_code": doc.source_item,
 		"qty": flt(doc.source_qty),
+		"uom": source_stock_uom,
+		"conversion_factor": 1.0,
 		"s_warehouse": wip,
 	})
 
 	produce_rows = 0
 	total_fg_equiv = 0.0
-	for o in doc.outputs:
-		qty = flt(o.produced_qty)
-		if qty <= 0:
-			continue
-		se.append("items", {
-			"item_code": o.item_code,
-			"qty": qty,
+	for row in plan:
+		se_row = {
+			"item_code": row["item_code"],
+			"qty": row["qty"],
+			"uom": row["uom"],
+			"conversion_factor": row["conversion_factor"],
 			"t_warehouse": fg,
-		})
+		}
+		# Real bug, fixed here: an FG item produced for the first time ever
+		# (no prior incoming-valued stock anywhere) has no resolvable
+		# valuation rate — ERPNext's get_valuation_rate() then hard-throws
+		# "Valuation Rate ... is required", an uncaught ValidationError that
+		# would abort the whole Finish action (advance_run/_finish_run),
+		# confirmed live. Same class of gap already fixed for Container
+		# Import's Material Receipt (ib_container_import.py _make_stock_entry)
+		# — same fallback: post at zero value rather than hard-blocking a
+		# real production completion over a bookkeeping gap; a real cost can
+		# be set on the item master and reposted later.
+		if not flt(frappe.get_cached_value("Item", row["item_code"], "valuation_rate")):
+			se_row["allow_zero_valuation_rate"] = 1
+		se.append("items", se_row)
 		produce_rows += 1
-		ratio = _recipe_ratio(doc.source_item, o.item_code)
+		ratio = _recipe_ratio(doc.source_item, row["item_code"])
 		if ratio:
-			total_fg_equiv += qty * flt(ratio)
+			total_fg_equiv += row["qty"] * flt(ratio)
 
 	if not produce_rows:
 		return None
@@ -142,11 +221,16 @@ def post_run_finish_transfer(doc):
 	if scrap and total_fg_equiv:
 		wastage_qty = flt(doc.source_qty) - total_fg_equiv
 		if wastage_qty > 0:
-			se.append("items", {
+			scrap_row = {
 				"item_code": doc.source_item,
 				"qty": wastage_qty,
+				"uom": source_stock_uom,
+				"conversion_factor": 1.0,
 				"t_warehouse": scrap,
-			})
+			}
+			if not flt(frappe.get_cached_value("Item", doc.source_item, "valuation_rate")):
+				scrap_row["allow_zero_valuation_rate"] = 1
+			se.append("items", scrap_row)
 
 	se.remarks = f"IB Work Order {doc.name} — finish (WIP -> FG/Scrap)"
 	se.insert(ignore_permissions=True)
