@@ -32,11 +32,22 @@ function _go_to_production_stages(route_options) {
 	shell._activate("stages");
 }
 
+// Command Center is a Stages sub-tab now (2026-09-21), not a top-level
+// shell tab — route to Stages, then switch that tab's OWN sub-tab. Handles
+// both cases: Stages isn't even mounted yet (fresh navigation — activate it
+// first, its constructor reads frappe.route_options via
+// _consume_route_options()), and Stages is already the active shell tab
+// (just flip its sub-tab in place, no full teardown/rebuild needed).
 function _go_to_command_center() {
 	const shell = frappe.pages["ib-production-dashboard"]._shell;
 	if (!shell) return;
-	frappe.set_route("ib-production-dashboard", "command");
-	shell._activate("command");
+	if (shell._active_tab === "stages" && shell._active) {
+		shell._active._switch_tab("command");
+		return;
+	}
+	frappe.route_options = { tab: "command" };
+	frappe.set_route("ib-production-dashboard", "stages");
+	shell._activate("stages");
 }
 
 /* ─── Outer shell — tabs between Dashboard and Stages ────────────────────── */
@@ -59,8 +70,13 @@ class IBProductionShell {
 
 	_route_tab() {
 		const route = frappe.get_route();
-		if (route[1] === "stages") return "stages";
-		if (route[1] === "command") return "command";
+		// route[1] === "command" (the old top-level Command Center tab's own
+		// route, from before 2026-09-21) now resolves to Stages — a stale
+		// bookmark/link still lands somewhere real instead of the fallback
+		// Dashboard. _go_to_command_center() itself never sets this route
+		// shape anymore (it routes to "stages" + a route_options.tab), this
+		// is purely a soft landing for old links.
+		if (route[1] === "stages" || route[1] === "command") return "stages";
 		return "dashboard";
 	}
 
@@ -114,7 +130,6 @@ class IBProductionShell {
 		this.$main.prepend(`<div class="ib-phx-tabs" id="ib-phx-tabs">
 			<button class="ib-phx-tab" data-tab="dashboard">Dashboard</button>
 			<button class="ib-phx-tab" data-tab="stages">Stages</button>
-			<button class="ib-phx-tab" data-tab="command">Command Center</button>
 		</div>`);
 		this.$main.append(`<div id="ib-phx-body"></div>`);
 		this.$main.on("click", ".ib-phx-tab", (e) => {
@@ -163,8 +178,6 @@ class IBProductionShell {
 
 		if (tab === "dashboard") {
 			this._active = new IBProductionDashboard(this.page, $body);
-		} else if (tab === "command") {
-			this._active = new IBCommandCenter(this.page, $body);
 		} else {
 			this._active = new IBProductionStages(this.page, $body);
 		}
@@ -2632,6 +2645,7 @@ class IBProductionStages {
 		this.$body.find(".ib-ps-tab").removeClass("active");
 		this.$body.find(`.ib-ps-tab[data-tab="${this.active_tab}"]`).addClass("active");
 		this.$body.find("#ib-ps-location").val(this.location_filter);
+		this._sync_own_toolbar_visibility();
 		this._sync_floor_ui();
 	}
 
@@ -2639,7 +2653,7 @@ class IBProductionStages {
 		const ro = frappe.route_options;
 		if (!ro) return;
 
-		const VALID_TABS = ["order_wise", "item_wise", "machine_wise", "stage_wise"];
+		const VALID_TABS = ["order_wise", "item_wise", "machine_wise", "stage_wise", "command"];
 		if (ro.tab && VALID_TABS.includes(ro.tab)) {
 			this.active_tab = ro.tab;
 			delete ro.tab;
@@ -2709,6 +2723,10 @@ class IBProductionStages {
 			this._sortables.forEach((s) => s.destroy && s.destroy());
 			this._sortables = [];
 		}
+		if (this._cc) {
+			this._cc._cleanup();
+			this._cc = null;
+		}
 		this._close_side_panel();
 	}
 
@@ -2739,6 +2757,10 @@ class IBProductionStages {
 				<button class="ib-ps-tab" data-tab="machine_wise">
 					<iconify-icon icon="lucide:settings-2" width="12" height="12" style="vertical-align:middle;margin-right:4px"></iconify-icon>
 					Machine-wise
+				</button>
+				<button class="ib-ps-tab" data-tab="command">
+					<iconify-icon icon="lucide:radio" width="12" height="12" style="vertical-align:middle;margin-right:4px"></iconify-icon>
+					Command Center
 				</button>
 				<span style="flex:1"></span>
 				<div class="ib-ps-loc-group">
@@ -2809,6 +2831,22 @@ class IBProductionStages {
 		document.addEventListener("keydown", this._key_handler);
 	}
 
+	// Command Center is a self-contained mini-app with its own location/
+	// search/priority toolbar (_load_command_center) — Stages' own outer
+	// location/refresh cluster would just sit redundantly above it, so it's
+	// hidden for this one tab only. Called both from _switch_tab (a click)
+	// and _sync_route_ui (a fresh construction landing directly on "command"
+	// via frappe.route_options — _switch_tab is never called on that path,
+	// so without this the outer toolbar would show through unhidden the
+	// first time _go_to_command_center() navigates here from elsewhere).
+	// ":first" scopes to the location group specifically — machine-wise's
+	// floor group is a second ".ib-ps-loc-group" under _sync_floor_ui's own
+	// control, not this toggle.
+	_sync_own_toolbar_visibility() {
+		this.$body.find(".ib-ps-loc-group:first").toggle(this.active_tab !== "command");
+		this.$body.find("#ib-ps-refresh").toggle(this.active_tab !== "command");
+	}
+
 	_switch_tab(tab) {
 		this.active_tab = tab;
 		this.current_os = null;
@@ -2821,7 +2859,16 @@ class IBProductionStages {
 		this.$body.find(".ib-ps-tab").removeClass("active");
 		this.$body.find(`.ib-ps-tab[data-tab="${tab}"]`).addClass("active");
 		this._close_side_panel();
+		this._sync_own_toolbar_visibility();
 		this._sync_floor_ui();
+		// Command Center owns its own lifecycle (realtime listener, styles) —
+		// torn down the moment the user switches to a different Stages
+		// sub-tab, same discipline as the outer shell's own tab teardown, so
+		// it never leaks a duplicate "ib_floor_update" subscription.
+		if (tab !== "command" && this._cc) {
+			this._cc._cleanup();
+			this._cc = null;
+		}
 		this.refresh();
 	}
 
@@ -2873,7 +2920,24 @@ class IBProductionStages {
 			this._load_machine_wise();
 		} else if (this.active_tab === "stage_wise") {
 			this._load_stage_wise();
+		} else if (this.active_tab === "command") {
+			this._load_command_center();
 		}
+	}
+
+	// Command Center, folded in as a Stages sub-tab (2026-09-21) — was
+	// previously a sibling top-level page tab of its own (IBProductionShell),
+	// duplicating a chunk of Order-wise's own job (both answer "what needs
+	// attention right now"), with its own copy of shared CSS that could drift
+	// from Stages'/Dashboard's. IBCommandCenter itself is unchanged — a
+	// self-contained class with its own toolbar/styles/realtime lifecycle —
+	// only WHERE it mounts changed: into this tab's own content div instead
+	// of owning the whole page. Constructed lazily (only once this tab is
+	// actually visited) and torn down on tab switch by _switch_tab, same
+	// discipline the outer shell used to apply to it as a top-level tab.
+	_load_command_center() {
+		if (this._cc) { this._cc.refresh(); return; }
+		this._cc = new IBCommandCenter(this.page, this._content());
 	}
 
 	_content() {
