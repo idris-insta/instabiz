@@ -727,6 +727,27 @@ def get_order_sheets(status=None, priority=None, location=None, search=None):
 	)
 	stage_map = {row.parent: row for row in stage_counts}
 
+	# Gap found via cross-tab QC (Command Center vs Order-wise): IB Order
+	# Sheet.status is only ever Draft/In Progress/Completed
+	# (_roll_up_order_sheet_status) — there is no "Halted" order-level
+	# status, so an order with a genuinely On-Hold item read as plain "In
+	# Progress" here with zero visual cue, while Command Center gives
+	# Halted its own dedicated column. A manager browsing Order-wise had no
+	# way to notice a stalled order without separately checking Command
+	# Center. Additive only — doesn't touch the Draft/In Progress/Completed
+	# rollup itself, just flags rows that have >=1 On Hold run right now.
+	halted_counts = frappe.db.sql(
+		f"""
+		SELECT order_sheet AS parent, COUNT(*) AS n
+		FROM `tabIB Work Order`
+		WHERE order_sheet IN ({placeholders}) AND status = 'On Hold'
+		GROUP BY order_sheet
+		""",
+		tuple(sheet_names),
+		as_dict=True,
+	)
+	halted_map = {row.parent: row.n for row in halted_counts}
+
 	# Customer name from Customer master. Uses its OWN placeholder count — the
 	# previous version reused `placeholders` (sized to len(sheet_names)) for a
 	# tuple built from `[s.customer for s in sheets if s.customer]`, which is a
@@ -766,6 +787,7 @@ def get_order_sheets(status=None, priority=None, location=None, search=None):
 			"status": s.status,
 			"item_count": total,
 			"progress_pct": progress_pct,
+			"halted_count": halted_map.get(s.name, 0),
 		})
 
 	return result

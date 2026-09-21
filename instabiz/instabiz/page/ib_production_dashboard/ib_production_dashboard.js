@@ -3396,7 +3396,12 @@ class IBProductionStages {
 							<small>${pct}%</small>
 						</td>
 						<td>${_ib_status_pill(os.priority || "Normal", "sm")}</td>
-						<td>${_ib_status_pill(os.status, "sm")}</td>
+						<td>
+							${_ib_status_pill(os.status, "sm")}
+							${os.halted_count ? `<span class="ib-ps-halted-flag" title="${os.halted_count} item(s) on hold — see Command Center">
+								<iconify-icon icon="lucide:pause-circle" width="12" height="12"></iconify-icon> ${os.halted_count} held
+							</span>` : ""}
+						</td>
 						<td>
 							<div style="display:flex;gap:6px">
 								<button class="ib-ps-btn-sm ib-ps-os-view-btn" data-os="${frappe.utils.escape_html(os.name)}" title="Open this order's item/stage detail">
@@ -5223,6 +5228,14 @@ tr.ib-ps-wo-sub-item--clickable:hover td { background: var(--subtle-fg, #f8fafc)
 	cursor: pointer; color: var(--text-color);
 }
 .ib-ps-btn-sm:hover { border-color: var(--ib-primary); color: var(--ib-primary); }
+/* Order-wise's Status column has no "Halted" value of its own (Order Sheet
+   status is only ever Draft/In Progress/Completed) — this flags a row that
+   has a real On Hold item right now without touching that rollup. */
+.ib-ps-halted-flag {
+	display: inline-flex; align-items: center; gap: 3px; margin-left: 6px;
+	font-size: 10px; font-weight: 700; color: #b45309; background: #fef3c7;
+	border-radius: 999px; padding: 1px 7px; white-space: nowrap;
+}
 
 /* ----------------------------------------------------------------
    WO detail panel — rendered inside a frappe.ui.Dialog's own body
