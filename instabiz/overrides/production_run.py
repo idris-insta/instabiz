@@ -446,6 +446,43 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 	if batch.status != "Active":
 		frappe.throw(_("Source batch {0} is {1}, not Active").format(source_batch, batch.status))
 
+	# Real gap, closed: nothing here ever checked that the source batch's
+	# own RM item has anything to do with the item(s) this run is supposed
+	# to produce — only qty sufficiency was validated. Confirmed live on
+	# this branch's own real data: a batch of "BOPP FILM NA" (item_group
+	# PLASTIC) recorded as the source for finished "ISTIX GLOSS SPRAY
+	# PAINT" (item_group AEROSOL-PAINT) — physically impossible, pure data
+	# corruption from picking whatever Active batch happened to have enough
+	# qty. `IB Production Recipe` (finished_item -> recipe_item) exists for
+	# exactly this but is essentially unpopulated (1 row for 536 real
+	# items, confirmed live) — it can't be the sole gate. Falls back to
+	# item_group: one jumbo roll legitimately becomes many different
+	# width/color/pack variants of the SAME material family (confirmed
+	# live: one real PLASTIC batch is the source_item for a dozen different
+	# real PLASTIC finished SKUs) — that's not a bug, that's slitting — but
+	# it can never legitimately cross into an unrelated material category.
+	batch_item_group = frappe.db.get_value("Item", batch.item, "item_group") if batch.item else None
+	for o in outputs:
+		item_code = o.get("item_code")
+		if not item_code:
+			continue
+		recipe_item = frappe.db.get_value(
+			"IB Production Recipe", {"finished_item": item_code}, "recipe_item"
+		)
+		if recipe_item:
+			if recipe_item != batch.item:
+				frappe.throw(_(
+					"Source batch {0} is {1}, but the recipe for {2} requires {3}."
+				).format(source_batch, batch.item, item_code, recipe_item))
+			continue
+		output_item_group = frappe.db.get_value("Item", item_code, "item_group")
+		if batch_item_group and output_item_group and output_item_group != batch_item_group:
+			frappe.throw(_(
+				"Source batch {0} is a {1} item ({2}), which can't produce {3} (a {4} item). "
+				"Pick a batch from the same material family, or add an IB Production Recipe "
+				"if this pairing is genuinely correct."
+			).format(source_batch, batch_item_group, batch.item, item_code, output_item_group))
+
 	source_qty = flt(source_qty) or sum(flt(o.get("planned_qty")) for o in outputs)
 
 	# Real gap, now closed: IB Batch.qty was never checked or decremented
