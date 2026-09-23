@@ -655,7 +655,17 @@ def get_order_sheets(status=None, priority=None, location=None, search=None):
 
 	or_filters = None
 	if search:
-		like = f"%{search}%"
+		# Real bug, confirmed live: search wasn't escaping SQL LIKE wildcard
+		# chars ('%'/'_') before wrapping the term — typing a literal '%' or
+		# '_' (plausible in a pasted customer/SO fragment) silently matched
+		# EVERY Order Sheet instead of the intended substring. Confirmed live:
+		# search="%" and search="_" both returned all 201 Order Sheets on
+		# this dataset, identical to no filter at all, with no indication to
+		# the caller that the term was ever applied. Escaped with the
+		# standard backslash LIKE-escape so a literal '%'/'_' in the search
+		# term is now matched literally, not as a wildcard.
+		escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+		like = f"%{escaped}%"
 		or_filters = [["sales_order", "like", like], ["customer_name", "like", like]]
 
 	sheets = frappe.get_all(

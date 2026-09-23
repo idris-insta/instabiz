@@ -1807,6 +1807,31 @@ def _all_runs_for_osi(soi, item_code, os_name):
 	case. Returns oldest-first so callers building a chip row read
 	left-to-right in the order the runs actually happened.
 	"""
+	# Real bug, confirmed live via a constructed repro (disposable Order
+	# Sheet, 2 Order Sheet Items forced to share one item_code -- the
+	# exact, real, already-documented "same SKU as 2+ separate lines"
+	# shape this app repeatedly hits, e.g. IB-OS-2026-02865/02868/02870
+	# today -- plus one real legacy IB WO Output row with a blank
+	# sales_order_item already live in this dataset): the old fallback
+	# `o.sales_order_item = '' AND o.item_code = %(ic)s` matched purely on
+	# the OUTPUT row's blank sales_order_item and the item_code, with no
+	# regard for whether THIS CALLER's own `soi` was blank too. So one
+	# legacy/stale blank-sales_order_item run cross-matched into EVERY
+	# Order Sheet Item on the sheet that happens to share its item_code --
+	# confirmed live: a single such run showed up under both of 2
+	# unrelated real Order Sheet Items' `work_orders` lists in
+	# get_order_sheet_detail, even though only one of them (or neither)
+	# should ever see it. Not observed as a *visible* bug today only
+	# because the one real blank-sales_order_item row in this dataset
+	# happens to sit on a Cancelled run (already excluded here) and on a
+	# sheet with no item_code collision -- both preconditions
+	# independently already exist live, so this was one relisted item
+	# away from a real cross-tab data leak. Fixed: the legacy fallback
+	# now only fires when the CALLER's own `soi` is blank too (i.e. this
+	# Order Sheet Item itself predates the sales_order_item field) -- a
+	# modern item with a real `soi` never falls through to the
+	# item_code-only match, regardless of what any unrelated legacy row's
+	# blank field happens to line up with.
 	return frappe.db.sql(
 		"""SELECT w.name, w.status, w.current_stage, w.machine, w.priority,
 		          w.source_batch, w.source_qty, w.posting_date, w.started_at,
@@ -1815,7 +1840,10 @@ def _all_runs_for_osi(soi, item_code, os_name):
 		   FROM `tabIB Work Order` w
 		   JOIN `tabIB WO Output` o ON o.parent = w.name
 		   WHERE w.order_sheet = %(os)s AND w.status != 'Cancelled'
-		     AND (o.sales_order_item = %(soi)s OR (o.sales_order_item = '' AND o.item_code = %(ic)s))
+		     AND (
+		       (%(soi)s != '' AND o.sales_order_item = %(soi)s)
+		       OR (%(soi)s = '' AND o.sales_order_item = '' AND o.item_code = %(ic)s)
+		     )
 		   ORDER BY w.creation ASC""",
 		{"os": os_name, "soi": soi or "", "ic": item_code}, as_dict=True,
 	)
