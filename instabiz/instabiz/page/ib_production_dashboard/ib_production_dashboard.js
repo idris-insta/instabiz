@@ -2687,9 +2687,24 @@ class IBProductionStages {
 	// other station's progress. Debounced (1.5s) + route-checked, matching the
 	// established pattern in ib_stock_common.js's make_live().
 	_start_live_updates() {
-		frappe.realtime.off("ib_floor_update");
-		let timer = null;
-		frappe.realtime.on("ib_floor_update", () => {
+		// Real bug, fixed: frappe.realtime.off("ib_floor_update") with no
+		// callback arg wipes EVERY listener registered for that event name,
+		// not just this class's own (socket.io-client's off(event) — no
+		// listener arg — behaves that way, confirmed against
+		// frappe/public/js/frappe/socketio_client.js). Harmless pre-merge,
+		// when Stages and Command Center were mutually-exclusive sibling
+		// top-level tabs (only one ever alive, each fully torn down and
+		// rebuilt — including a fresh _start_live_updates() call — on every
+		// switch). Post-merge, Command Center is a child of a live Stages
+		// instance whose OWN listener is registered once at construction
+		// (this method) — every later visit to the Command Center sub-tab
+		// re-ran ITS OWN bare off()+on() cycle, silently wiping Stages' own
+		// listener with no way to re-register it (nothing ever called this
+		// method a second time). A bound, per-instance handler + the
+		// callback-scoped off() form means each class's cleanup can only
+		// ever remove its own listener, never the other's — no re-
+		// registration logic needed on either side.
+		this._floor_update_handler = () => {
 			// No route/tab check needed here (unlike the old standalone-page
 			// version of this guard, which checked frappe.get_route()[0] ===
 			// "ib-production-stages" — a route that no longer exists post-merge
@@ -2700,9 +2715,11 @@ class IBProductionStages {
 			// away, so there's no "wrong tab" state in which this callback
 			// could fire against a hidden view.
 			if (this.active_wo) return;
-			clearTimeout(timer);
-			timer = setTimeout(() => this.refresh(), 1500);
-		});
+			clearTimeout(this._floor_update_timer);
+			this._floor_update_timer = setTimeout(() => this.refresh(), 1500);
+		};
+		frappe.realtime.off("ib_floor_update", this._floor_update_handler);
+		frappe.realtime.on("ib_floor_update", this._floor_update_handler);
 	}
 
 	// Called by IBProductionShell._teardown_active() whenever the outer tab
@@ -2714,7 +2731,7 @@ class IBProductionStages {
 	// the next activation — this exact bug class (leaked realtime subscription
 	// on repeated tab-switching) is why this method exists.
 	_cleanup() {
-		frappe.realtime.off("ib_floor_update");
+		frappe.realtime.off("ib_floor_update", this._floor_update_handler);
 		if (this._key_handler) {
 			document.removeEventListener("keydown", this._key_handler);
 			this._key_handler = null;
@@ -6048,20 +6065,34 @@ class IBCommandCenter {
 	// _notify_floor_update, fired by create_run/hold_run/resume_run/
 	// advance_run/skip_stage/_finish_run) — a control room is meaningless if
 	// it needs a manual refresh to show another terminal's Hold/Resume/Run.
+	//
+	// Real bug, fixed: the bare frappe.realtime.off("ib_floor_update") form
+	// (no callback arg) removes EVERY listener for that event name, not just
+	// this class's own — confirmed against socket.io-client's off(event)
+	// behavior. Now that Command Center mounts as a child of a live Stages
+	// instance (lazily constructed/torn down on every sub-tab switch, unlike
+	// Stages' own listener which registers once at construction) — every
+	// visit here used to silently wipe Stages' listener with no way for it
+	// to ever re-register, permanently killing live cross-terminal refresh
+	// for the rest of that Stages instance's life. A bound, per-instance
+	// handler + the callback-scoped off() form means this class's own
+	// off()/on() cycles can only ever touch its own listener.
 	_start_live_updates() {
-		frappe.realtime.off("ib_floor_update");
-		let timer = null;
-		frappe.realtime.on("ib_floor_update", () => {
-			clearTimeout(timer);
-			timer = setTimeout(() => this.refresh(), 1200);
-		});
+		this._floor_update_handler = () => {
+			clearTimeout(this._floor_update_timer);
+			this._floor_update_timer = setTimeout(() => this.refresh(), 1200);
+		};
+		frappe.realtime.off("ib_floor_update", this._floor_update_handler);
+		frappe.realtime.on("ib_floor_update", this._floor_update_handler);
 	}
 
-	// Torn down by IBProductionShell._teardown_active() on every tab switch
-	// (destroy-and-rebuild lifecycle, same as Dashboard/Stages) — must
-	// release the realtime listener or it leaks a duplicate on next visit.
+	// Torn down by IBProductionShell._teardown_active() (top-level tab
+	// switch) AND by IBProductionStages._switch_tab()/_cleanup() (sub-tab
+	// switch, now that this mounts inside Stages) on every tab switch —
+	// must release the realtime listener or it leaks a duplicate on next
+	// visit.
 	_cleanup() {
-		frappe.realtime.off("ib_floor_update");
+		frappe.realtime.off("ib_floor_update", this._floor_update_handler);
 	}
 
 	_inject_styles() {
@@ -6071,7 +6102,20 @@ class IBCommandCenter {
    tab can be the first one a user ever opens (deep link/bookmark), so it
    can't assume that block already loaded. Values kept identical on purpose
    so all 3 tabs look like one product, not three. */
-.ib-pd-top-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+/* Real bug, fixed: this duplicated copy (see the block comment above)
+   had dropped flex-wrap/gap — Dashboard's own #ib-pd-styles copy has
+   them (still the correct source of truth). Both #ib-pd-styles and
+   #ib-cc-styles are injected once each into <head> and never removed;
+   since they define the same bare class name at equal specificity,
+   whichever <style> tag lands in the DOM LAST wins for BOTH tabs, not
+   just this one — visiting Command Center even once made Dashboard's
+   own top bar (location select + refresh timestamp) stop wrapping at
+   narrow widths too, for the rest of that page session. Keeping both
+   copies identical (rather than fixing this properly by not sharing a
+   bare class name across two independently-injected stylesheets) is
+   the same tradeoff the rest of this deliberately-duplicated block
+   already makes. */
+.ib-pd-top-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
 .ib-pd-loc-group { display: flex; align-items: center; gap: 7px; }
 .ib-pd-select {
 	padding: 6px 12px; border: 1px solid var(--border-color, #e2e8f0); border-radius: 7px;
