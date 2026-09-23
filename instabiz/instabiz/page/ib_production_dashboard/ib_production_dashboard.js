@@ -50,6 +50,43 @@ function _go_to_command_center() {
 	shell._activate("stages");
 }
 
+// One place to operate a WO instead of three (Dashboard's own inline row
+// buttons, Command Center's inline buttons, and the shared dialog every
+// Stages sub-tab used to pop open in place) — Dashboard's Active Production
+// Plan row actions (Start/Resume/Next Stage/Finish) call this instead of
+// acting directly. Unlike the Stages sub-tabs (which already have the WO's
+// full data sitting in their own `_wo_data` cache — see the four
+// `this._switch_tab("command"); this._open_wo_panel(...)` call sites in
+// IBProductionStages), Dashboard only ever has a bare WO name, so this
+// fetches the one WO it needs (get_run_row — same shape Stage-wise's rows
+// already come in, reusing _stage_row_to_wo's existing adapter) before
+// switching. IBCommandCenter is a separate class from IBProductionStages
+// (own click handlers, own inline actions) — the shared operate panel
+// (_open_wo_panel/_render_wo_panel) lives on IBProductionStages regardless,
+// so opening it while active_tab === "command" is just the same floating
+// frappe.ui.Dialog on top of whichever sub-tab happens to be underneath.
+function _go_to_command_center_with_wo(work_order) {
+	frappe.call({
+		method: "instabiz.overrides.production_run.get_run_row",
+		args: { work_order },
+		callback: (r) => {
+			if (!r.message) return;
+			const shell = frappe.pages["ib-production-dashboard"]._shell;
+			if (!shell) return;
+			if (shell._active_tab === "stages" && shell._active) {
+				shell._active._switch_tab("command");
+			} else {
+				frappe.route_options = { tab: "command" };
+				frappe.set_route("ib-production-dashboard", "stages");
+				shell._activate("stages");
+			}
+			const stages = shell._active;
+			const wo = stages._stage_row_to_wo(r.message);
+			stages._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || "");
+		},
+	});
+}
+
 /* ─── Outer shell — tabs between Dashboard and Stages ────────────────────── */
 class IBProductionShell {
 	constructor(page, wrapper) {
@@ -1496,47 +1533,24 @@ class IBProductionDashboard {
 			else if (this._plan_keep_open === os) this._plan_keep_open = null;
 		});
 
+		// Start/Resume and Next Stage/Finish both used to act directly on
+		// this row (start_work_order / advance_with_split_check inline).
+		// Routed to Command Center instead (2026-09-23) — a WO with real
+		// stage-log/machine/hold state gets operated in exactly one place
+		// now, not three (this row, the Stages sub-tabs' own shared dialog,
+		// and Command Center's own inline buttons). "Start Production" for
+		// an item with no WO yet (.ib-pd-row-start-stage, below) is
+		// unaffected — there's no WO to route to until this dialog creates
+		// one, and it's already the same dialog Command Center's own "Run"
+		// button uses (_start_production_flow), so there was nothing
+		// inconsistent to fix there.
 		$el.off("click", ".ib-pd-row-start").on("click", ".ib-pd-row-start", (e) => {
 			e.stopPropagation();
-			// Disable immediately — refresh() re-renders everything with fresh
-			// buttons on success, but the RPC round-trip leaves a window where
-			// this exact button would otherwise still be sitting there
-			// clickable, showing "Start" on a WO that's already In Progress.
-			const $btn = $(e.currentTarget);
-			if ($btn.prop("disabled")) return;
-			$btn.prop("disabled", true);
-			this._plan_keep_open = $btn.closest("[data-os-body]").data("osBody") || null;
-			this._plan_row_call("instabiz.overrides.production.start_work_order",
-				{ work_order: $btn.data("wo") }, "Started", $btn);
+			_go_to_command_center_with_wo($(e.currentTarget).data("wo"));
 		});
 		$el.off("click", ".ib-pd-row-advance").on("click", ".ib-pd-row-advance", (e) => {
 			e.stopPropagation();
-			const $btn = $(e.currentTarget);
-			if ($btn.prop("disabled")) return;
-			const wo = $btn.data("wo");
-			this._plan_keep_open = $btn.closest("[data-os-body]").data("osBody") || null;
-			// Asks actual output vs target first (wastage capture) — same dialog
-			// the WO side panel's Advance/Complete buttons use. Not disabled
-			// until Confirm, same reasoning as the panel's guarded()-exclusion
-			// comment: nothing to re-enable this button with if the dialog is
-			// cancelled.
-			_prompt_actual_output(
-				{ target_qty: $btn.data("targetQty"), target_uom: $btn.data("targetUom") },
-				(actual_qty) => {
-					$btn.prop("disabled", true);
-					_advance_with_split_check(
-						wo, actual_qty,
-						(msg) => {
-							frappe.show_alert({ message: msg.message || "Advanced.", indicator: "green" }, 3);
-							this.refresh();
-						},
-						(err) => {
-							frappe.show_alert({ message: err, indicator: "red" });
-							$btn.prop("disabled", false);
-						},
-					);
-				},
-			);
+			_go_to_command_center_with_wo($(e.currentTarget).data("wo"));
 		});
 		$el.off("click", ".ib-pd-row-start-stage").on("click", ".ib-pd-row-start-stage", (e) => {
 			e.stopPropagation();
@@ -1831,22 +1845,6 @@ class IBProductionDashboard {
 		}
 		(this._plan_all_rows || []).forEach(os => {
 			if (os.sales_order === sales_order) os.comment_count = (os.comment_count || 0) + 1;
-		});
-	}
-
-	_plan_row_call(method, args, successLabel, $btn) {
-		frappe.call({
-			method,
-			args,
-			callback: (r) => {
-				if (r.exc || (r.message && r.message.status && r.message.status !== "ok")) {
-					frappe.show_alert({ message: `Failed — ${successLabel.toLowerCase()} did not apply.`, indicator: "red" });
-					if ($btn) $btn.prop("disabled", false);
-					return;
-				}
-				frappe.show_alert({ message: successLabel, indicator: "green" }, 2);
-				this.refresh();
-			},
 		});
 	}
 
@@ -3113,12 +3111,17 @@ class IBProductionStages {
 			this._render_item_wise(this._item_wise_all, this._item_wise_page);
 		});
 
-		// Clicking a WO chip inside an expanded row's customer breakdown opens
-		// the same WO detail dialog every other tab on this page uses.
+		// Clicking a WO chip inside an expanded row's customer breakdown routes
+		// to Command Center and opens the same WO detail dialog there — one
+		// place to operate a run instead of every sub-tab popping it open
+		// in place (2026-09-23).
 		$c.off("click", ".ib-ps-wo-chip").on("click", ".ib-ps-wo-chip", (e) => {
 			const woid = $(e.currentTarget).data("woid");
 			const wo = this._wo_data.get(woid);
-			if (wo) this._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || "");
+			if (wo) {
+				this._switch_tab("command");
+				this._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || "");
+			}
 		});
 	}
 
@@ -3408,7 +3411,10 @@ class IBProductionStages {
 		});
 		$c.on("click", "tr[data-woid]", (e) => {
 			const wo = this._wo_data.get($(e.currentTarget).data("woid"));
-			if (wo) this._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || this.stage_wise_pill);
+			if (wo) {
+				this._switch_tab("command");
+				this._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || this.stage_wise_pill);
+			}
 		});
 	}
 
@@ -3900,7 +3906,10 @@ class IBProductionStages {
 		$body.off("click", ".ib-ps-wo-chip").on("click", ".ib-ps-wo-chip", (e) => {
 			const woid = $(e.currentTarget).data("woid");
 			const wo = this._wo_data.get(woid);
-			if (wo) this._open_wo_panel(wo, IB_STAGES.find(s => s.label === wo.stage)?.key || "");
+			if (wo) {
+				this._switch_tab("command");
+				this._open_wo_panel(wo, IB_STAGES.find(s => s.label === wo.stage)?.key || "");
+			}
 		});
 		$body.off("click", ".ib-ps-owise-start").on("click", ".ib-ps-owise-start", (e) => {
 			const $btn = $(e.currentTarget);
@@ -4168,7 +4177,10 @@ class IBProductionStages {
 		});
 		$c.on("click", "tr[data-woid]", (e) => {
 			const wo = this._wo_data.get($(e.currentTarget).data("woid"));
-			if (wo) this._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || "");
+			if (wo) {
+				this._switch_tab("command");
+				this._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || "");
+			}
 		});
 
 		this._load_setup_bundle_hint(selected);
@@ -4212,7 +4224,22 @@ class IBProductionStages {
 		const d = new frappe.ui.Dialog({
 			title: is_edit ? "Edit Machine" : "New Machine",
 			fields: [
-				{ fieldname: "machine_code", label: "Machine Code", fieldtype: "Data", reqd: 1, default: machine?.machine_code },
+				// Real bug, fixed: this field was fully editable even when
+				// editing an existing machine. IB Machine autonames as
+				// field:machine_code (machine_code IS the doc name), and
+				// save_machine() keys its create-vs-update branch purely on
+				// whatever machine_code value gets submitted — so changing
+				// it here (typo "fix", accidental edit) didn't rename the
+				// machine, it silently created a brand-new duplicate machine
+				// under the new code and left the original untouched, with
+				// every real Work Order/queue history still attached to the
+				// old one. Locked read-only on edit — a genuine rename needs
+				// the desk's own Rename action on IB Machine (which correctly
+				// uses frappe.rename_doc and updates every Link reference),
+				// not this dialog.
+				{ fieldname: "machine_code", label: "Machine Code", fieldtype: "Data", reqd: 1,
+					default: machine?.machine_code, read_only: is_edit ? 1 : 0,
+					description: is_edit ? "Rename via the machine's own Rename action in the desk, not here." : "" },
 				{ fieldname: "machine_name", label: "Machine Name", fieldtype: "Data", reqd: 1, default: machine?.machine_name },
 				{
 					fieldname: "machine_type",
@@ -4275,7 +4302,12 @@ class IBProductionStages {
 			primary_action: (values) => {
 				frappe.call({
 					method: "instabiz.overrides.production.save_machine",
-					args: values,
+					// original_machine_code lets the backend refuse a mismatch
+					// even if something other than this (now read-only) field
+					// ever submits a changed code for an edit — belt-and-
+					// suspenders, since a client-side read_only is real but
+					// isn't the only way this endpoint can be called.
+					args: Object.assign({}, values, { original_machine_code: is_edit ? machine.machine_code : null }),
 					callback: (r) => {
 						if (r.exc) {
 							frappe.show_alert({ message: "Failed to save machine.", indicator: "red" });

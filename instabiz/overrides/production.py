@@ -612,9 +612,29 @@ def save_machine(
 	notes=None,
 	floor=None,
 	name=None,  # ignored — machine_code IS the name (autoname = field:machine_code)
+	original_machine_code=None,
 ):
-	"""Create or update IB Machine. Requires Factory Management or System Manager."""
+	"""Create or update IB Machine. Requires Factory Management or System Manager.
+
+	Real bug, fixed: this used to key its create-vs-update decision purely
+	on whatever machine_code was submitted, with nothing checking that
+	against the machine actually being edited — the Edit Machine dialog's
+	own Machine Code field was fully editable, so changing it (a typo "fix",
+	an accidental edit) silently created a brand-new duplicate IB Machine
+	under the new code instead of renaming the original, leaving every real
+	Work Order/queue history still attached to the untouched original. The
+	dialog's field is now read-only on edit (the real fix — a genuine
+	rename belongs to the desk's own Rename action, which correctly uses
+	frappe.rename_doc and updates every Link reference); this
+	original_machine_code check is defense in depth for any other caller of
+	this whitelisted endpoint, not the primary fix.
+	"""
 	_require_production_role()
+	if original_machine_code and original_machine_code != machine_code:
+		frappe.throw(_(
+			"Machine Code cannot be changed here (would silently create a duplicate "
+			"machine instead of renaming {0}). Use the machine's own Rename action in the desk."
+		).format(original_machine_code))
 	exists = frappe.db.exists("IB Machine", machine_code)
 	if exists:
 		doc = frappe.get_doc("IB Machine", machine_code)
