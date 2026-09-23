@@ -92,12 +92,12 @@ class IBMainDashboard {
 		const ms = today.slice(0, 7) + "-01";
 		this._kpis = [
 			{
-				v: ibUI.money(d.rev_mtd), l: "Revenue MTD", sub: ib_delta_text(d.rev_delta),
+				v: ibUI.money(d.rev_mtd, { compact: true }), l: "Revenue MTD", sub: ib_delta_text(d.rev_delta),
 				go: () => { frappe.route_options = { docstatus: 1, [d.sales_date_field]: ["between", [ms, today]] };
 					frappe.set_route("List", d.sales_dt); },
 			},
 			{
-				v: ibUI.money(d.ar), l: "Outstanding AR", sub: `${d.open_so} open orders`,
+				v: ibUI.money(d.ar, { compact: true }), l: "Outstanding AR", sub: `${d.open_so} open orders`,
 				go: () => { frappe.route_options = { docstatus: 1, outstanding_amount: [">", 0] };
 					frappe.set_route("List", d.sales_dt); },
 			},

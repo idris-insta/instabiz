@@ -185,6 +185,18 @@ def custom_make_sales_order(source_name, target_doc=None):
         map_parent_fields(source_doc, target_doc)
         map_address_contact_fields(source_doc, target_doc)
 
+    def _finalize(source_doc, target_doc):
+        # Same gap as custom_make_sales_invoice/custom_make_delivery_note —
+        # must be get_mapped_doc's top-level `postprocess` arg, not the
+        # per-table "Quotation" block's own postprocess key. frappe's mapper
+        # runs the per-table one before child tables (Quotation Item →
+        # Sales Order Item) are mapped, so target_doc.items was empty every
+        # time this ran from inside postprocess_parent — confirmed live —
+        # and Item/Company-default fields (income_account, cost center,
+        # etc.) never got resolved from anywhere other than a direct
+        # field-name copy from the Quotation row.
+        target_doc.run_method("set_missing_values")
+
     return get_mapped_doc(
         "Quotation",
         source_name,
@@ -216,4 +228,5 @@ def custom_make_sales_order(source_name, target_doc=None):
             },
         },
         target_doc,
+        _finalize,
     )

@@ -613,13 +613,22 @@ class IBAnalyticsHub {
 		};
 		const icon_set = icons[this._active_tab] || Array(4).fill("lucide:circle");
 
+		// Crore/lakh-scale for currency KPI cards (same overflow fix as
+		// Customer Health / Finance Dashboard) — the exact amount lives in
+		// the returned title, not the outer card's own "Click to view
+		// detail" title below.
 		const fmt_val = (k) => {
 			const v = k.value;
-			if (k.type === "currency")
-				return "₹" + Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+			if (k.type === "currency") {
+				const compact = window.ib_fmt_inr_compact
+					? window.ib_fmt_inr_compact(v)
+					: "₹" + Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+				const full = "₹" + Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+				return { text: compact, title: full };
+			}
 			if (k.type === "pct")
-				return (parseFloat(v) || 0).toFixed(1) + "%";
-			return Number(v || 0).toLocaleString("en-IN");
+				return { text: (parseFloat(v) || 0).toFixed(1) + "%", title: "" };
+			return { text: Number(v || 0).toLocaleString("en-IN"), title: "" };
 		};
 		const delta_html = (k) => {
 			if (!k.delta) return "";
@@ -629,15 +638,18 @@ class IBAnalyticsHub {
 		};
 
 		const $kpis = this.$wrap.find("#ib-hub-kpis");
-		$kpis.html(kpis.map((k, i) => `
+		$kpis.html(kpis.map((k, i) => {
+			const fv = fmt_val(k);
+			return `
 			<div class="ib-hub-kpi" data-kpi-idx="${i}" style="cursor:pointer" title="Click to view detail">
 				<span class="ib-hub-kpi-badge"><iconify-icon icon="${icon_set[i]}" width="18" height="18"></iconify-icon></span>
-				<div class="ib-hub-kpi-val">${fmt_val(k)}</div>
+				<div class="ib-hub-kpi-val" ${fv.title ? `title="${fv.title}"` : ""}>${fv.text}</div>
 				<div class="ib-hub-kpi-lbl">${k.label}</div>
 				${delta_html(k)}
 				<div class="ib-hub-kpi-link-hint">↗ View</div>
 			</div>
-		`).join(""));
+		`;
+		}).join(""));
 
 		// Bind deep-link clicks
 		$kpis.find(".ib-hub-kpi").each((i, el) => {

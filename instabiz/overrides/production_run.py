@@ -1196,9 +1196,40 @@ def _reverse_run_genealogy(work_order):
 
 
 def reverse_run_stock(doc, method=None):
-	"""IB Work Order on_trash hook — clean up genealogy if a run is hard-deleted."""
+	"""IB Work Order on_trash hook.
+
+	Real bug, fixed here: this only ever cleaned up genealogy (FG batch +
+	serials). Factory Management has real `delete` permission on this
+	doctype (confirmed in the doctype's own permission rows — not just
+	System Manager), so a hard delete of a run that had already posted real
+	Stock Entries (Phase 3 stock-ledger integration, `ib_production_posts_stock`
+	on) silently orphaned them: no reversal, no source-batch qty restore,
+	and no Order Sheet Item status recompute — a submitted, GL-affecting
+	Stock Entry left with nothing in the app able to trace it back to a run
+	that no longer exists, permanently understating the source batch's real
+	remaining qty. cancel_run already guards against exactly this for the
+	normal cancel path; reuse its restore logic here instead of leaving a
+	second, easier-to-reach path (delete needs no active-run precondition
+	cancel_run's own lock/status checks would otherwise apply) with none of it."""
 	try:
+		if doc.status != "Cancelled" and doc.get("source_batch") and flt(doc.get("source_qty")):
+			frappe.db.sql(
+				"UPDATE `tabIB Batch` SET qty = qty + %s WHERE name = %s",
+				(doc.source_qty, doc.source_batch),
+			)
+
+		from instabiz.overrides.production_stock import reverse_run_stock as _reverse_posted_stock
+		_reverse_posted_stock(doc)
+
+		order_sheet = doc.get("order_sheet")
+		sales_order_items = [o.sales_order_item for o in doc.outputs if o.sales_order_item]
+
 		_reverse_run_genealogy(doc.name)
+
+		if order_sheet:
+			for soi in sales_order_items:
+				_recompute_osi_status(order_sheet, soi)
+			_roll_up_order_sheet_status(order_sheet)
 	except Exception:
 		frappe.log_error("reverse_run_stock", frappe.get_traceback())
 
@@ -1502,6 +1533,26 @@ def _run_row(w, os_map=None, so_map=None):
 		             "planned_qty": flt(o.planned_qty), "produced_qty": flt(o.produced_qty),
 		             "uom": o.uom} for o in outs],
 	}
+
+
+@frappe.whitelist()
+def get_run_row(work_order):
+	"""Single-WO fetch, same shape _run_row() already returns for Stage-wise's
+	table rows. Every OTHER entry point into the shared WO operate panel
+	(Order/Item/Machine-wise, Command Center) already has a whole tab's worth
+	of pre-fetched rows sitting in the client's own `_wo_data` cache — this
+	is for the one that doesn't: Dashboard's Active Production Plan row
+	actions, which only ever had a bare WO name to act on directly. The
+	client already knows how to adapt this exact shape into what the panel
+	needs (_stage_row_to_wo) — reused as-is, not duplicated."""
+	_require_production_role()
+	w = frappe.get_doc("IB Work Order", work_order)
+	so_row = None
+	if w.sales_order:
+		so_row = frappe.db.get_value(
+			"Sales Order", w.sales_order, ["customer", "customer_name", "delivery_date"], as_dict=True
+		)
+	return _run_row(w, so_map={w.sales_order: so_row} if so_row else {})
 
 
 _STAGE_KEY = {s: s.lower().replace(" ", "_") for s in STAGES}

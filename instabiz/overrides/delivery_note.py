@@ -288,6 +288,28 @@ def custom_make_sales_invoice(source_name, target_doc=None):
         map_parent_fields(source_doc, target_doc)
         map_address_contact_fields(source_doc, target_doc)
 
+    def _finalize(source_doc, target_doc):
+        # Real bug, fixed here: core ERPNext's own make_sales_invoice mapper
+        # (erpnext/stock/doctype/delivery_note/delivery_note.py) passes
+        # set_missing_values as get_mapped_doc's top-level `postprocess` arg,
+        # which frappe's mapper runs only AFTER every child table (Delivery
+        # Note Item → Sales Invoice Item) has been mapped onto target_doc.
+        # This custom mapper instead called target.run_method("set_missing_values")
+        # from inside the per-table "postprocess" key on the "Delivery Note"
+        # block — frappe.model.mapper.map_doc() invokes that BEFORE the
+        # caller ever maps child tables (get_mapped_doc's own loop over
+        # source_doc.meta.get_table_fields() runs after map_doc() returns),
+        # so target_doc.items was still empty every time it ran and
+        # set_missing_item_details() had nothing to iterate. Delivery Note
+        # Item has no income_account field at all (DN doesn't post GL), so
+        # income_account can only ever be resolved via Sales Invoice's own
+        # set_missing_values() (Item Default per company) once items exist —
+        # confirmed live, blocked submit with "Mandatory fields required...
+        # Income Account" despite the Item's own Item Default having it set
+        # correctly. Moving the call to the top-level postprocess arg (this
+        # function) fixes the ordering.
+        target_doc.run_method("set_missing_values")
+
     return get_mapped_doc(
         "Delivery Note",
         source_name,
@@ -317,4 +339,5 @@ def custom_make_sales_invoice(source_name, target_doc=None):
             },
         },
         target_doc,
+        _finalize,
     )

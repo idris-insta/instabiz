@@ -71,7 +71,7 @@ class IBAdvanceApprovals {
 
 		this.$el.find("#ib-aa-kpis").html(ibUI.statGrid([
 			{ v: pending.length, l: "Pending Requests" },
-			{ v: ibUI.money(total_pending_amt), l: "Pending Amount" },
+			{ v: ibUI.money(total_pending_amt, { compact: true }), l: "Pending Amount" },
 			{ v: approved_today, l: "Approved Today" },
 			{ v: rejected_today, l: "Rejected Today" },
 		]));

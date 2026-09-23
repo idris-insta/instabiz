@@ -78,8 +78,8 @@ class CustomSalesOrder(IbStatusMixin, SalesOrder):
         _check_no_active_production(self)
 
     def before_submit(self):
-        # _check_credit_limit(self)  # temporarily disabled 2026-09-03 (user request) — re-enable when ready
-        # _check_overdue_block(self)  # temporarily disabled 2026-09-03 (user request) — re-enable when ready
+        _check_credit_limit(self)  # re-enabled 2026-09-23 (user request)
+        # _check_overdue_block(self)  # still disabled 2026-09-03 (user request) — re-enable when ready
         check_advance_approval(self)
 
 
@@ -345,6 +345,17 @@ def custom_make_delivery_note(source_name, target_doc=None, item_code=None, orde
         map_parent_fields(source_doc, target_doc)
         map_address_contact_fields(source_doc, target_doc)
 
+    def _finalize(source_doc, target_doc):
+        # Same gap as custom_make_sales_invoice (delivery_note.py) — must be
+        # get_mapped_doc's top-level `postprocess` arg, not the per-table
+        # "Sales Order" block's own postprocess key. frappe's mapper runs the
+        # per-table one (map_doc → table_map["postprocess"]) BEFORE child
+        # tables (Sales Order Item → Delivery Note Item) are ever mapped —
+        # confirmed live, target_doc.items was empty every time this ran
+        # from inside postprocess_parent, so set_missing_item_details() had
+        # nothing to resolve expense_account/cost_center defaults onto.
+        target_doc.run_method("set_missing_values")
+
     location = (frappe.db.get_value("Sales Order", source_name, "custom_location") or "").strip().lower()
     _dn_warehouse = LOCATION_WAREHOUSE.get(location)
 
@@ -431,4 +442,5 @@ def custom_make_delivery_note(source_name, target_doc=None, item_code=None, orde
             },
         },
         target_doc,
+        _finalize,
     )

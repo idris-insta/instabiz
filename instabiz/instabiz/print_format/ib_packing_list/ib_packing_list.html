@@ -188,12 +188,26 @@
       {% set total_wt = namespace(v=0.0) %}
       {% for row in doc.items %}
         {% set item = frappe.get_cached_doc("Item", row.item_code) %}
-        {% set rolls_per_box = item.custom_rolls_per_box or 1 %}
+        {#- Real bug, fixed here: rolls_per_box used to default to 1 when the
+            Item had no custom_rolls_per_box set — not a rare case, every real
+            item in the catalog has this field unset. That silently turned
+            "no packaging data" into "1 roll per box", so No. of Boxes printed
+            the item's full SQMT/PCS quantity as a box count (e.g. a real
+            1,860 SQMT line printed "1860 boxes"). Show "—" instead of a
+            guessed, physically-wrong number — same no-guessing rule this
+            app already applies to UOM conversion and RM/FG recipe matching
+            elsewhere. Row is also left out of the TOTAL, since an unknown
+            box count can't be summed into a real total. -#}
+        {% set rolls_per_box = item.custom_rolls_per_box or 0 %}
         {% set carton_wt = item.custom_carton_weight_kg or 0 %}
-        {% set boxes = (row.qty / rolls_per_box) | round(2) %}
-        {% set line_wt = (boxes * carton_wt) | round(2) %}
-        {% set total_boxes.v = total_boxes.v + boxes %}
-        {% set total_wt.v = total_wt.v + line_wt %}
+        {% set boxes = (row.qty / rolls_per_box) | round(2) if rolls_per_box else None %}
+        {% set line_wt = (boxes * carton_wt) | round(2) if boxes is not none else None %}
+        {% if boxes is not none %}
+          {% set total_boxes.v = total_boxes.v + boxes %}
+        {% endif %}
+        {% if line_wt is not none %}
+          {% set total_wt.v = total_wt.v + line_wt %}
+        {% endif %}
         <tr>
           <td>{{ loop.index }}</td>
           <td class="wrap-anywhere">{{ row.item_code }}</td>
@@ -206,10 +220,10 @@
           <td>{{ row.custom_branding or "" }}</td>
           <td>{{ fq(row.qty) }}</td>
           <td>{{ row.uom }}</td>
-          <td>{{ rolls_per_box }}</td>
-          <td>{{ boxes }}</td>
+          <td>{{ rolls_per_box or "—" }}</td>
+          <td>{{ boxes if boxes is not none else "—" }}</td>
           <td>{{ carton_wt }}</td>
-          <td>{{ line_wt }}</td>
+          <td>{{ line_wt if line_wt is not none else "—" }}</td>
           <td>{{ row.custom_marking or item.custom_carton_marking or "" }}</td>
         </tr>
       {% endfor %}

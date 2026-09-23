@@ -250,22 +250,31 @@ class IBCollectionsDashboard {
 		return "₹" + Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 	}
 
+	// KPI-card version of _fmt — crore/lakh scale ("₹13.55 Cr") with the
+	// exact amount as a hover title, same fix as Customer Health/ib_ui.js's
+	// compact money mode. Table/row amounts elsewhere on this page keep
+	// _fmt's full precision — only these 4 top KPI cards are narrow enough
+	// to overflow on a real crore-scale customer base.
+	_fmtC(v) {
+		return `<span title="${this._fmt(v)}">${window.ib_fmt_inr_compact ? window.ib_fmt_inr_compact(v) : this._fmt(v)}</span>`;
+	}
+
 	_render_kpis(k) {
 		this.$wrap.find("#ib-col-kpis").html(`
 			<div class="ib-col-kpi">
 				<div class="ib-col-kpi-bar" style="background:#ef4444"></div>
 				<div class="ib-col-kpi-l">Total Outstanding</div>
-				<div class="ib-col-kpi-v" style="color:#dc2626">${this._fmt(k.total_outstanding)}</div>
+				<div class="ib-col-kpi-v" style="color:#dc2626">${this._fmtC(k.total_outstanding)}</div>
 			</div>
 			<div class="ib-col-kpi">
 				<div class="ib-col-kpi-bar" style="background:#1d4ed8"></div>
 				<div class="ib-col-kpi-l">Advance Available</div>
-				<div class="ib-col-kpi-v" style="color:#1d4ed8">${this._fmt(k.total_advance)}</div>
+				<div class="ib-col-kpi-v" style="color:#1d4ed8">${this._fmtC(k.total_advance)}</div>
 			</div>
 			<div class="ib-col-kpi">
 				<div class="ib-col-kpi-bar" style="background:#d97757"></div>
 				<div class="ib-col-kpi-l">Net Due</div>
-				<div class="ib-col-kpi-v">${this._fmt(k.net_outstanding)}</div>
+				<div class="ib-col-kpi-v">${this._fmtC(k.net_outstanding)}</div>
 			</div>
 			<div class="ib-col-kpi">
 				<div class="ib-col-kpi-bar" style="background:#f59e0b"></div>
@@ -275,7 +284,7 @@ class IBCollectionsDashboard {
 			<div class="ib-col-kpi">
 				<div class="ib-col-kpi-bar" style="background:#10b981"></div>
 				<div class="ib-col-kpi-l">Collected (90d)</div>
-				<div class="ib-col-kpi-v" style="color:#059669">${this._fmt(k.collected_90d)}</div>
+				<div class="ib-col-kpi-v" style="color:#059669">${this._fmtC(k.collected_90d)}</div>
 			</div>
 		`);
 	}

@@ -33,10 +33,6 @@ class IBCustomerHealth {
 .ib-ch-tbl-wrap .ib-ui-table thead th { position: sticky; top: 0; background: var(--card-bg); z-index: 1; }
 .ib-ch-tbl-wrap .ib-ui-table tbody tr { cursor: pointer; }
 .ib-ch-tbl-wrap .ib-ui-table th:nth-child(n+6) { text-align: right; }
-/* 6 stats (3 of them large crore-scale ₹ amounts) share this row — ib-ui's
-   default 26px stat value overflows a ~180px auto-fit column at that scale;
-   scoped down here rather than shrinking the shared component globally. */
-#ib-ch-kpis .ib-ui-stat .v { font-size: 19px; }
 .ib-ch-score { display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px; border-radius: 50%; font-size: 11px; font-weight: 700; }
 .ib-ch-score.hi { background: var(--ib-ok-bg); color: var(--ib-ok-fg); }
@@ -102,9 +98,9 @@ class IBCustomerHealth {
 			{ v: d.total, l: "Total Customers" },
 			{ v: d.agg_healthy || 0, l: "Healthy (≥80)" },
 			{ v: d.agg_at_risk || 0, l: "At Risk (<50)" },
-			{ v: ibUI.money(d.agg_mtd || 0), l: "MTD Revenue" },
-			{ v: ibUI.money(d.agg_ytd || 0), l: "YTD Revenue" },
-			{ v: ibUI.money(d.agg_outstanding || 0), l: "Total Outstanding" },
+			{ v: ibUI.money(d.agg_mtd || 0, { compact: true }), l: "MTD Revenue" },
+			{ v: ibUI.money(d.agg_ytd || 0, { compact: true }), l: "YTD Revenue" },
+			{ v: ibUI.money(d.agg_outstanding || 0, { compact: true }), l: "Total Outstanding" },
 		]));
 
 		const rows = customers.map((c) => {

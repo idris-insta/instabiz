@@ -234,7 +234,7 @@ class IBFinanceDashboard {
 			<div class="ib-fin-kpi" data-kpi="${i}">
 				<div class="ib-fin-kpi-bar" style="background:${k.color}"></div>
 				<div class="ib-fin-kpi-lbl">${k.label}</div>
-				<div class="ib-fin-kpi-val" data-countup="${k.raw}" data-cu-inr="1">${this._fmt(k.raw)}</div>
+				<div class="ib-fin-kpi-val" data-countup="${k.raw}" data-cu-inr="1" data-cu-compact="1" title="${this._fmt(k.raw)}">${window.ib_fmt_inr_compact ? window.ib_fmt_inr_compact(k.raw) : this._fmt(k.raw)}</div>
 				<div class="ib-fin-kpi-delta">${k.delta}</div>
 				<span class="ib-fin-arrow">→</span>
 			</div>`).join("");

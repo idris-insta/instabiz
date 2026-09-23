@@ -33,6 +33,7 @@ location-gated piece of this module (_WAREHOUSE_ONLY_LOCATIONS,
 IB Production Floor, etc).
 """
 import frappe
+from frappe import _
 from frappe.utils import flt, nowdate
 
 _LOCATION_WAREHOUSES = {
@@ -159,14 +160,28 @@ def post_run_finish_transfer(doc):
 		stock_uom = frappe.get_cached_value("Item", o.item_code, "stock_uom")
 		factor = _real_uom_conversion_factor(o.item_code, o.uom, stock_uom)
 		if factor is None:
-			frappe.log_error(
-				"IB production_stock: unresolvable UOM",
-				f"IB Work Order {doc.name}, output item {o.item_code}: produced_qty is in "
-				f"'{o.uom}' but Item's stock_uom is '{stock_uom}' and there's no real UOM "
-				f"Conversion Detail row for that pair. Refusing to post the finish transfer "
-				f"— would have silently posted the wrong quantity into FG stock.",
-			)
-			return None
+			# Real bug, fixed here: this used to log_error + return None —
+			# post_run_finish_transfer's caller (_finish_run) never checked
+			# that return value, so the run still completed normally (FG
+			# batch + serial genealogy created, workflow -> Completed) with
+			# NO finish transfer ever posted. Confirmed live: WIP stock for
+			# the source item is left stuck there forever (never credited
+			# out), the FG item never actually lands in the FG warehouse's
+			# Bin despite genealogy claiming a real unit was produced, and
+			# `stock_entry` stays blank on the run — a completed run
+			# reporting real output that was never actually received into
+			# stock anywhere, silently. Raising here instead aborts the
+			# whole Finish action (doc.save() above hasn't been committed
+			# yet — frappe.db.commit() only runs after this in advance_run
+			# — so the request rolls back the Completed status too, not
+			# just the stock post), same "refuse rather than silently
+			# drift" rule this module's own docstring already applies to
+			# the posting logic, now applied to completion itself.
+			frappe.throw(_(
+				"Cannot complete this run: output '{0}' is recorded in '{1}' but its Item's "
+				"stock unit is '{2}', and there is no UOM Conversion Detail for that exact "
+				"pair. Add the conversion on the Item first, then try Finish again."
+			).format(o.item_name or o.item_code, o.uom, stock_uom))
 		plan.append({"item_code": o.item_code, "qty": qty, "uom": o.uom or stock_uom,
 		             "conversion_factor": factor})
 
@@ -189,12 +204,26 @@ def post_run_finish_transfer(doc):
 	produce_rows = 0
 	total_fg_equiv = 0.0
 	for row in plan:
+		# Real bug, fixed here: a Repack entry's `t_warehouse`-only rows are
+		# ALL treated as `is_finished_item` by core (mark_finished_and_scrap_
+		# items — true for the scrap row below too, not just FG output rows,
+		# since purpose == "Repack" flags every such row regardless of intent).
+		# Core's validate_repack_entry() then hard-throws "the basic rate for
+		# all finished goods must be set manually" the moment more than one
+		# such row exists in one entry — reachable on every real multi-output
+		# run (several real outputs sharing one source batch/pass is the
+		# normal case here, not an edge case), confirmed live. Setting
+		# set_basic_rate_manually + an explicit basic_rate on every one of
+		# these rows up front avoids the throw regardless of row count.
+		rate = flt(frappe.get_cached_value("Item", row["item_code"], "valuation_rate"))
 		se_row = {
 			"item_code": row["item_code"],
 			"qty": row["qty"],
 			"uom": row["uom"],
 			"conversion_factor": row["conversion_factor"],
 			"t_warehouse": fg,
+			"set_basic_rate_manually": 1,
+			"basic_rate": rate,
 		}
 		# Real bug, fixed here: an FG item produced for the first time ever
 		# (no prior incoming-valued stock anywhere) has no resolvable
@@ -206,7 +235,7 @@ def post_run_finish_transfer(doc):
 		# — same fallback: post at zero value rather than hard-blocking a
 		# real production completion over a bookkeeping gap; a real cost can
 		# be set on the item master and reposted later.
-		if not flt(frappe.get_cached_value("Item", row["item_code"], "valuation_rate")):
+		if not rate:
 			se_row["allow_zero_valuation_rate"] = 1
 		se.append("items", se_row)
 		produce_rows += 1
@@ -221,14 +250,17 @@ def post_run_finish_transfer(doc):
 	if scrap and total_fg_equiv:
 		wastage_qty = flt(doc.source_qty) - total_fg_equiv
 		if wastage_qty > 0:
+			scrap_rate = flt(frappe.get_cached_value("Item", doc.source_item, "valuation_rate"))
 			scrap_row = {
 				"item_code": doc.source_item,
 				"qty": wastage_qty,
 				"uom": source_stock_uom,
 				"conversion_factor": 1.0,
 				"t_warehouse": scrap,
+				"set_basic_rate_manually": 1,
+				"basic_rate": scrap_rate,
 			}
-			if not flt(frappe.get_cached_value("Item", doc.source_item, "valuation_rate")):
+			if not scrap_rate:
 				scrap_row["allow_zero_valuation_rate"] = 1
 			se.append("items", scrap_row)
 

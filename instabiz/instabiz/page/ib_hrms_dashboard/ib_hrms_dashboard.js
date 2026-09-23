@@ -222,18 +222,21 @@ class IBHrmsDashboard {
 				click() { frappe.route_options = { status: "Open", docstatus: 0 }; frappe.set_route("List", "Leave Application"); },
 			},
 			{
-				label: payrollLabel, val: fmt(d.payroll_mtd), rawNum: d.payroll_mtd, isInr: true, color: "#d97757",
+				label: payrollLabel,
+				val: window.ib_fmt_inr_compact ? window.ib_fmt_inr_compact(d.payroll_mtd) : fmt(d.payroll_mtd),
+				rawNum: d.payroll_mtd, isInr: true, color: "#d97757",
 				click() { frappe.route_options = { start_date: month_start }; frappe.set_route("List", "Salary Slip"); },
 			},
 		];
 		const $kpis = this.$wrap.find("#ib-hr-kpis").html(kpis.map((k, i) => {
 			const rawNum = typeof k.rawNum !== "undefined" ? k.rawNum : null;
 			const cuAttr = rawNum !== null
-				? (k.isInr ? `data-countup="${rawNum}" data-cu-inr="1"` : `data-countup="${rawNum}"`)
+				? (k.isInr ? `data-countup="${rawNum}" data-cu-inr="1" data-cu-compact="1"` : `data-countup="${rawNum}"`)
 				: "";
+			const titleAttr = k.isInr ? `title="${fmt(rawNum)}"` : "";
 			return `
 			<div class="ib-hr-kpi ib-hr-kpi--link" data-kpi="${i}" style="border-top-color:${k.color};cursor:pointer">
-				<div class="ib-hr-kpi-val" style="color:${k.color}" ${cuAttr}>${k.val}</div>
+				<div class="ib-hr-kpi-val" style="color:${k.color}" ${cuAttr} ${titleAttr}>${k.val}</div>
 				<div class="ib-hr-kpi-lbl">${k.label}</div>
 				<div style="position:absolute;bottom:8px;right:10px;font-size:10px;color:${k.color};opacity:.5">→</div>
 			</div>`;

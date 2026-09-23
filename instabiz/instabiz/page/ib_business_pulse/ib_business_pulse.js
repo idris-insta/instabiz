@@ -99,6 +99,12 @@ class IBBusinessPulse {
 
 	_fmt(v) { return "₹" + Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 }); }
 
+	// KPI-metric version — crore/lakh scale with the exact amount as a
+	// hover title, same convention as the other dashboards' KPI cards.
+	_fmtC(v) {
+		return `<span title="${this._fmt(v)}">${window.ib_fmt_inr_compact ? window.ib_fmt_inr_compact(v) : this._fmt(v)}</span>`;
+	}
+
 	_render(d) {
 		this._render_domains(d);
 		this._render_trend(d.trend_14 || []);
@@ -118,13 +124,13 @@ class IBBusinessPulse {
 				key: "Revenue", icon: "wallet", route: "ib-main-dashboard",
 				metrics: [
 					{
-						label: "Revenue MTD", value: this._fmt(d.rev_mtd),
+						label: "Revenue MTD", value: this._fmtC(d.rev_mtd),
 						badge: d.rev_change_pct == null ? "" :
 							`<span class="ib-bp-metric-badge ${d.rev_change_pct >= 0 ? "up" : "down"}">${d.rev_change_pct >= 0 ? "▲" : "▼"} ${Math.abs(d.rev_change_pct)}% vs last mo</span>`,
 						route: () => frappe.set_route("List", doctype, Object.assign({ docstatus: 1, [`${date_field},Between`]: between }, status_filter)),
 					},
 					{ label: "Collection Rate", value: d.collection_rate + "%", route: () => frappe.set_route("query-report", "IB Collections Report") },
-					{ label: "Outstanding AR", value: this._fmt(d.ar), route: () => frappe.set_route("query-report", "IB AR Aging") },
+					{ label: "Outstanding AR", value: this._fmtC(d.ar), route: () => frappe.set_route("query-report", "IB AR Aging") },
 				],
 			},
 			{
