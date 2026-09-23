@@ -201,68 +201,85 @@ def post_run_finish_transfer(doc):
 		"s_warehouse": wip,
 	})
 
-	produce_rows = 0
 	total_fg_equiv = 0.0
 	for row in plan:
-		# Real bug, fixed here: a Repack entry's `t_warehouse`-only rows are
-		# ALL treated as `is_finished_item` by core (mark_finished_and_scrap_
-		# items — true for the scrap row below too, not just FG output rows,
-		# since purpose == "Repack" flags every such row regardless of intent).
-		# Core's validate_repack_entry() then hard-throws "the basic rate for
-		# all finished goods must be set manually" the moment more than one
-		# such row exists in one entry — reachable on every real multi-output
-		# run (several real outputs sharing one source batch/pass is the
-		# normal case here, not an edge case), confirmed live. Setting
-		# set_basic_rate_manually + an explicit basic_rate on every one of
-		# these rows up front avoids the throw regardless of row count.
-		rate = flt(frappe.get_cached_value("Item", row["item_code"], "valuation_rate"))
+		ratio = _recipe_ratio(doc.source_item, row["item_code"])
+		if ratio:
+			total_fg_equiv += row["qty"] * flt(ratio)
+
+	scrap = _wh(doc.location, "scrap")
+	scrap_wastage_qty = 0.0
+	if scrap and total_fg_equiv:
+		w = flt(doc.source_qty) - total_fg_equiv
+		if w > 0:
+			scrap_wastage_qty = w
+
+	# Real bug, fixed here (confirmed live 2026-09-24): forcing
+	# set_basic_rate_manually + a static Item.valuation_rate on EVERY FG
+	# output row — including the single-output case, which is the common
+	# one — threw away core's own correct Repack costing. A Repack entry
+	# with exactly one finished-item row and no manual override auto-values
+	# it from the total real value of what was actually consumed (the WIP
+	# row's real moving-average rate, not the often-stale Item.valuation_rate
+	# snapshot). Forcing a manual rate here instead made the FG row post at
+	# whatever Item.valuation_rate happened to be (often 0 for an item never
+	# separately purchased) — confirmed live: a real run consuming ₹200 of
+	# real-valued RM produced FG at ₹0, with the ₹200 silently landing on
+	# "Stock Adjustment - IB" as Frappe's balancing difference line instead
+	# of capitalizing into the Finished Goods account. Only force a manual
+	# rate when core actually requires it — more than one finished-item row
+	# in the same entry (validate_repack_entry() hard-throws "basic rate for
+	# all finished goods must be set manually" past one such row; the scrap
+	# row below is also flagged is_finished_item by core the moment it
+	# fires, so it counts toward this total too) — where there's no single
+	# real total to auto-split across multiple different output items
+	# without guessing an allocation.
+	multi_output = (len(plan) + (1 if scrap_wastage_qty else 0)) > 1
+
+	for row in plan:
 		se_row = {
 			"item_code": row["item_code"],
 			"qty": row["qty"],
 			"uom": row["uom"],
 			"conversion_factor": row["conversion_factor"],
 			"t_warehouse": fg,
-			"set_basic_rate_manually": 1,
-			"basic_rate": rate,
 		}
-		# Real bug, fixed here: an FG item produced for the first time ever
-		# (no prior incoming-valued stock anywhere) has no resolvable
-		# valuation rate — ERPNext's get_valuation_rate() then hard-throws
-		# "Valuation Rate ... is required", an uncaught ValidationError that
-		# would abort the whole Finish action (advance_run/_finish_run),
-		# confirmed live. Same class of gap already fixed for Container
-		# Import's Material Receipt (ib_container_import.py _make_stock_entry)
-		# — same fallback: post at zero value rather than hard-blocking a
-		# real production completion over a bookkeeping gap; a real cost can
-		# be set on the item master and reposted later.
-		if not rate:
-			se_row["allow_zero_valuation_rate"] = 1
+		if multi_output:
+			# Real bug, fixed here: an FG item produced for the first time
+			# ever (no prior incoming-valued stock anywhere) has no
+			# resolvable valuation rate — ERPNext's get_valuation_rate()
+			# then hard-throws "Valuation Rate ... is required", an
+			# uncaught ValidationError that would abort the whole Finish
+			# action (advance_run/_finish_run), confirmed live. Same class
+			# of gap already fixed for Container Import's Material Receipt
+			# (ib_container_import.py _make_stock_entry) — same fallback:
+			# post at zero value rather than hard-blocking a real
+			# production completion over a bookkeeping gap; a real cost
+			# can be set on the item master and reposted later. Only
+			# reachable for the multi-output case now — the single-output
+			# case lets core auto-value it for real instead (see above).
+			rate = flt(frappe.get_cached_value("Item", row["item_code"], "valuation_rate"))
+			se_row["set_basic_rate_manually"] = 1
+			se_row["basic_rate"] = rate
+			if not rate:
+				se_row["allow_zero_valuation_rate"] = 1
 		se.append("items", se_row)
-		produce_rows += 1
-		ratio = _recipe_ratio(doc.source_item, row["item_code"])
-		if ratio:
-			total_fg_equiv += row["qty"] * flt(ratio)
 
-	if not produce_rows:
-		return None
-
-	scrap = _wh(doc.location, "scrap")
-	if scrap and total_fg_equiv:
-		wastage_qty = flt(doc.source_qty) - total_fg_equiv
-		if wastage_qty > 0:
+	if scrap_wastage_qty:
+		scrap_row = {
+			"item_code": doc.source_item,
+			"qty": scrap_wastage_qty,
+			"uom": source_stock_uom,
+			"conversion_factor": 1.0,
+			"t_warehouse": scrap,
+		}
+		if multi_output:
 			scrap_rate = flt(frappe.get_cached_value("Item", doc.source_item, "valuation_rate"))
-			scrap_row = {
-				"item_code": doc.source_item,
-				"qty": wastage_qty,
-				"uom": source_stock_uom,
-				"conversion_factor": 1.0,
-				"t_warehouse": scrap,
-				"set_basic_rate_manually": 1,
-				"basic_rate": scrap_rate,
-			}
+			scrap_row["set_basic_rate_manually"] = 1
+			scrap_row["basic_rate"] = scrap_rate
 			if not scrap_rate:
 				scrap_row["allow_zero_valuation_rate"] = 1
-			se.append("items", scrap_row)
+		se.append("items", scrap_row)
 
 	se.remarks = f"IB Work Order {doc.name} — finish (WIP -> FG/Scrap)"
 	se.insert(ignore_permissions=True)
