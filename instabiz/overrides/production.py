@@ -755,7 +755,56 @@ def get_order_sheets(status=None, priority=None, location=None, search=None):
 		tuple(sheet_names),
 		as_dict=True,
 	)
-	stage_map = {row.parent: row for row in stage_counts}
+	stage_map = {row.parent: frappe._dict(row) for row in stage_counts}
+
+	# Real bug, fixed here (confirmed live 2026-09-24, user report: "order
+	# with 5 items only one completed shows 100%"). stage_counts above joins
+	# through `IB Work Order` — an Order Sheet Item that has never been
+	# started (zero Work Orders against it) contributes NO rows there at
+	# all, so its whole route silently never enters the denominator. Once
+	# the one item that WAS started finishes, stage_done/stage_total both
+	# equal that one item's own stage count -> 100%, while 4 other items on
+	# the same order haven't even begun. Fixed by adding each never-started
+	# item's full canonical route length as an all-undone (0 done / N
+	# total) contribution to the same per-sheet totals — a started item's
+	# own IB WO Route Stage rows already cover its FULL route from the
+	# moment it's created (create_run appends every stage upfront, not
+	# incrementally), so this only needs to cover items with zero runs.
+	all_items = frappe.db.sql(
+		f"""
+		SELECT parent, name, item_code, sales_order_item
+		FROM `tabIB Order Sheet Item`
+		WHERE parent IN ({placeholders})
+		""",
+		tuple(sheet_names),
+		as_dict=True,
+	)
+	started_soi = {r[0] for r in frappe.db.sql(
+		f"""
+		SELECT DISTINCT o.sales_order_item
+		FROM `tabIB WO Output` o
+		JOIN `tabIB Work Order` w ON w.name = o.parent
+		WHERE w.order_sheet IN ({placeholders}) AND w.status != 'Cancelled'
+		""",
+		tuple(sheet_names),
+	)}
+	location_by_sales_order = dict(frappe.db.sql(
+		"SELECT name, LOWER(COALESCE(custom_location, '')) FROM `tabSales Order` WHERE name IN "
+		f"({', '.join(['%s'] * len(sheet_names))})",
+		tuple(s.sales_order for s in sheets),
+	)) if sheets else {}
+	sheet_location = {s.name: location_by_sales_order.get(s.sales_order) or None for s in sheets}
+
+	for it in all_items:
+		if it.sales_order_item and it.sales_order_item in started_soi:
+			continue
+		route = _get_stage_route(it.item_code, sheet_location.get(it.parent))
+		n = len(route or [])
+		if not n:
+			continue
+		agg = stage_map.setdefault(it.parent, frappe._dict({"total_stages": 0, "done_stages": 0}))
+		agg["total_stages"] = flt(agg.get("total_stages")) + n
+		# done_stages untouched — a never-started item contributes 0 done.
 
 	# Gap found via cross-tab QC (Command Center vs Order-wise): IB Order
 	# Sheet.status is only ever Draft/In Progress/Completed
