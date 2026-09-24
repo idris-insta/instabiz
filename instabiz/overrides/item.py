@@ -1,6 +1,7 @@
 """instabiz.overrides.item
 
-Custom item search query + batch-tracking auto-enable for FG item groups.
+Custom item search query, barcode sync, and the dimension rule that every
+transaction row inherits (see assert_roll_dimensions at the bottom).
 """
 import frappe
 from erpnext.controllers.queries import get_filters_cond, get_match_cond
@@ -203,3 +204,60 @@ def item_query(doctype, txt, searchfield, start, page_len, filters, as_dict=Fals
         },
         as_dict=as_dict,
     )
+
+
+# ── Dimensions on the Item, not on every line ────────────────────────────────
+# Rolls and sheets are sold by area, so width / length / thickness are what the
+# qty formula multiplies (see utils.recalculate_items). Every transaction row
+# fetches them from here, so getting the SKU right once is what makes the rows
+# right everywhere. Aerosols, sealants and adhesives are sold by the can or the
+# kilo and genuinely have no width — the rule is deliberately tied to the UOM,
+# not applied to the whole catalogue.
+ROLL_UOMS = ("SQMT", "ROLL")
+_DIMENSION_FIELDS = (
+	("width_mm", "Width (MM)"),
+	("length_mtr", "Length (MTR)"),
+	("custom_thickness", "Thickness"),
+)
+
+
+def assert_roll_dimensions(doc, method=None):
+	"""validate: a roll / sheet SKU must carry its own dimensions.
+
+	Mirrors the mandatory_depends_on on the same fields — that one only runs in
+	the browser, and Items also arrive by API, data import and bench.
+	"""
+	if (doc.get("stock_uom") or "").strip().upper() not in ROLL_UOMS:
+		return
+	if cint(doc.get("disabled")) or cint(doc.get("has_variants")):
+		return
+	# Packing consumables and service lines are never sold by area — shrink film
+	# is bought by the roll and used up, it is not a SKU anyone quotes a width
+	# for. Same exemption the barcode backfill already uses.
+	if doc.get("item_group") in _INTERNAL_ITEM_GROUPS:
+		return
+	if not cint(doc.get("is_stock_item", 1)) or cint(doc.get("custom_is_internal_use")):
+		return
+	missing = [label for field, label in _DIMENSION_FIELDS if not doc.get(field)]
+	if not missing:
+		return
+
+	message = frappe._("{0} is sold by area ({1}), so it needs {2}. Every quotation, order, "
+		"delivery, invoice and stock row reads these from the Item, and the qty formula "
+		"multiplies them out.").format(
+			frappe.bold(doc.get("item_name") or doc.name or frappe._("This item")),
+			doc.get("stock_uom"),
+			", ".join(missing),
+		)
+
+	# A handful of SKUs predate this rule and genuinely have no dimensions on
+	# record. Blocking them would mean nobody can touch an unrelated field —
+	# a price, a barcode, the disabled tick — until someone tracks down a width
+	# that may no longer be known. So: new items must be right, old ones are
+	# told loudly every time they are opened. Same call as incentive_guard.
+	if not doc.get("__islocal"):
+		frappe.msgprint(message, indicator="orange", alert=True,
+			title=frappe._("Dimensions Missing"))
+		return
+
+	frappe.throw(message, title=frappe._("Dimensions Required"))

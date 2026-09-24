@@ -133,6 +133,10 @@ def get_stock_data(item_group=None, uom=None, warehouse=None, hide_zero_stock=1,
 			"spec_liner":       (row.custom_liner or "").strip(),
 			"spec_adhesive":    (row.custom_adhesive_type or "").strip(),
 			"uom":              row.stock_uom,
+			"roll_area_sqm":    _roll_area(row.width_mm, row.length_mtr) if (row.stock_uom or "").upper() == "SQMT" else None,
+			"rolls":            _rolls_from_sqm(total_stock, row.width_mm, row.length_mtr) if (row.stock_uom or "").upper() == "SQMT" else None,
+			"rolls_available":  _rolls_from_sqm(total_available, row.width_mm, row.length_mtr) if (row.stock_uom or "").upper() == "SQMT" else None,
+			"sqm":              round(flt(total_stock), 2) if (row.stock_uom or "").upper() == "SQMT" else None,
 			"maharashtra":      _fmt_qty(mh),
 			"chennai":          _fmt_qty(cn),
 			"gujarat":          _fmt_qty(gj),
@@ -202,8 +206,23 @@ def _fmt_dim(val):
 
 
 def _fmt_qty(val):
-	"""Strip unnecessary decimals from qty values."""
+	"""Qty display: integers stay int; else 2 decimal places (SQM stock)."""
 	f = flt(val)
 	if f == 0:
 		return 0
-	return int(f) if f == int(f) else round(f, 2)
+	if abs(f - int(f)) < 1e-9:
+		return int(f)
+	return round(f, 2)
+
+def _roll_area(width_mm, length_mtr):
+	w = flt(width_mm)
+	l = flt(length_mtr)
+	if w <= 0 or l <= 0:
+		return 0.0
+	return round((w / 1000.0) * l, 2)
+
+def _rolls_from_sqm(qty_sqm, width_mm, length_mtr):
+	area = _roll_area(width_mm, length_mtr)
+	if area <= 0:
+		return None
+	return round(flt(qty_sqm) / area, 2)

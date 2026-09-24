@@ -555,12 +555,13 @@ class IBStockDashboard {
 
 	_columns() {
 		const wh          = this.f_warehouse.get_value();
-		const stock_label = wh ? wh.split(" - ")[0] : __("Total Stock");
+		const stock_label = wh ? wh.split(" - ")[0] : __("SQM / Qty");
 		return [
 			{ id: "item_name",       label: __("Item Name"),     cls: "ib-col-name"             },
 			{ id: "item_code",       label: __("Item Code"),     cls: "ib-col-code"             },
 			{ id: "specification",   label: __("Specification"), cls: "ib-col-spec"             },
 			{ id: "uom",             label: __("UOM"),           cls: "ib-col-uom"              },
+			{ id: "rolls",           label: __("Rolls"),         cls: "ib-col-qty"              },
 			{ id: "total_stock",     label: stock_label,         cls: "ib-col-qty ib-col-total" },
 			{ id: "total_available", label: __("Available"),     cls: "ib-col-qty",
 			  tip: __("Total Stock minus reserved quantity. Negative means more is committed to open orders than is physically in stock (over-reserved).") },
@@ -652,6 +653,7 @@ class IBStockDashboard {
 					</td>
 					<td class="ib-col-spec">${this._spec_cell(row)}</td>
 					<td class="ib-col-uom">${esc(row.uom || "")}</td>
+					<td class="ib-col-qty">${row.rolls != null && row.rolls !== "" ? this._qty(row.rolls) : "—"}</td>
 					<td class="ib-col-qty ib-col-total">${this._qty(row.total_stock)}</td>
 					<td class="ib-col-qty">${this._qty(row.total_available, true)}</td>
 				</tr>

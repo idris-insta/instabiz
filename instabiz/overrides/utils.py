@@ -367,13 +367,40 @@ def apply_roll_area(doc):
                 item.stock_qty = flt(item.get("qty")) * area
 
 
+def dimension_qty(uom, width_mm, length_mtr, qty_pkg, total_pkg):
+    """Qty the dimensions imply, or None when they don't imply one.
+
+    The single copy of the rule. Quotation has always worked this way; every
+    other document that takes items goes through here too, so an item reads and
+    computes the same wherever it is added.
+
+    Square Meter:  (width_mm / 1000) * length_mtr * qty_pkg * total_pkg
+    Any other UOM: qty_pkg * total_pkg
+
+    Returns None on an incomplete set — a row with total_pkg still blank may
+    carry a hand-typed qty, and zeroing it out on save is never what was meant.
+    A can of aerosol has no width and never will; that is the None case, not a
+    missing-data case.
+    """
+    uom = (uom or "").strip().upper()
+    width_mm, length_mtr = flt(width_mm), flt(length_mtr)
+    qty_pkg, total_pkg = flt(qty_pkg), flt(total_pkg)
+
+    if uom == "SQMT":
+        if width_mm and length_mtr and qty_pkg and total_pkg:
+            return (width_mm / 1000) * length_mtr * qty_pkg * total_pkg
+        return None
+    if qty_pkg and total_pkg:
+        return qty_pkg * total_pkg
+    return None
+
+
 def recalculate_items(doc):
     """
     For every item row, derive qty from dimensions then amount from qty * rate.
 
-    Square Meter:  qty = (width_mm / 1000) * length_mtr * qty_pkg * total_pkg
-    Any other UOM: qty = qty_pkg * total_pkg
-    Incomplete dims: leave qty as-is (user may have typed it manually)
+    Formula lives in dimension_qty(); amount and the roll conversion factor are
+    the parts specific to a priced sales document.
     Rolls of an SQMT item: conversion factor = m² per roll (apply_roll_area)
     """
     apply_roll_area(doc)
@@ -393,12 +420,9 @@ def recalculate_items(doc):
         total_pkg  = flt(item.get("total_pkg"))
         rate       = flt(item.get("rate"))
 
-        if uom == "SQMT":
-            if width_mm and length_mtr and qty_pkg and total_pkg:
-                item.qty = (width_mm / 1000) * length_mtr * qty_pkg * total_pkg
-        else:
-            if qty_pkg and total_pkg:
-                item.qty = qty_pkg * total_pkg
+        derived = dimension_qty(uom, width_mm, length_mtr, qty_pkg, total_pkg)
+        if derived is not None:
+            item.qty = derived
 
         item.amount = round(flt(item.get("qty")) * rate, 2)
 
@@ -430,8 +454,8 @@ def recalculate_purchase_items(doc):
 	"""
 	For purchase docs (PO / GRN / PI):
 	  - ROLL items where stock_uom=SQMT: enforce rate = custom_sqmt_rate × conversion_factor
-	  - SQMT items with dimensions: compute qty = (width_mm/1000) × length_mtr × qty_pkg × total_pkg
-	    Only when all four dimension fields are present (standalone PO entry).
+	  - qty from the row's dimensions, the same rule Quotation uses (dimension_qty).
+	    Buying the same roll should read and compute the same as selling it.
 	"""
 	if doc.get("is_return"):
 		return
@@ -443,13 +467,11 @@ def recalculate_purchase_items(doc):
 		if sqmt_rate and uom == "ROLL" and stock_uom == "SQMT" and cf > 0:
 			item.rate = round(sqmt_rate * cf, 2)
 			item.price_list_rate = item.rate  # prevent super().validate() from resetting to 0
-		elif uom == "SQMT":
-			w = float(item.get("width_mm") or 0)
-			l = float(item.get("length_mtr") or 0)
-			p = float(item.get("qty_pkg") or 0)
-			t = float(item.get("total_pkg") or 0)
-			if w and l and p and t:
-				item.qty = round((w / 1000) * l * p * t, 6)
+
+		derived = dimension_qty(uom, item.get("width_mm"), item.get("length_mtr"),
+			item.get("qty_pkg"), item.get("total_pkg"))
+		if derived is not None:
+			item.qty = round(derived, 6)
 
 
 def map_dimension_fields(source_item, target_item):

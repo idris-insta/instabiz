@@ -1,25 +1,13 @@
 /**
  * ib_sales_common.js
- * Shared item query override for all selling transactions.
- * Registered for Quotation and Sales Order via doctype_js in hooks.py.
+ * Shared Quotation / Sales Order behaviour.
+ * Registered via doctype_js in hooks.py.
+ *
+ * The item search that used to live here now applies to every document that
+ * takes items — see ib_item_picker.js, loaded globally.
  */
 
-function ib_set_item_query(frm, customer_field) {
-	frm.set_query("item_code", "items", function () {
-		return {
-			query: "instabiz.overrides.item.item_query",
-			filters: { customer: frm.doc[customer_field] || "" },
-			page_length: 30,
-		};
-	});
-}
-
-frappe.ui.form.on("Quotation", {
-	refresh: (frm) => ib_set_item_query(frm, "party_name"),
-});
-
 frappe.ui.form.on("Sales Order", {
-	refresh: (frm) => ib_set_item_query(frm, "customer"),
 	onload(frm) {
 		if (frm.is_new() && !frm.doc.delivery_date) {
 			frm.set_value("delivery_date", frappe.datetime.add_days(frm.doc.transaction_date || frappe.datetime.get_today(), ib_default_delivery_days()));
