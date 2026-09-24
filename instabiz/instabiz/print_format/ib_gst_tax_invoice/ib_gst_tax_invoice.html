@@ -487,7 +487,10 @@
             {% set ns_d.v = (ns_d.v + ", " + r2.color) if ns_d.v else r2.color %}
           {% endif %}
           {% if r2.total_pkg %}
-            {% set ns_d.v = (ns_d.v + ", " + (r2.total_pkg|int)|string + " rolls") if ns_d.v else ((r2.total_pkg|int)|string + " rolls") %}
+            {# "N rolls" alone does not say how much is in one, and the qty on this
+               invoice is qty_pkg x total_pkg (x area for SQMT) — print both factors. #}
+            {% set _pkg = ((r2.qty_pkg|int)|string + " x " + (r2.total_pkg|int)|string + " rolls") if r2.qty_pkg else ((r2.total_pkg|int)|string + " rolls") %}
+            {% set ns_d.v = (ns_d.v + ", " + _pkg) if ns_d.v else _pkg %}
           {% endif %}
           {% if ns_d.v | trim %}{% set _ = ns_dims.v.append(ns_d.v | trim) %}{% endif %}
         {% endif %}

@@ -1,0 +1,29 @@
+{% import "templates/print/ib_label_macros.html" as lbl with context %}
+{% set base_url = frappe.utils.get_url() %}
+{% set item = frappe.get_cached_doc("Item", doc.item_code) if doc.item_code else None %}
+{% set width = doc.width_mm or (item.width_mm if item else 0) %}
+{% set length = doc.length_mtr or (item.length_mtr if item else 0) %}
+{# Todo36: a carton cut from more than one jumbo must name every one of them,
+   not just source_batch — that single field is the last-resort fallback. #}
+{% set jumbos = ib_carton_jumbos(doc.name) %}
+{{ lbl.styles() }}
+{{ lbl.sticker(
+	"CARTON",
+	doc.serial_no or doc.name,
+	lbl.roll_spec(width, length, doc.gsm),
+	[
+		["ITEM", doc.item_code or ""],
+		["NAME", doc.item_name or (item.item_name if item else "")],
+		["COLOUR", (item.color if item else "") or ""],
+		["THICKNESS", (item.custom_thickness if item else "") or ""],
+		["BOX NO", doc.box_no or ""],
+		["JUMBO", (jumbos | join(", ")) if jumbos else (doc.source_batch or "")],
+		["FG BATCH", doc.fg_batch or ""],
+		["WORK ORDER", doc.work_order or ""],
+		["ORDER", doc.sales_order or doc.order_sheet or ""],
+		["CUSTOMER", doc.customer or ""],
+		["PRODUCED", ib_date(doc.produced_on)],
+	],
+	doc.serial_no or doc.name,
+	base_url ~ "/app/ib-trace?id=" ~ ((doc.serial_no or doc.name) | urlencode),
+	"Status: " ~ (doc.status or "") ~ ("  ·  Challan: " ~ doc.delivery_note if doc.delivery_note else "")) }}

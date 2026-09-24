@@ -1,0 +1,45 @@
+{#- Physical stock count sheet. overrides/stock_rules.py runs a monthly recon
+    regime (per-item due notifications to Stock Managers, last/next recon dates
+    stamped on the Item on submit) and there was no document to sign at the end
+    of it — this doctype had no print format at all. -#}
+{% import "templates/print/ib_print_macros.html" as ib with context %}
+{% set p = ib_print(doc, "none", layout=(ib_layout if ib_layout is defined else None)) %}
+{% set rows = [] %}
+{% set ns = namespace(sys=0, cnt=0, diff=0, val=0) %}
+{% for r in doc.items %}
+  {% set sys_qty = r.current_qty | float %}
+  {% set cnt_qty = r.qty | float %}
+  {% set diff = cnt_qty - sys_qty %}
+  {% set ns.sys = ns.sys + sys_qty %}{% set ns.cnt = ns.cnt + cnt_qty %}{% set ns.diff = ns.diff + diff %}
+  {% set ns.val = ns.val + (r.amount_difference | float) %}
+  {% set spec = ib_item_spec(r) %}
+  {% set it %}<div class="nm">{{ r.item_name or r.item_code }}</div><div class="sub">{{ r.item_code }}{% if spec %} · {{ spec }}{% endif %}</div>{% endset %}
+  {# A short over/short is the whole point of the sheet, so mark it rather than
+     leaving the reader to subtract two columns by eye. #}
+  {% set diff_cell %}{% if diff %}<span style="color:{{ '#0a7d3c' if diff > 0 else '#b3261e' }}">{{ "%+g" | format(diff) }}</span>{% else %}—{% endif %}{% endset %}
+  {% set _ = rows.append([loop.index ~ ".", it, r.warehouse or "", r.batch_no or "",
+    "%g" | format(sys_qty), "%g" | format(cnt_qty), diff_cell, r.stock_uom or "",
+    "%.2f" | format(r.amount_difference | float) if r.amount_difference else ""]) %}
+{% endfor %}
+{{ ib.styles(p) }}
+{{ ib.open(p) }}
+{{ ib.seller_block(p, show_bank=False) }}
+<div class="box">
+{{ ib.doc_head("Physical Stock Count",
+	[["Sheet no", doc.name], ["Date", ib_date(doc.posting_date)], ["Time", doc.posting_time]],
+	[["Purpose", doc.purpose], ["Company", doc.company], ["Expense account", doc.expense_account]],
+	[["#Counted by", ""], ["User", doc.owner], ["Status", "Submitted" if doc.docstatus == 1 else ("Cancelled" if doc.docstatus == 2 else "Draft")]]) }}
+{{ ib.grid([["#", "4%"], ["Item", "30%"], ["Warehouse", "13%"], ["Batch", "9%"],
+	["System", "9%", "r"], ["Counted", "9%", "r"], ["Diff", "8%", "r"], ["UOM", "6%"], ["Value diff", "12%", "r"]],
+	rows,
+	["", "Total", "", "", "%g" | format(ns.sys), "%g" | format(ns.cnt),
+	 ("%+g" | format(ns.diff)) if ns.diff else "—", "", "%.2f" | format(ns.val) if ns.val else ""]) }}
+{% if doc.difference_amount %}<div class="words"><span class="lbl">Net valuation difference :</span> {{ ib_money(doc.difference_amount, "INR") }}</div>{% endif %}
+</div>
+<table class="sign"><tr>
+  <td style="width:33%"><div style="height:45px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Counted by</div></td>
+  <td style="width:34%"><div style="height:45px"></div><div class="lbl" style="border-top:1px solid #999;width:85%">Verified by (stores)</div></td>
+  <td style="width:33%" class="r"><div class="lbl">For {{ p.seller.name }}</div><div style="height:30px"></div><div class="lbl">Authorised signatory</div></td>
+</tr></table>
+{{ ib.pdf_footer(p, doc) }}
+{{ ib.close() }}

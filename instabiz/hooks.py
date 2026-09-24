@@ -185,6 +185,7 @@ after_migrate = [
     "instabiz.overrides.stock_dims.after_migrate",  # thickness / colour / width / length on stock + purchase rows
     "instabiz.overrides.dashboards.after_migrate",  # standard charts: fill the filters ERPNext ships without
     "instabiz.overrides.workspace_merge.merge_modules",  # one tab per module (Instabiz + ERPNext)
+    "instabiz.overrides.print_format_cleanup.after_migrate",  # keep shipped print formats printable; retire superseded DB ones
 ]
 
 fixtures = [
@@ -192,10 +193,12 @@ fixtures = [
     # Default WhatsApp / email wording for the Send buttons (editable in the UI;
     # an edited template is newer than this file, so migrate does not overwrite it)
     "IB Message Template",
-    # Quotation / Sales Order print formats used by the list-view Print buttons.
-    # They were built in the UI and live only in the database; run
-    # "bench --site frontend export-fixtures --app instabiz" once on the dev
-    # server to write fixtures/print_format.json, then commit it.
+    # Quotation / Sales Order print formats used by the list-view Print buttons
+    # (quotation_list.js, sales_order_list.js) and the default for both doctypes.
+    # These two were built in the UI rather than as files, so they ship as a
+    # fixture — exported already, in fixtures/print_format.json. Everything else
+    # is a real file under instabiz/print_format/ and needs no fixture; see
+    # overrides/print_format_cleanup.py for the formats that were retired.
     {"dt": "Print Format", "filters": [["name", "in", ["QPF_V2", "OSPF_V2"]]]},
     {
         "dt": "Workflow",
@@ -562,6 +565,8 @@ jinja = {
         "instabiz.overrides.print_helpers.ib_date",
         "instabiz.overrides.print_helpers.ib_gst_label",
         "instabiz.overrides.print_helpers.ib_outstanding_rows",
+        "instabiz.overrides.print_helpers.ib_item_spec",
+        "instabiz.overrides.print_helpers.ib_carton_jumbos",
         "instabiz.overrides.print_helpers.ib_stock_lines",
         "instabiz.overrides.print_helpers.ib_request_lines",
         "instabiz.overrides.print_helpers.ib_journal_lines",

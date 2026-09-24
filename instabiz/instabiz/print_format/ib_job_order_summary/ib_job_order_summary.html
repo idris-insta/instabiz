@@ -96,6 +96,7 @@
       <th>Item Code</th>
       <th>Item Name</th>
       <th>Qty</th>
+      {% if data.any_thickness %}<th>Thickness</th>{% endif %}
       {% if data.any_color %}<th>Color</th>{% endif %}
       {% if data.any_width_mm %}<th>Width (MM)</th>{% endif %}
       {% if data.any_length_mtr %}<th>Length (MTR)</th>{% endif %}
@@ -131,6 +132,7 @@
         <div>{{ item.qty or 0 }} {{ item.uom or "" }}</div>
         {%- endif -%}
       </td>
+      {% if data.any_thickness %}<td>{{ item.thickness or "-" }}</td>{% endif %}
       {% if data.any_color %}<td>{{ item.color or "-" }}</td>{% endif %}
       {% if data.any_width_mm %}<td>{{ item.width_mm if item.width_mm else "-" }}</td>{% endif %}
       {% if data.any_length_mtr %}<td>{{ item.length_mtr if item.length_mtr else "-" }}</td>{% endif %}

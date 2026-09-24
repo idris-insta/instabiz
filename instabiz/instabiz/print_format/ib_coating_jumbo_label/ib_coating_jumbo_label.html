@@ -1,0 +1,25 @@
+{% import "templates/print/ib_label_macros.html" as lbl with context %}
+{% set base_url = frappe.utils.get_url() %}
+{% set item = frappe.get_cached_doc("Item", doc.item) if doc.item else None %}
+{# The jumbo's own width / length win; fall back to the Item master for a batch
+   booked before the dimension rule (overrides.item.assert_roll_dimensions). #}
+{% set width = doc.width_mm or (item.width_mm if item else 0) %}
+{% set length = doc.length_mtr or (item.length_mtr if item else 0) %}
+{{ lbl.styles() }}
+{{ lbl.sticker(
+	"COATING JUMBO",
+	doc.batch_id or doc.name,
+	lbl.roll_spec(width, length, doc.gsm),
+	[
+		["ITEM", doc.item or ""],
+		["NAME", doc.item_name or (item.item_name if item else "")],
+		["COLOUR", (item.color if item else "") or ""],
+		["QTY", (("%g" | format(doc.qty | float)) ~ " " ~ (item.stock_uom if item else "")) if doc.qty else ""],
+		["THICKNESS", (item.custom_thickness if item else "") or ""],
+		["WORK ORDER", doc.work_order or ""],
+		["FROM", doc.parent_batches or ""],
+		["DATE", ib_date(doc.received_date) or ib_date(doc.creation)],
+	],
+	doc.batch_id or doc.name,
+	base_url ~ "/app/ib-trace?id=" ~ ((doc.batch_id or doc.name) | urlencode),
+	"Status: " ~ (doc.status or "") ~ ("  ·  Kind: " ~ doc.kind if doc.kind else "")) }}

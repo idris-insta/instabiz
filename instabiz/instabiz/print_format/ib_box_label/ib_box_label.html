@@ -35,7 +35,7 @@
     {% if p.party.mobile %}<div class="addr">Ph {{ p.party.mobile }}</div>{% endif %}
     <div class="item">
       <b>{{ l.row.item_name or l.row.item_code }}</b><br>
-      {% if l.row.width_mm %}{{ "%g" | format(l.row.width_mm) }} mm{% if l.row.length_mtr %} × {{ "%g" | format(l.row.length_mtr) }} m{% endif %}{% endif %}{% if l.row.color %} · {{ l.row.color }}{% endif %}
+      {% if l.row.width_mm %}{{ "%g" | format(l.row.width_mm) }} mm{% if l.row.length_mtr %} × {{ "%g" | format(l.row.length_mtr) }} m{% endif %}{% endif %}{% if l.row.custom_thickness %} · {{ l.row.custom_thickness }}{% endif %}{% if l.row.color %} · {{ l.row.color }}{% endif %}
       {% if l.row.qty_pkg %}<br>Qty in box: <b>{{ "%g" | format(l.row.qty_pkg) }}</b>{% endif %}
     </div>
     <table class="row2" style="width:100%; margin-top:3px"><tr>

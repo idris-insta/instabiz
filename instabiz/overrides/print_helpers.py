@@ -685,6 +685,31 @@ def note_totals(doc):
 		grand=grand, words=money_in_words(grand, "INR"), advance=0, total_qty=0)
 
 
+def ib_item_spec(row):
+	"""Dimension line for one item row, for formats that build their own grid.
+
+	The sales / purchase formats get this through items() as line.spec; a format
+	that loops doc.items itself (the GRN) has no line object to read it from.
+	"""
+	return item_spec(row)
+
+
+def ib_carton_jumbos(serial):
+	"""Every jumbo serial a carton was cut from, for the carton label.
+
+	The old label called this through frappe.call() inside Jinja, which has no
+	request to dispatch on — a jinja method is how a print format reaches a
+	whitelisted helper.
+	"""
+	from instabiz.overrides.gate_locks import get_carton_label_context
+
+	try:
+		return get_carton_label_context(serial).get("jumbo_serials") or []
+	except Exception:
+		frappe.log_error("IB carton label jumbos", frappe.get_traceback())
+		return []
+
+
 def ib_stock_lines(doc):
 	return stock_lines(doc)
 

@@ -1,0 +1,92 @@
+{#- Shop-floor stickers: coating jumbo, FG carton, import batch.
+
+    These three were placeholder text ("editable — replace with final layout")
+    created in Python and living only in the database, so a fresh site had the
+    Print buttons but nothing worth printing. They are real print formats now,
+    built to the same standard as ib_container_label.html: 100 x 70 mm thermal
+    stock, Code128 of the scannable key, and a traceability QR.
+
+    One sticker per document — these print from a button on a single record,
+    not as a sheet. ib_container_label.html stays separate: it lays 16 small
+    stickers per A4 page for a whole container. -#}
+
+{% macro styles() %}
+<style>
+  @page { size: 100mm 70mm; margin: 0; }
+  .print-format { margin: 0; padding: 0; }
+  @font-face {
+    font-family: "Inter";
+    src: url("/assets/instabiz/fonts/InterVariable.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+  }
+  body { font-family: "Inter", Arial, Helvetica, sans-serif; color: #1a1a1a; margin: 0; }
+  .ib-lbl {
+    box-sizing: border-box; width: 100mm; height: 70mm; padding: 2mm 2.5mm;
+    border-top: 1.4mm solid #d97757; overflow: hidden; page-break-inside: avoid;
+  }
+  .ib-lbl-hd { font-size: 6.5px; font-weight: bold; letter-spacing: .3px; color: #b9502f;
+    background: #fdf3ee; border-bottom: 1px solid #d97757; padding: 1mm 1.5mm;
+    margin: -2mm -2.5mm 1.5mm; display: flex; justify-content: space-between; }
+  .ib-lbl-kind { font-size: 6.5px; font-weight: bold; letter-spacing: 1px; }
+  .ib-lbl-big { font-size: 15px; font-weight: bold; line-height: 1.05;
+    word-break: break-all; margin-bottom: 1mm; }
+  .ib-lbl-main { width: 100%; border-collapse: collapse; }
+  .ib-lbl-main > tbody > tr > td { vertical-align: top; padding: 0; }
+  .ib-lbl-r { font-size: 7px; line-height: 1.45; }
+  .ib-lbl-r b { display: inline-block; min-width: 17mm; font-weight: bold; color: #555; }
+  .ib-lbl-spec { font-size: 8.5px; font-weight: bold; margin: .8mm 0 1mm; }
+  .ib-lbl-side { width: 26mm; text-align: center; }
+  .ib-lbl-side img { width: 24mm; height: 24mm; display: block; margin: 0 auto; }
+  .ib-lbl-cap { font-size: 5px; color: #b9502f; letter-spacing: .3px; margin-top: .4mm; }
+  .ib-lbl-bc { margin-top: 1.5mm; text-align: center; }
+  .ib-lbl-bc img { width: 92mm; height: 11mm; display: block; }
+  .ib-lbl-hri { font-size: 6.5px; font-family: 'Courier New', monospace; letter-spacing: .4px;
+    word-break: break-all; line-height: 1.1; }
+</style>
+{% endmacro %}
+
+
+{#- rows: list of [label, value] pairs; blank values are dropped so a label never
+    prints an empty line where a field was simply not filled in. -#}
+{% macro sticker(kind, big, spec, rows, code, qr_url, footer="") %}
+<div class="ib-lbl">
+  <div class="ib-lbl-hd">
+    <span>INSTABIZ SOLUTIONS INDIA PVT LTD &middot; i-STIX</span>
+    <span class="ib-lbl-kind">{{ kind }}</span>
+  </div>
+  <table class="ib-lbl-main"><tr>
+    <td>
+      <div class="ib-lbl-big">{{ big }}</div>
+      {% if spec %}<div class="ib-lbl-spec">{{ spec }}</div>{% endif %}
+      {% for label, value in rows %}{% if value %}
+      <div class="ib-lbl-r"><b>{{ label }}</b>{{ value }}</div>
+      {% endif %}{% endfor %}
+    </td>
+    {% if qr_url %}
+    <td class="ib-lbl-side">
+      <img src="{{ get_qr_data_uri(qr_url) }}">
+      <div class="ib-lbl-cap">SCAN &middot; TRACE</div>
+    </td>
+    {% endif %}
+  </tr></table>
+  {% if code %}
+  <div class="ib-lbl-bc">
+    <img src="{{ get_barcode_data_uri(code) }}">
+    <div class="ib-lbl-hri">{{ code }}</div>
+  </div>
+  {% endif %}
+  {% if footer %}<div class="ib-lbl-r" style="margin-top:.8mm">{{ footer }}</div>{% endif %}
+</div>
+{% endmacro %}
+
+
+{#- width x length x gsm, the three numbers the shop floor checks a roll against. -#}
+{% macro roll_spec(width_mm, length_mtr, gsm) %}
+{%- set parts = [] -%}
+{%- if width_mm %}{% set _ = parts.append((width_mm | int | string) ~ " MM") %}{% endif -%}
+{%- if length_mtr %}{% set _ = parts.append((length_mtr | int | string) ~ " M") %}{% endif -%}
+{%- set out = parts | join(" X ") -%}
+{%- if gsm %}{% set out = (out ~ "  ·  " ~ (gsm | int | string) ~ " GSM") if out else ((gsm | int | string) ~ " GSM") %}{% endif -%}
+{{- out -}}
+{% endmacro %}

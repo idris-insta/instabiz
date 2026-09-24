@@ -61,7 +61,7 @@
       <td class="ib-body-td">
         <div class="ib-stk-hd">INSTABIZ SOLUTIONS INDIA PVT LTD &middot; i-STIX</div>
         <div class="ib-stk-mark">{{ row.item_code }}</div>
-        {% if size_parts %}<div class="ib-stk-r"><b>SIZE</b> {{ size_parts | join(" X ") }}{% if item.color %} &middot; {{ item.color }}{% endif %}</div>{% endif %}
+        {% if size_parts %}<div class="ib-stk-r"><b>SIZE</b> {{ size_parts | join(" X ") }}{% if item.custom_thickness %} &middot; {{ item.custom_thickness }}{% endif %}{% if item.color %} &middot; {{ item.color }}{% endif %}</div>{% endif %}
         <div class="ib-stk-r"><b>ROLL</b> {{ box_no }} / {{ row.no_of_boxes }}</div>
         <div class="ib-stk-r"><b>QTY/CTN</b> {{ "%.2f"|format(per_ctn|float) }} {{ row.stock_uom }}</div>
         <div class="ib-stk-r"><b>BATCH</b> {{ trace_id }}</div>

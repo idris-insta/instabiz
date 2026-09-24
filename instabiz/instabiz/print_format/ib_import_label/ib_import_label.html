@@ -1,0 +1,27 @@
+{% import "templates/print/ib_label_macros.html" as lbl with context %}
+{% set base_url = frappe.utils.get_url() %}
+{% set item = frappe.get_cached_doc("Item", doc.item) if doc.item else None %}
+{% set width = doc.width_mm or (item.width_mm if item else 0) %}
+{% set length = doc.length_mtr or (item.length_mtr if item else 0) %}
+{% set container = doc.container_import or "" %}
+{% set container_no = frappe.db.get_value("IB Container Import", container, "container_no") if container else "" %}
+{{ lbl.styles() }}
+{{ lbl.sticker(
+	"IMPORT",
+	doc.batch_id or doc.name,
+	lbl.roll_spec(width, length, doc.gsm),
+	[
+		["ITEM", doc.item or ""],
+		["NAME", doc.item_name or (item.item_name if item else "")],
+		["COLOUR", (item.color if item else "") or ""],
+		["THICKNESS", (item.custom_thickness if item else "") or ""],
+		["QTY", (("%g" | format(doc.qty | float)) ~ " " ~ (item.stock_uom if item else "")) if doc.qty else ""],
+		["SUPPLIER", doc.supplier or ""],
+		["SUPPLIER LOT", doc.supplier_lot or ""],
+		["CONTAINER", (container_no or container) or ""],
+		["GRN", doc.purchase_receipt or ""],
+		["RECEIVED", ib_date(doc.received_date)],
+	],
+	doc.batch_id or doc.name,
+	base_url ~ "/app/ib-trace?id=" ~ ((doc.batch_id or doc.name) | urlencode),
+	"Status: " ~ (doc.status or "") ~ ("  ·  Source: " ~ doc.source_type if doc.source_type else "")) }}

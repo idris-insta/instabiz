@@ -188,9 +188,13 @@
       {% set total_wt = namespace(v=0.0) %}
       {% for row in doc.items %}
         {% set item = frappe.get_cached_doc("Item", row.item_code) %}
-        {% set rolls_per_box = item.custom_rolls_per_box or 1 %}
+        {# Prefer the row's own packing figures. For an SQMT item row.qty is an AREA,
+           so qty / rolls_per_box counted square metres as rolls and reported a box
+           count that was wrong by a factor of width x length. qty_pkg / total_pkg are
+           what the qty formula itself multiplies out, so they are the real figures. #}
+        {% set rolls_per_box = row.get("qty_pkg") or item.custom_rolls_per_box or 1 %}
         {% set carton_wt = item.custom_carton_weight_kg or 0 %}
-        {% set boxes = (row.qty / rolls_per_box) | round(2) %}
+        {% set boxes = row.get("total_pkg") | round(2) if row.get("total_pkg") else (row.qty / rolls_per_box) | round(2) %}
         {% set line_wt = (boxes * carton_wt) | round(2) %}
         {% set total_boxes.v = total_boxes.v + boxes %}
         {% set total_wt.v = total_wt.v + line_wt %}
@@ -199,7 +203,11 @@
           <td class="wrap-anywhere">{{ row.item_code }}</td>
           <td class="wrap-anywhere">
             <strong>{{ row.item_name or row.item_code }}</strong>
-            {% if row.description and row.description != row.item_name %}
+            {% set spec = ib_item_spec(row) %}
+            {% if spec %}<br><span class="italic lbl">{{ spec }}</span>{% endif %}
+            {% if row.custom_description and row.custom_description != row.item_name %}
+            <br><span class="italic lbl">{{ row.custom_description | striptags | trim }}</span>
+            {% elif row.description and row.description != row.item_name %}
             <br><span class="italic lbl">{{ row.description | striptags | trim }}</span>
             {% endif %}
           </td>

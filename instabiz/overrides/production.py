@@ -905,17 +905,18 @@ def get_order_sheet_stage_workflow(order_sheet):
 		        "custom_no_of_logs", "custom_packing_type", "custom_size"],
 	)
 
-	any_color = any_width_mm = any_length_mtr = any_qty_pkg = any_total_pkg = False
+	any_thickness = any_color = any_width_mm = any_length_mtr = any_qty_pkg = any_total_pkg = False
 
 	result = []
 	for item in items:
 		dims = frappe.db.get_value(
 			"Sales Order Item",
 			{"parent": sales_order, "item_code": item.item_code},
-			["color", "width_mm", "length_mtr", "qty_pkg", "total_pkg"],
+			["custom_thickness", "color", "width_mm", "length_mtr", "qty_pkg", "total_pkg"],
 			as_dict=True,
 		) if sales_order else None
 		dims = dims or frappe._dict()
+		any_thickness = any_thickness or bool(dims.custom_thickness)
 		any_color = any_color or bool(dims.color)
 		any_width_mm = any_width_mm or bool(dims.width_mm)
 		any_length_mtr = any_length_mtr or bool(dims.length_mtr)
@@ -992,6 +993,7 @@ def get_order_sheet_stage_workflow(order_sheet):
 			"target_uom": target_uom,
 			"pcs_to_make": pcs_to_make,
 			"logs_to_make": logs_to_make,
+			"thickness": dims.custom_thickness,
 			"color": dims.color,
 			"width_mm": dims.width_mm,
 			"length_mtr": dims.length_mtr,
@@ -1009,6 +1011,7 @@ def get_order_sheet_stage_workflow(order_sheet):
 
 	return {
 		"rows": result,
+		"any_thickness": any_thickness,
 		"any_color": any_color,
 		"any_width_mm": any_width_mm,
 		"any_length_mtr": any_length_mtr,
