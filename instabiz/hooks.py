@@ -4,6 +4,7 @@ scheduler_events = {
     "monthly": ["instabiz.overrides.incentive_scale.run_monthly_notice"],
     "daily": [
         "instabiz.overrides.production_reco.run_daily",  # made but not dispatched / order-production-dispatch flags
+        "instabiz.overrides.stock_rules.run_monthly_recon_due_notifies",  # monthly physical recon due per item
         # Complaints past their deadline → owner + Sales Managers (IB Support Ticket)
         "instabiz.instabiz.doctype.ib_support_ticket.ib_support_ticket.run_ticket_deadlines",
         # Returnable / job-work gate passes past their date → stock managers
@@ -40,6 +41,7 @@ scheduler_events = {
         "instabiz.overrides.fulfillment_sla.run_fulfillment_sla",
         # Stale quotation + cold lead win-back nudges
         "instabiz.overrides.winback.run_winback",
+        "instabiz.overrides.lead_hygiene.run_daily_lead_hygiene",  # cold lead sync + capped RR redistrib
         # Alert purchase team when bin qty <= reorder level
         "instabiz.overrides.reorder_alert.run_reorder_alert",
         # Alert warehouse/purchase managers for batches expiring within 30 days
@@ -168,6 +170,9 @@ app_version = "0.0.1"
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 # Idempotent perf indexes on hot filter columns (overrides/indexes.py)
 after_migrate = [
+	"instabiz.overrides.gate_locks.after_migrate",
+	"instabiz.overrides.setup_todo44_36.after_migrate",
+	"instabiz.overrides.mfg_plans.after_migrate",
     "instabiz.overrides.indexes.after_migrate",
     "instabiz.overrides.overtime.after_migrate",
     "instabiz.overrides.incentive_scale.after_migrate",  # incentive scales + User.custom_incentive_scale
@@ -185,7 +190,8 @@ after_migrate = [
     "instabiz.overrides.stock_dims.after_migrate",  # thickness / colour / width / length on stock + purchase rows
     "instabiz.overrides.dashboards.after_migrate",  # standard charts: fill the filters ERPNext ships without
     "instabiz.overrides.workspace_merge.merge_modules",  # one tab per module (Instabiz + ERPNext)
-    "instabiz.overrides.print_format_cleanup.after_migrate",  # keep shipped print formats printable; retire superseded DB ones
+    "instabiz.overrides.client_script_cleanup.after_migrate",  # retire DB Client Scripts now shipped in public/js
+    "instabiz.overrides.print_format_cleanup.after_migrate",  # retire DB Print Formats superseded by shipped ones
 ]
 
 fixtures = [
@@ -329,6 +335,11 @@ override_doctype_class = {
 accounting_dimension_doctypes = ["IB Expense", "IB Credit Note", "IB Credit Note Item", "IB Debit Note", "IB Debit Note Item"]
 
 doc_events = {
+    "IB Gate Pass": {
+        "validate": "instabiz.overrides.gate_locks.validate_gate_pass",
+        "before_submit": "instabiz.overrides.gate_locks.enforce_vehicle_before_submit",
+    },
+
     "*": {
         # Branch dimension filled from the document's location / warehouse
         "validate": "instabiz.overrides.dimensions.set_branch",
@@ -358,6 +369,9 @@ doc_events = {
         ],
     },
     "Item": {
+        # Rolls / sheets must carry their own dimensions — every transaction row
+        # fetches them from here and the qty formula multiplies them out.
+        "validate": "instabiz.overrides.item.assert_roll_dimensions",
         "before_save": [
             "instabiz.overrides.item.set_batch_no_for_fg",
             "instabiz.overrides.item.sync_barcode_field",
@@ -386,16 +400,32 @@ doc_events = {
         ],
     },
     "Delivery Note": {
+        "before_insert": "instabiz.overrides.dn_ready_goods.delivery_note_before_insert",
+        "validate": [
+            "instabiz.overrides.dn_ready_goods.delivery_note_validate",
+            "instabiz.overrides.stock_rules.warn_if_negative_stock",
+            "instabiz.overrides.gate_locks.validate_delivery_note",
+        ],
         "on_update": "instabiz.overrides.document_attachment_sync.sync_document_attachments_to_drive",
         "on_submit": [
             "instabiz.overrides.stock_events.publish_stock_update",
             "instabiz.overrides.dispatch_notification.run_dispatch_notification",
             "instabiz.overrides.production.mark_wos_delivered",
-            "instabiz.overrides.production_reco.check_delivery_note",  # dispatch vs order / production
+            "instabiz.overrides.production_reco.check_delivery_note",  # dispatch vs order / production,
+            "instabiz.overrides.gate_locks.copy_vehicle_to_gate_pass_on_submit",
         ],
         "on_cancel": "instabiz.overrides.stock_events.publish_stock_update",
+        "before_submit": "instabiz.overrides.gate_locks.enforce_vehicle_before_submit",
+        
     },
     "Sales Invoice": {
+        "validate": [
+            "instabiz.overrides.incentive_guard.assert_sales_person_for_incentive",
+            "instabiz.overrides.gate_locks.validate_sales_invoice",
+            # An invoice with Update Stock moves goods exactly like a Delivery
+            # Note does, so it needs the same warning (no-ops without the tick).
+            "instabiz.overrides.stock_rules.warn_if_negative_stock",
+        ],
         "on_update": "instabiz.overrides.document_attachment_sync.sync_document_attachments_to_drive",
         "on_submit": [
             "instabiz.overrides.customer.update_customer_outstanding_on_si",
@@ -404,6 +434,8 @@ doc_events = {
         ],
         "on_cancel": "instabiz.overrides.customer.update_customer_outstanding_on_si",
         "on_trash":  "instabiz.overrides.customer.update_customer_outstanding_on_si",
+        "before_submit": "instabiz.overrides.gate_locks.enforce_vehicle_before_submit",
+        
     },
     "Purchase Invoice": {
         "validate": "instabiz.overrides.duplicate_check.warn_purchase_invoice",  # possible duplicate bill (warning only)
@@ -421,12 +453,30 @@ doc_events = {
     },
     "Stock Entry": {
         "before_validate": "instabiz.overrides.stock_dims.stock_entry_before_validate",  # rolls → m²
+        "validate": [
+            "instabiz.overrides.stock_rules.warn_if_negative_stock",
+            "instabiz.overrides.stock_rules.warn_branch_gst_invoice",
+        ],
         "on_submit": "instabiz.overrides.stock_events.publish_stock_update",
         "on_cancel": "instabiz.overrides.stock_events.publish_stock_update",
     },
     "Stock Reconciliation": {
-        "on_submit": "instabiz.overrides.stock_events.publish_stock_update",
+        "before_validate": "instabiz.overrides.stock_dims.apply_dimension_qty",  # same rule as Quotation
+        "on_submit": [
+            "instabiz.overrides.stock_events.publish_stock_update",
+            "instabiz.overrides.stock_rules.stamp_item_recon_from_sr",
+        ],
         "on_cancel": "instabiz.overrides.stock_events.publish_stock_update",
+    },
+    # Dimensions drive qty on every document that takes items, not only on the
+    # selling side — the four below have no instabiz controller of their own, so
+    # the rule is wired as a before_validate (ERPNext's own validate then
+    # recomputes amounts and totals from the derived qty).
+    "Material Request": {
+        "before_validate": "instabiz.overrides.stock_dims.apply_dimension_qty",
+    },
+    "Supplier Quotation": {
+        "before_validate": "instabiz.overrides.stock_dims.apply_dimension_qty",
     },
     "Salary Structure Assignment": {
         # per-day / per-hour rate beside the monthly base (overtime rate)
@@ -607,6 +657,8 @@ app_include_js  = [
     "/assets/instabiz/js/ib_dash_kit.js",           # dashboard kit: theme chart wrapper, filter bar, card personalisation (window.ibDash)
     "/assets/instabiz/js/so_production_panel.js",  # SO form: production stage + dispatch status panel
     "/assets/instabiz/js/ib_simple_payment_dialog.js",  # shared simplified Payment Entry dialog for Sales Users
+    "/assets/instabiz/js/ib_source_floor.js",       # shared floor picker (DN / SI / Stock Entry) — ib_pick_floor()
+    "/assets/instabiz/js/ib_item_picker.js",        # one item-search dropdown everywhere items are added
     "/assets/instabiz/js/ib_messaging.js",           # Send ▸ WhatsApp / Email on sales, purchase and customer forms
     "/assets/instabiz/js/ib_quick_actions.js",       # Repeat order + last-price hint on Quotation / Sales Order
     "/assets/instabiz/js/ib_fiscal_year.js",         # navbar financial-year switcher; reports open in the chosen year
@@ -638,6 +690,8 @@ doctype_list_js = {
 }
 
 doctype_js = {
+	"IB Batch": "public/js/ib_batch_mfg_serials.js",
+	"IB Work Order": "public/js/ib_work_order_mfg_plans.js",
     "Lead":                    "public/js/lead.js",
     "Address":                 "public/js/address.js",
     "Customer":                "public/js/customer.js",
@@ -649,6 +703,7 @@ doctype_js = {
     "Job Applicant":           "public/js/job_applicant.js",
     "Sales Invoice":           "public/js/sales_invoice.js",
     "Delivery Note":           "public/js/delivery_note.js",
+    "Stock Entry":             "public/js/stock_entry.js",
     "Purchase Order":          "public/js/ib_purchase_common.js",
     "Purchase Receipt":        "public/js/ib_purchase_common.js",
     "Purchase Invoice":        "public/js/ib_purchase_common.js",
@@ -657,4 +712,5 @@ doctype_js = {
     "Payment Entry":           "public/js/payment_entry.js",
     "Salary Structure Assignment": "public/js/salary_structure_assignment.js",
     "Item":                    "public/js/item.js",
+    "Supplier":                "public/js/supplier.js",
 }
