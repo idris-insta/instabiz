@@ -7,17 +7,44 @@ import json as _json
 from instabiz.overrides.permissions import _is_privileged
 from instabiz.overrides.utils import territory_from_gstin as _territory_from_gstin
 
-# ── Lead scoring ──────────────────────────────────────────────────────────────
-_TEMP_SCORE  = {"Hot": 60, "Warm": 30, "Cold": 0}
+# --- Lead scoring + pipeline status sync (Idris 2026-09-21) ---
+_TEMP_SCORE = {"Hot": 60, "Warm": 30, "Cold": 0}
+_STATUS_TO_TEMP = {
+	"Hot Lead": "Hot", "Negotiation": "Hot", "Proposal": "Warm", "Qualified": "Warm",
+	"Contacted": "Warm", "Cold Lead": "Cold", "Lost": "Cold",
+}
 _STATUS_BONUS = {
 	"Negotiation": 30, "Proposal": 20, "Qualified": 15,
-	"Contacted": 5, "Hot Lead": 10,
+	"Contacted": 5, "Hot Lead": 10, "Converted": 40, "Customer": 40,
+}
+_CUSTOM_TO_ERP_STATUS = {
+	"Cold Lead": "Open", "Hot Lead": "Open", "Contacted": "Open", "Qualified": "Open",
+	"Proposal": "Open", "Negotiation": "Open", "Converted": "Converted",
+	"Customer": "Converted", "Lost": "Do Not Contact",
 }
 
 
+def sync_lead_statuses(doc, method=None):
+	"""Keep Lead.status (ERPNext) and custom_status (pipeline) aligned; fix temperature."""
+	custom = (doc.get("custom_status") or "").strip()
+	if custom and custom in _CUSTOM_TO_ERP_STATUS:
+		want = _CUSTOM_TO_ERP_STATUS[custom]
+		if doc.get("status") != want:
+			doc.status = want
+	if custom and custom in _STATUS_TO_TEMP:
+		want_t = _STATUS_TO_TEMP[custom]
+		cur_t = doc.get("custom_lead_temperature") or ""
+		if custom == "Cold Lead":
+			doc.custom_lead_temperature = "Cold"
+		elif not cur_t or cur_t == "Cold" or cur_t != want_t:
+			doc.custom_lead_temperature = want_t
+
+
 def compute_lead_score(doc, method=None):
-	"""Auto-compute custom_lead_score (0–100) on every save."""
-	score = _TEMP_SCORE.get(doc.get("custom_lead_temperature") or "Cold", 0)
+	"""Auto-compute custom_lead_score (0-100) on every save."""
+	sync_lead_statuses(doc)
+	temp = doc.get("custom_lead_temperature") or _STATUS_TO_TEMP.get(doc.get("custom_status") or "", "Cold")
+	score = _TEMP_SCORE.get(temp, 0)
 	score += _STATUS_BONUS.get(doc.get("custom_status") or "", 0)
 	if doc.get("mobile_no"):
 		score += 5
