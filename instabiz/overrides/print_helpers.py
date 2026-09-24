@@ -700,10 +700,14 @@ def ib_carton_jumbos(serial):
 	The old label called this through frappe.call() inside Jinja, which has no
 	request to dispatch on — a jinja method is how a print format reaches a
 	whitelisted helper.
-	"""
-	from instabiz.overrides.gate_locks import get_carton_label_context
 
+	The import is inside the try on purpose: a label that cannot resolve its
+	genealogy should still print, falling back to the carton's own source_batch,
+	rather than failing the whole sticker.
+	"""
 	try:
+		from instabiz.overrides.gate_locks import get_carton_label_context
+
 		return get_carton_label_context(serial).get("jumbo_serials") or []
 	except Exception:
 		frappe.log_error("IB carton label jumbos", frappe.get_traceback())
