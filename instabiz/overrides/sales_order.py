@@ -385,9 +385,18 @@ def custom_make_delivery_note(source_name, target_doc=None, item_code=None, orde
             if not target_doc.get("territory") and customer_doc.territory:
                 target_doc.territory = customer_doc.territory
         location = (source_doc.get("custom_location") or "").strip().lower()
-        warehouse = LOCATION_WAREHOUSE.get(location)
-        if warehouse and not target_doc.set_warehouse:
-            target_doc.set_warehouse = warehouse
+        # todo43: Conversion -> FG WH; Ready Goods -> Ground Floor / BWD leaf (soft)
+        try:
+            from instabiz.overrides.dn_ready_goods import apply_dn_source_warehouses
+            apply_dn_source_warehouses(target_doc, so=source_doc)
+        except Exception:
+            warehouse = LOCATION_WAREHOUSE.get(location)
+            if warehouse and not target_doc.set_warehouse:
+                target_doc.set_warehouse = warehouse
+        if not target_doc.set_warehouse:
+            warehouse = LOCATION_WAREHOUSE.get(location)
+            if warehouse:
+                target_doc.set_warehouse = warehouse
         map_parent_fields(source_doc, target_doc)
         map_address_contact_fields(source_doc, target_doc)
 
@@ -396,13 +405,12 @@ def custom_make_delivery_note(source_name, target_doc=None, item_code=None, orde
 
     def dn_item_postprocess(source_item, target_item, source_doc):
         item_postprocess(source_item, target_item, source_doc)
-        if _dn_warehouse:
-            target_item.warehouse = _dn_warehouse
+        # todo43: do not force LOCATION_WAREHOUSE — apply_dn_source_warehouses sets FG/Ready leaf
         note = _dn_qty_adjustment_note(source_item.name)
         if note:
             target_item.custom_qty_adjustment_note = note
 
-    return get_mapped_doc(
+    _dn = get_mapped_doc(
         "Sales Order",
         source_name,
         {
@@ -436,3 +444,9 @@ def custom_make_delivery_note(source_name, target_doc=None, item_code=None, orde
         },
         target_doc,
     )
+    try:
+        from instabiz.overrides.dn_ready_goods import apply_dn_source_warehouses
+        apply_dn_source_warehouses(_dn, so=source_name)
+    except Exception:
+        pass
+    return _dn

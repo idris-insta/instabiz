@@ -107,3 +107,15 @@ def after_migrate():
 		# first time: keep today's behaviour — Gujarat is the factory
 		if frappe.db.exists("Warehouse", "GUJARAT - IB"):
 			frappe.db.set_value("Warehouse", "GUJARAT - IB", FIELD, 1, update_modified=False)
+
+# todo43: keep original site gate under a stable name; fine-grain lives in dn_ready_goods
+so_needs_production_site = so_needs_production
+
+def so_needs_production(sales_order):
+	"""Fine-grain Ready Goods skip when dn_ready_goods is available; else site tick only."""
+	try:
+		from instabiz.overrides import dn_ready_goods as _drg
+		# Call module function explicitly (not manufacturing_site.so_needs_production)
+		return bool(_drg.so_needs_production(sales_order))
+	except Exception:
+		return bool(so_needs_production_site(sales_order))
