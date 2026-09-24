@@ -112,6 +112,15 @@ def post_run_start_transfer(doc):
 	# always in the source item's own stock_uom, so this is a defensive
 	# explicit statement of what's already true, not a conversion — same
 	# reasoning as the explicit uom now set in post_run_finish_transfer below.
+	# Real bug, fixed here (confirmed live 2026-09-24): a source item with no
+	# resolvable valuation anywhere (never received via a real Purchase
+	# Receipt/Container Import — e.g. demo/placeholder RM batches) throws
+	# "Valuation Rate ... is required" on this plain transfer, blocking Start
+	# entirely. Finish's own Repack entry already has this same fallback
+	# (allow_zero_valuation_rate) for exactly this reason; Start never did.
+	# allow_zero_valuation_rate only permits a zero-value fallback when no
+	# real rate resolves — it doesn't force one down on an item that already
+	# has real valuation history.
 	se.append("items", {
 		"item_code": doc.source_item,
 		"qty": flt(doc.source_qty),
@@ -119,6 +128,7 @@ def post_run_start_transfer(doc):
 		"conversion_factor": 1.0,
 		"s_warehouse": doc.source_warehouse,
 		"t_warehouse": wip,
+		"allow_zero_valuation_rate": 1,
 	})
 	se.remarks = f"IB Work Order {doc.name} — start transfer (RM -> WIP)"
 	se.insert(ignore_permissions=True)
