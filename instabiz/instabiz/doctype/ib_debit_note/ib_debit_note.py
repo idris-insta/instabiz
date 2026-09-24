@@ -35,6 +35,11 @@ class IBDebitNote(AccountsController):
 
     def on_submit(self) -> None:
         self._sync_status()
+        # Only a Purchase Return moves stock. "Short Receipt" goods never entered
+        # stock (the PR recorded the received qty only), and purchase_rules.
+        # make_short_claim already raises a Material Issue for claimed-but-received
+        # goods — setting update_stock here deducted the same qty a second time.
+        # "Import Variance" is a value-only adjustment.
         self.update_stock = 1 if self.reason_code == "Purchase Return" else 0
         self.db_set("update_stock", self.update_stock)
         self._make_gl_entries(cancel=False)

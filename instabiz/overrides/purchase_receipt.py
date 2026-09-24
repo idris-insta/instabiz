@@ -11,6 +11,7 @@ from instabiz.overrides.purchase_order import (
 )
 from instabiz.overrides.utils import recalculate_purchase_items
 from instabiz.overrides.naming import autoname_purchase_receipt
+from instabiz.overrides.purchase_rules import assert_domestic_pr_has_po, auto_inward_gate_pass_for_pr
 
 
 class CustomPurchaseReceipt(PurchaseReceipt):
@@ -18,6 +19,7 @@ class CustomPurchaseReceipt(PurchaseReceipt):
 		autoname_purchase_receipt(self)
 
 	def validate(self):
+		assert_domestic_pr_has_po(self)
 		_set_location_from_warehouse(self)
 		_apply_purchase_location_gstin(self)
 		_auto_correct_purchase_gst_template(self)
@@ -32,6 +34,10 @@ class CustomPurchaseReceipt(PurchaseReceipt):
 	def on_submit(self):
 		super().on_submit()
 		_make_grn_batches(self)
+		try:
+			auto_inward_gate_pass_for_pr(self.name)
+		except Exception:
+			frappe.log_error("IB Inward Gate Pass", frappe.get_traceback())
 
 	def on_cancel(self):
 		super().on_cancel()

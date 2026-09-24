@@ -71,7 +71,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Reason Code",
-   "options": "Purchase Return\nRate Difference\nPost Purchase Discount",
+   "options": "Purchase Return\nShort Receipt\nImport Variance\nRate Difference\nPost Purchase Discount",
    "reqd": 1
   },
   {

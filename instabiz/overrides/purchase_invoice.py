@@ -12,6 +12,7 @@ from instabiz.overrides.purchase_order import (
 )
 from instabiz.overrides.utils import recalculate_purchase_items
 from instabiz.overrides.naming import autoname_purchase_invoice
+from instabiz.overrides.purchase_rules import assert_domestic_pi_has_po_pr
 
 
 # ── Document class ────────────────────────────────────────────────────────────
@@ -31,6 +32,7 @@ class CustomPurchaseInvoice(PurchaseInvoice):
 				"Don't create a return here — use <b>IB Debit Note</b> instead "
 				"(Workspace → IB Debit Note → New)."
 			))
+		assert_domestic_pi_has_po_pr(self)
 		_set_location_from_warehouse(self)
 		_apply_purchase_location_gstin(self)
 		_auto_correct_purchase_gst_template(self)

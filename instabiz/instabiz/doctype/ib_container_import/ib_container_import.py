@@ -6,7 +6,7 @@ import io
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, cint
+from frappe.utils import flt, cint, cstr
 
 # Sane upper bound on a single manual "Print Label" count-prompt run (Draft
 # containers, generate_item_labels()) — this only guards the ad-hoc "how many
@@ -30,6 +30,23 @@ class IBContainerImport(Document):
 		_prefill_import_defaults(self)
 
 	def validate(self) -> None:
+		# IB_IMPORT_OPS_HARDEN_V1
+		if not self.items:
+			frappe.throw(_("Add at least one item before saving."))
+		# Locked 2026-09-20: container_no MAY repeat (same physical container across trips / docs).
+		if self.container_no:
+			dup = frappe.db.exists(
+				"IB Container Import",
+				{"container_no": self.container_no, "name": ["!=", self.name], "docstatus": ["<", 2]},
+			)
+			if dup:
+				frappe.msgprint(
+					_("Container No {0} also on {1} — repeats are allowed.").format(self.container_no, dup),
+					indicator="blue",
+					alert=True,
+				)
+		if self.warehouse and "Second Floor" in cstr(self.warehouse):
+			frappe.msgprint(_("Receiving into Conversion / Second Floor - confirm this is intentional."), indicator="orange", alert=True)
 		for row in self.items:
 			if _is_sqmt(row.stock_uom):
 				# Area UOM: qty = area of one roll × number of rolls.

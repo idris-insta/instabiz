@@ -269,3 +269,78 @@ frappe.ui.form.on("Purchase Invoice Item", {
         _ib_purchase_update_visibility(frm, cdt, cdn);
     },
 });
+
+// Ported from the "IB PI Allocate Container" and "IB PR Short Claim" Client
+// Scripts (2026-09-23). Both call functions that have always been in the app
+// (import_bill_match.allocate_pi_to_container, purchase_rules.make_short_claim);
+// only the buttons lived in the database, so a fresh site had the endpoints
+// with no way to reach them.
+
+frappe.ui.form.on("Purchase Invoice", {
+	refresh(frm) {
+		if (frm.doc.docstatus !== 1) return;
+		if (!frm.doc.custom_is_import) return;
+		frm.add_custom_button(
+			__("Allocate to Container Import"),
+			() => {
+				const d = new frappe.ui.Dialog({
+					title: __("Allocate to Container"),
+					fields: [
+						{ fieldname: "container_import", label: __("Container Import"), fieldtype: "Link", options: "IB Container Import", reqd: 1 },
+						{ fieldname: "allocated_amount", label: __("Allocated Amount"), fieldtype: "Currency", reqd: 1, default: frm.doc.grand_total },
+						{ fieldname: "allocated_qty", label: __("Allocated Qty"), fieldtype: "Float" },
+						{ fieldname: "remarks", label: __("Remarks"), fieldtype: "Small Text" },
+					],
+					primary_action_label: __("Allocate"),
+					primary_action(values) {
+						frappe.call({
+							method: "instabiz.overrides.import_bill_match.allocate_pi_to_container",
+							args: Object.assign({ purchase_invoice: frm.doc.name }, values),
+							freeze: true,
+							callback(r) {
+								if (!r.message) return;
+								frappe.show_alert({ message: __("Allocated"), indicator: "green" });
+								d.hide();
+							},
+						});
+					},
+				});
+				d.show();
+			},
+			__("Import")
+		);
+	},
+});
+
+frappe.ui.form.on("Purchase Receipt", {
+	refresh(frm) {
+		if (frm.doc.docstatus !== 1) return;
+		frm.add_custom_button(
+			__("Short / Claim → Debit Note"),
+			() => {
+				frappe.confirm(
+					__("Create a draft IB Debit Note for shortage vs PO on this receipt? (Tick issue_stock later for quality claims that need Material Issue.)"),
+					() => {
+						frappe.call({
+							method: "instabiz.overrides.purchase_rules.make_short_claim",
+							args: { purchase_receipt: frm.doc.name },
+							freeze: true,
+							callback(r) {
+								if (!r.message) return;
+								const m = r.message;
+								frappe.msgprint(
+									__("Claim drafted. Debit Note: {0}. Material Issue: {1}.", [
+										m.debit_note || "—",
+										m.material_issue || "— (not issued)",
+									])
+								);
+								if (m.debit_note) frappe.set_route("Form", "IB Debit Note", m.debit_note);
+							},
+						});
+					}
+				);
+			},
+			__("Create")
+		);
+	},
+});
