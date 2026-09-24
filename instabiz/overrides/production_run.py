@@ -140,23 +140,19 @@ def _batch_source_warehouse(batch_name):
 
 
 def _validate_route(stages, location):
-	"""stages: ordered list of stage names. Returns cleaned list or throws.
-
-	Direct ask (2026-09-24): any of the 5 canonical stages can be put
-	through a run for any item, at any location — dropped the
-	warehouse-only-location hard block (Maharashtra/Chennai used to be
-	restricted to Packing only). A stage with no real machine for that
-	location still resolves cleanly (_assign_machine returns "" — the run
-	just has no machine assigned at that stage, same as any other stage
-	with no free/matching machine); this never blocks the run itself.
-	Still rejects an empty route or an unknown stage name — that's real
-	input validation, not a location restriction."""
+	"""stages: ordered list of stage names. Returns cleaned list or throws."""
 	stages = [s for s in (stages or []) if s]
 	if not stages:
 		frappe.throw(_("A run needs at least one route stage."))
 	bad = [s for s in stages if s not in STAGES]
 	if bad:
 		frappe.throw(_("Unknown production stage(s): {0}").format(", ".join(bad)))
+	if (location or "").lower() in _WAREHOUSE_ONLY_LOCATIONS:
+		off = [s for s in stages if s not in _WAREHOUSE_STAGE_ROUTE]
+		if off:
+			frappe.throw(_(
+				"{0} is a warehouse-only location — only {1} can run there, not {2}."
+			).format(location, ", ".join(_WAREHOUSE_STAGE_ROUTE), ", ".join(off)))
 	return stages
 
 
