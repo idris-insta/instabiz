@@ -1375,6 +1375,16 @@ def _finish_run(doc, outputs_qty=None):
 
 	frappe.db.set_value("IB Work Order", doc.name,
 	                    {"fg_batch": fg_batch_id, "stock_entry": finish_se}, update_modified=False)
+
+	import sys
+	print("DBG id(frappe.db)=", id(frappe.db), "id(frappe.local.db)=", id(frappe.local.db), file=sys.stderr)
+	print("DBG transaction_writes=", frappe.db.transaction_writes, file=sys.stderr)
+	print("DBG exists cache=False:", frappe.db.exists("IB Batch", fg_batch_id), file=sys.stderr)
+	print("DBG get_value cache=False:", frappe.db.get_value("IB Batch", fg_batch_id, "name"), file=sys.stderr)
+	print("DBG get_value cache=True:", frappe.db.get_value("IB Batch", fg_batch_id, "name", cache=True), file=sys.stderr)
+	print("DBG value_cache keys sample:", [k for k in frappe.db.value_cache if k[0] == "IB Batch"], file=sys.stderr)
+	print("DBG doc.flags.ignore_links:", doc.flags.ignore_links, file=sys.stderr)
+
 	_wf(doc, "Complete", {"current_stage": "Done", "completed_at": ts})
 
 	# roll the Order Sheet / its items up
