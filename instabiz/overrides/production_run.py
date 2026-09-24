@@ -1375,6 +1375,29 @@ def _finish_run(doc, outputs_qty=None):
 
 	frappe.db.set_value("IB Work Order", doc.name,
 	                    {"fg_batch": fg_batch_id, "stock_entry": finish_se}, update_modified=False)
+
+	# Real bug, fixed here (confirmed live 2026-09-24, reproduced twice):
+	# apply_workflow() inside _wf() below reloads this doc from DB, then
+	# calls doc.save() again — whose _validate_links() checks every Link
+	# field's target via frappe.db.get_value(doctype, docname, "name",
+	# cache=True). That cache is a plain per-request dict
+	# (frappe.db.value_cache), keyed only by (doctype, docname, fieldname)
+	# — not scoped to a point in time. If ANYTHING earlier in this same
+	# request already did a cache=True lookup for this exact FG Batch name
+	# before it existed (this function's own several link-touching saves
+	# above are enough to trigger it), that negative result is what
+	# _validate_links() reads back here — even though the batch was for-
+	# real inserted moments ago in this same transaction. Confirmed live:
+	# "Could not find FG Batch: FG::<work order>" thrown from
+	# frappe/model/document.py _validate_links(), every single time,
+	# blocking Finish on every run that reaches this point. Evicting the
+	# stale entries for every FG batch just created (parent doc.fg_batch
+	# and every output row's fg_batch point at the same cache key, since
+	# the key has no per-document scope) forces the next cache=True read
+	# to hit the database for real instead of trusting a stale answer.
+	for fg_id in set(fg_batch_by_item.values()):
+		frappe.db.value_cache.pop(("IB Batch", fg_id, "name"), None)
+
 	_wf(doc, "Complete", {"current_stage": "Done", "completed_at": ts})
 
 	# roll the Order Sheet / its items up
