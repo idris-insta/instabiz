@@ -78,6 +78,7 @@ class CustomDeliveryNote(IbStatusMixin, DeliveryNote):
         super().on_submit()
         link_dn_source_batches(self)
         _stamp_scanned_dispatch_units(self)
+        _auto_create_gate_pass(self)  # IB_DN_AUTO_GATE_PASS_V1
 
     def on_cancel(self):
         super().on_cancel()
@@ -184,12 +185,14 @@ def _set_item_weights(dn):
         item = frappe.get_cached_doc("Item", row.item_code)
         rolls_per_box = item.custom_rolls_per_box or 1
         carton_wt = item.custom_carton_weight_kg or 0
-        boxes = flt(row.qty) / rolls_per_box
+        carton_cbm = flt(item.get("custom_carton_cbm") or 0)
+        boxes = flt(row.qty) / rolls_per_box if rolls_per_box else flt(row.qty)
         row.custom_total_weight_kg = round(boxes * carton_wt, 2)
+        if hasattr(row, "custom_cbm"):
+            row.custom_cbm = round(boxes * carton_cbm, 4)
     dn.total_net_weight = sum(flt(row.custom_total_weight_kg) for row in dn.items)
-
-
-# ── Auto Stock Reconciliation on insufficient stock ───────────────────────────
+    if hasattr(dn, "custom_total_cbm"):
+        dn.custom_total_cbm = sum(flt(getattr(row, "custom_cbm", 0) or 0) for row in dn.items)
 
 def _auto_create_sr_if_needed(dn):
     """Check actual stock per item/warehouse. If any row is short, create a
@@ -287,6 +290,14 @@ def custom_make_sales_invoice(source_name, target_doc=None):
             target_doc.customer_name = source_doc.customer_name
         map_parent_fields(source_doc, target_doc)
         map_address_contact_fields(source_doc, target_doc)
+        # --- BEGIN todo52_copy_vehicle_si ---
+        try:
+            from instabiz.overrides.gate_locks import copy_vehicle_dn_to_target
+            copy_vehicle_dn_to_target(source_doc, target_doc)
+        except Exception:
+            pass
+        # --- END todo52_copy_vehicle_si ---
+
 
     return get_mapped_doc(
         "Delivery Note",
@@ -318,3 +329,19 @@ def custom_make_sales_invoice(source_name, target_doc=None):
         },
         target_doc,
     )
+
+def _auto_create_gate_pass(dn):
+    """Create Outward IB Gate Pass on DN submit (idempotent). IB_DN_AUTO_GATE_PASS_V1"""
+    try:
+        from instabiz.instabiz.doctype.ib_gate_pass.ib_gate_pass import auto_create_for_delivery_note
+        name = auto_create_for_delivery_note(dn.name)
+        if name:
+            frappe.msgprint(
+                frappe._("Gate Pass {0} created").format(
+                    frappe.utils.get_link_to_form("IB Gate Pass", name)
+                ),
+                indicator="green",
+                alert=True,
+            )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "Auto Gate Pass from Delivery Note")

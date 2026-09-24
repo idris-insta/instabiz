@@ -1,4 +1,4 @@
-"""IB Gate Pass — the security gate register.
+﻿"""IB Gate Pass â€” the security gate register.
 
 Every vehicle / material going out or coming in gets a gate pass, usually made
 from the Delivery Note, Purchase Receipt or Stock Entry it belongs to (items,
@@ -100,8 +100,30 @@ def make_from(doctype, name):
 	return gp.as_dict()
 
 
+@frappe.whitelist()
+def auto_create_for_delivery_note(dn_name):
+	"""Idempotent: create+submit Outward Gate Pass for a submitted Delivery Note. IB_DN_AUTO_GATE_PASS_V1"""
+	frappe.get_doc("Delivery Note", dn_name).check_permission("read")
+	existing = frappe.db.exists(
+		"IB Gate Pass",
+		{"reference_doctype": "Delivery Note", "reference_name": dn_name, "docstatus": ["<", 2]},
+	)
+	if existing:
+		return existing
+	data = make_from("Delivery Note", dn_name)
+	gp = frappe.get_doc(data)
+	if not gp.vehicle_no:
+		pass  # todo52: do not invent TBD vehicle
+	# System-generated on DN submit: the dispatch user who submits the DN does not
+	# need submit rights on IB Gate Pass, and insert already bypasses permissions â€”
+	# submitting under the caller's roles would fail and lose the gate pass.
+	gp.flags.ignore_permissions = True
+	gp.insert(ignore_permissions=True)
+	gp.submit()
+	return gp.name
+
 def run_overdue_returnables():
-	"""Daily: returnables past their date → one bell per pass to stock managers (once)."""
+	"""Daily: returnables past their date â†’ one bell per pass to stock managers (once)."""
 	rows = frappe.get_all("IB Gate Pass", filters={"docstatus": 1, "status": ["in", ["Open", "Partly Returned"]],
 		"purpose": ["in", RETURNABLE], "expected_return_date": ["<", today()]},
 		fields=["name", "party_name", "expected_return_date", "purpose"])
@@ -119,3 +141,9 @@ def run_overdue_returnables():
 					"subject": _("{0} not back: {1} ({2} days late) {3}").format(r.purpose, r.party_name or r.name, days, marker)[:140],
 					"document_type": "IB Gate Pass", "document_name": r.name}).insert(ignore_permissions=True)
 	frappe.db.commit()
+
+@frappe.whitelist()
+def auto_create_for_purchase_receipt(pr_name):
+	"""Idempotent Inward Gate Pass for submitted Purchase Receipt."""
+	from instabiz.overrides.purchase_rules import auto_inward_gate_pass_for_pr
+	return auto_inward_gate_pass_for_pr(pr_name)
