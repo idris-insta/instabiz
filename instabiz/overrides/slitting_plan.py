@@ -20,6 +20,7 @@ from frappe import _
 from frappe.utils import flt, getdate
 
 from instabiz.overrides import ib_settings
+from instabiz.overrides.manufacturing_rules import usable_width_mm
 
 
 def _trim():
@@ -140,7 +141,7 @@ def _best(lines, batches, trim, knives):
 		if flt(b.width_mm) in seen:
 			continue
 		seen.add(flt(b.width_mm))
-		usable = flt(b.width_mm) - trim
+		usable = usable_width_mm(b.item if hasattr(b, 'item') else (b.get('item') if hasattr(b, 'get') else None), flt(b.width_mm)) or (flt(b.width_mm) - trim)
 		passes, too_wide = _pack(lines, usable, knives)
 		if not passes:
 			continue
@@ -251,3 +252,38 @@ def create_pass(source_batch, order_sheet_items, order_sheet=None):
 			frappe.db.set_value("IB Work Order", run, "source_warehouse", stock_wh, update_modified=False)
 		runs.append(run)
 	return {"runs": runs, "waiting": waiting}
+
+# --- BEGIN todo38 mfg plans (append into overrides/slitting_plan.py if helpers missing) ---
+# Idempotent: apply_todo38_patches.py only appends when markers / defs absent.
+# Prefer extending live slitting_plan patterns; WO entry points delegate to mfg_plans.
+
+TODO38_MARKER = "todo38_mfg_plans"
+
+
+@frappe.whitelist()
+def create_plan_from_wo(work_order, plan_type="slitting"):
+	"""Whitelist: build Slitting plan from IB Work Order (todo38)."""
+	from instabiz.overrides.mfg_plans import create_plan_from_wo as _ib_create
+
+	return _ib_create(work_order, plan_type=plan_type or "slitting")
+
+
+def suggest_multi_width_layout(*args, **kwargs):
+	from instabiz.overrides.mfg_plans import suggest_multi_width_layout as _fn
+
+	return _fn(*args, **kwargs)
+
+
+def suggest_cutting_undersize(*args, **kwargs):
+	from instabiz.overrides.mfg_plans import suggest_cutting_undersize as _fn
+
+	return _fn(*args, **kwargs)
+
+
+def probe_todo38(*args, **kwargs):
+	from instabiz.overrides.mfg_plans import probe_todo38 as _fn
+
+	return _fn(*args, **kwargs)
+
+# --- END todo38 mfg plans ---
+

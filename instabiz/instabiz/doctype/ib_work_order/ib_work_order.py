@@ -1,4 +1,4 @@
-import frappe
+﻿import frappe
 from frappe.model.document import Document
 from frappe.utils import flt
 
@@ -22,7 +22,15 @@ class IBWorkOrder(Document):
 	"""
 
 	def validate(self):
+		# IB_MFG_RULES_V1
+		from instabiz.overrides.manufacturing_rules import assert_advance_cleared, stamp_conversion_path
+		stamp_conversion_path(self)
+		if self.sales_order and self.status == "In Progress":
+			assert_advance_cleared(self.sales_order)
 		self._number_route()
+		# production_run.advance_stage() deliberately leaves wastage_qty /
+		# wastage_pct unset and relies on these two rolling them up on every
+		# save — dropping them silently zeroes all wastage reporting.
 		self._roll_up_stage_events()
 		self._roll_up_totals()
 

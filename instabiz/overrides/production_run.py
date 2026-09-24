@@ -441,6 +441,11 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 	start_stage: stage to begin at (default: route[0])
 	"""
 	_require_production_role()
+	# IB_MFG_RULES_V1
+	from instabiz.overrides.manufacturing_rules import (
+		assert_advance_cleared, apply_wo_name_from_os, stamp_conversion_path,
+		stamp_source_warehouse, stamp_output_logs_sqm,
+	)
 	outputs = _parse(outputs) or []
 	route = _parse(route)
 	if not outputs:
@@ -452,6 +457,7 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 	if not os_row:
 		frappe.throw(_("Order Sheet {0} not found").format(order_sheet))
 	sales_order = os_row.sales_order
+	assert_advance_cleared(sales_order)
 	location = (frappe.db.get_value("Sales Order", sales_order, "custom_location") or "").lower() or None
 
 	batch = frappe.db.get_value(
@@ -577,6 +583,10 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 		# outputs + source_batch are on `doc` already, so the spec is complete.
 		machine = _assign_machine(start_stage, location, _spec_from_run(doc)) or ""
 		doc.machine = machine
+		stamp_conversion_path(doc)
+		stamp_source_warehouse(doc)
+		stamp_output_logs_sqm(doc)
+		apply_wo_name_from_os(doc)
 		doc.insert(ignore_permissions=True)
 
 		# start it (Pending -> In Progress). apply_workflow reloads from DB, so
@@ -1158,7 +1168,12 @@ def _finish_run(doc, outputs_qty=None):
 			seq = _next_serial_seq(o.item_code, stamp)
 			made = 0
 			for i in range(n_units):
-				sn_name = f"{o.item_code}::{stamp}::{seq + i:04d}"
+				sn_name = None
+				try:
+					from instabiz.overrides.manufacturing_rules import make_carton_serial
+					sn_name = make_carton_serial(o.item_code, doc.order_sheet, doc.name, i + 1, ts)
+				except Exception:
+					sn_name = f"{o.item_code}::{stamp}::{seq + i:04d}"
 				if frappe.db.exists("IB FG Serial", sn_name):
 					continue
 				sn = frappe.new_doc("IB FG Serial")
