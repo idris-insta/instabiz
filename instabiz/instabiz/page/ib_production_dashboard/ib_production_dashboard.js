@@ -404,8 +404,6 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 				transition: background .12s, border-color .12s, color .12s;
 			}
 			.ib-sr-stage-box input:focus-visible + span { outline: 2px solid var(--ib-primary, #d97757); outline-offset: 1px; }
-			.ib-sr-stage-box--off span { opacity: .35; text-decoration: line-through; }
-			.ib-sr-stage-box--off input { cursor: not-allowed; }
 			.ib-sr-stage-box--head span { background: var(--subtle-fg, #f1f5f9); }
 			${stageCss}
 		</style>`).appendTo("head");
@@ -439,6 +437,14 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 	// the tooltip carries the full name + why a box is greyed out, so
 	// nothing legible is lost by dropping the text label. Direct ask: "use
 	// icons and tooltip info for chips."
+	// Direct ask (2026-09-24): every stage box must be pickable for every
+	// item — no disabling based on that item's own item-group/location
+	// route. Was: a stage outside `it.route` (the item's real canonical
+	// route, e.g. a warehouse-only location's items only ever having
+	// Packing) rendered disabled+greyed+struck-through, blocking the
+	// operator from adding it. Route is now only used to pick the DEFAULT
+	// checked state (what a normal run for this item would include) — every
+	// box stays fully clickable regardless.
 	const stageBoxes = (it, i) => {
 		const r = (it.route && it.route.length) ? it.route : route;
 		const fromIdx = Math.max(0, r.indexOf(it.next_stage_suggestion));
@@ -446,11 +452,9 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 			const label = s.label;
 			const inRoute = r.includes(label);
 			const checked = inRoute && r.indexOf(label) >= fromIdx;
-			const tip = !inRoute
-				? `${label} — not part of this item's route`
-				: `${label}${checked ? " — included in this run" : " — skipped for this run"}`;
-			return `<label class="ib-sr-stage-box${inRoute ? "" : " ib-sr-stage-box--off"}" title="${tip}">
-				<input type="checkbox" class="ib-sr-stage-cb" data-row="${i}" value="${label}" ${checked ? "checked" : ""} ${inRoute ? "" : "disabled"}>
+			const tip = `${label}${checked ? " — included in this run" : " — click to include in this run"}`;
+			return `<label class="ib-sr-stage-box" title="${tip}">
+				<input type="checkbox" class="ib-sr-stage-cb" data-row="${i}" value="${label}" ${checked ? "checked" : ""}>
 				<span><iconify-icon icon="lucide:${s.icon}" width="12" height="12"></iconify-icon></span>
 			</label>`;
 		}).join("");
@@ -619,16 +623,15 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 	// Quick-fill wiring — each header toggle checkbox sets (checked) or
 	// clears (unchecked) ITS OWN stage across the checked rows, or every
 	// row when nothing's checked — same "checked rows, else every row"
-	// convention the rest of this dialog already uses. Only touches rows
-	// where that stage is actually part of the item's own route (a
-	// disabled box has no state to flip).
+	// convention the rest of this dialog already uses. Every stage box is
+	// pickable now (see stageBoxes above), so this applies to every row.
 	d.$wrapper.find(".ib-sr-set-all-cb").on("change", (e) => {
 		const $cb = $(e.currentTarget);
 		const label = $cb.val();
 		const want = $cb.prop("checked");
 		const $checkedRows = d.$wrapper.find(".ib-sr-row-check:checked");
 		const $targetRows = $checkedRows.length ? $checkedRows.closest("tr") : d.$wrapper.find("tbody tr");
-		$targetRows.find(`.ib-sr-stage-cb[value="${label}"]:not(:disabled)`).prop("checked", want);
+		$targetRows.find(`.ib-sr-stage-cb[value="${label}"]`).prop("checked", want);
 	});
 	d.$wrapper.find(".ib-sr-check-all").on("change", (e) => {
 		d.$wrapper.find(".ib-sr-row-check").prop("checked", $(e.currentTarget).prop("checked"));
