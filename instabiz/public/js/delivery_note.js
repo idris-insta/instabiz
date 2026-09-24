@@ -19,8 +19,18 @@ frappe.ui.form.on("Delivery Note", {
 		}
 
 		ib_dn_setup_row_buttons(frm);
+		ib_dn_source_floor_button(frm);
 	},
 });
+
+// Floors of one location share a GSTIN, so moving the pick between them is an
+// internal stock decision — shared dialog lives in ib_source_floor.js.
+function ib_dn_source_floor_button(frm) {
+	if (frm.doc.docstatus !== 0 || !(frm.doc.items || []).length) return;
+	frm.add_custom_button(__("Source Floor"), () =>
+		ib_pick_floor(frm, { row_field: "warehouse", header_field: "set_warehouse" })
+	);
+}
 
 function ib_dn_setup_row_buttons(frm) {
 	const grid = frm.fields_dict.items && frm.fields_dict.items.grid;

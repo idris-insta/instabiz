@@ -19,6 +19,7 @@ frappe.ui.form.on("Sales Invoice", {
 
 		if (frm.doc.docstatus === 0) {
 			ib_si_setup_row_buttons(frm);
+			ib_si_source_floor_button(frm);
 		}
 	},
 
@@ -149,3 +150,39 @@ function ib_si_ndup_row(frm, idx) {
 		__("Create")
 	);
 }
+
+// Only relevant when the invoice itself moves stock (update_stock) — otherwise
+// the Delivery Note already decided which floor the goods left from.
+// Shared dialog lives in ib_source_floor.js.
+function ib_si_source_floor_button(frm) {
+	if (!cint(frm.doc.update_stock)) return;
+	if (!(frm.doc.items || []).length) return;
+	frm.add_custom_button(__("Source Floor"), () =>
+		ib_pick_floor(frm, { row_field: "warehouse", header_field: "set_warehouse" })
+	);
+}
+
+// Ported from the "IB Transport Charges SI" Client Script (2026-09-23).
+// Mirrors the freight tax row while typing; the real GST-on-transport
+// calculation happens server-side on save, hence the nudge.
+frappe.ui.form.on("Sales Invoice", {
+	custom_transport_charges(frm) {
+		const amt = flt(frm.doc.custom_transport_charges);
+		const freight_row = (frm.doc.taxes || []).find((r) =>
+			(r.account_head || "").toLowerCase().includes("freight")
+		);
+		if (freight_row) {
+			frappe.model.set_value(freight_row.doctype, freight_row.name, "tax_amount", amt);
+			frm.refresh_field("taxes");
+		}
+		if (amt) {
+			frappe.show_alert(
+				{
+					message: __("Transport charges set. Save to apply GST on transport."),
+					indicator: "blue",
+				},
+				4
+			);
+		}
+	},
+});
