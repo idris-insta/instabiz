@@ -4,6 +4,7 @@ import frappe
 from frappe import _
 from frappe.utils import today, now, add_days
 from instabiz.overrides.sales_target import get_target_map, compute_incentive, _month_first
+from instabiz.overrides.utils import ROTATION_EXEMPT_USERS
 
 
 # ── Reassignment notifications ─────────────────────────────────────────────────
@@ -105,7 +106,7 @@ def get_active_sales_users():
 		""",
 		as_dict=True,
 	)
-	return [r.name for r in rows]
+	return [r.name for r in rows if r.name not in ROTATION_EXEMPT_USERS]
 
 
 # ── Customer classification ───────────────────────────────────────────────────
