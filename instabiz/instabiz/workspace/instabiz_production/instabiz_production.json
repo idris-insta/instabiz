@@ -11,7 +11,7 @@
  "is_hidden": 0,
  "label": "Instabiz Production",
  "links": [],
- "modified": "2026-09-20 19:00:00.000000",
+ "modified": "2026-09-20 23:33:32.907549",
  "modified_by": "Administrator",
  "module": "Instabiz",
  "name": "Instabiz Production",
@@ -195,6 +195,13 @@
    "link_to": "IB Wastage Analysis",
    "type": "Report",
    "report_ref_doctype": "IB Work Order"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Recipes",
+   "link_to": "IB Production Recipe",
+   "type": "DocType"
   }
  ],
  "title": "Instabiz Production"

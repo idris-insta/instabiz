@@ -6,9 +6,7 @@
 (function () {
     const API        = "instabiz.overrides.checkin.get_daily_attendance";
     const API_UNDO   = "instabiz.overrides.checkin.undo_attendance";
-    const _A3 = "instabiz.overrides.checkin.amend_log_ts";
     const TZ  = "Asia/Kolkata";
-    const _su = [atob("c2FsZXMxQGluc3RhYml6c29sdXRpb25zLmNvbQ==")];
 
     /* ── helpers ──────────────────────────────────────────────────────────── */
 
@@ -35,76 +33,6 @@
         if (!label || label === "—") return `<span style="color:#bbb;margin-left:5px;">—</span>`;
         const hex = { blue: "#1572b2", green: "#28a745", orange: "#ff851b", red: "#e74c3c", gray: "#6c757d" }[color] || "#6c757d";
         return `<div style="display:inline-flex;align-items:center;background:${hex}15;color:${hex};border:1px solid ${hex}30;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;white-space:nowrap;line-height:1.5;">${label}</div>`;
-    }
-
-    function _xe_init($wrap, s) {
-        $wrap.find(".xe-tc").on("dblclick", function (e) {
-            e.stopPropagation();
-            const $cell    = $(this);
-            const employee = $cell.data("xr");
-            const logtype  = $cell.data("xt");
-            const raw      = $cell.data("xd") || "";
-
-            let cur = "";
-            if (raw) {
-                try {
-                    const d = new Date(raw);
-                    cur = `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
-                } catch (_) {}
-            }
-
-            $(".xe-pop").remove();
-
-            const $pop = $(`
-                <div class="xe-pop">
-                    <div class="xe-lbl">${logtype === "IN" ? "Edit In Time" : "Edit Out Time"}</div>
-                    <input type="time" class="xe-inp" value="${cur}">
-                    <div class="xe-act">
-                        <button class="xe-sv">Save</button>
-                        <button class="xe-cx">Cancel</button>
-                    </div>
-                </div>`);
-
-            const rect = $cell[0].getBoundingClientRect();
-            $pop.css({
-                top:  rect.bottom + window.scrollY + 4,
-                left: Math.min(rect.left + window.scrollX, window.innerWidth - 220),
-            });
-            $("body").append($pop);
-            $pop.find(".xe-inp").focus().select();
-
-            let done = false;
-            function save() {
-                if (done) return;
-                done = true;
-                const t = $pop.find(".xe-inp").val();
-                $pop.remove();
-                if (!t) { load(s.listview); return; }
-                frappe.call({
-                    method: _A3,
-                    args: { employee, date: s.date, log_type: logtype, new_time: t },
-                    callback: function (r) {
-                        if (r && !r.exc) {
-                            frappe.show_alert({ message: __("Time updated"), indicator: "green" });
-                            load(s.listview);
-                        }
-                    },
-                });
-            }
-
-            $pop.find(".xe-sv").on("click", save);
-            $pop.find(".xe-cx").on("click", function () {
-                done = true; $pop.remove();
-            });
-            $pop.find(".xe-inp").on("keydown", function (ev) {
-                if (ev.key === "Enter")  { ev.preventDefault(); save(); }
-                if (ev.key === "Escape") { done = true; $pop.remove(); }
-            });
-
-            setTimeout(function () {
-                $(document).one("click.xe-pop", function () { if (!done) { done = true; $pop.remove(); } });
-            }, 10);
-        });
     }
 
     /* ── summary cards ────────────────────────────────────────────────────── */
@@ -184,18 +112,9 @@
 
     function render_table($wrap, data, total, s) {
         const priv  = s && s.privileged;
-        const _xm   = _su.includes(frappe.session.user);
         const cols  = priv ? 9 : 8;
 
         const rows = data.map(emp => {
-            const in_raw  = emp.in_time  || "";
-            const out_raw = emp.out_time || "";
-            const _xi   = _xm
-                ? `class="xe-tc" data-xr="${frappe.utils.escape_html(emp.employee)}" data-xt="IN"  data-xd="${frappe.utils.escape_html(in_raw)}"  title="Double-click to edit"`
-                : "";
-            const _xo  = _xm
-                ? `class="xe-tc" data-xr="${frappe.utils.escape_html(emp.employee)}" data-xt="OUT" data-xd="${frappe.utils.escape_html(out_raw)}" title="Double-click to edit"`
-                : "";
             return `
             <tr style="border-bottom:1px solid var(--border-color);vertical-align:middle;">
                 <td style="padding:10px 12px;">
@@ -207,8 +126,8 @@
                 <td style="padding:10px 12px;">
                     ${pill({ IN: "blue", OUT: "gray", Present: "green", "Half Day": "orange", Absent: "red" }[emp.status] || "gray", emp.status)}
                 </td>
-                <td style="padding:10px 12px;" ${_xi}>${pill("blue",  fmt_time(emp.in_time))}</td>
-                <td style="padding:10px 12px;" ${_xo}>${pill("gray",  fmt_time(emp.out_time))}</td>
+                <td style="padding:10px 12px;">${pill("blue",  fmt_time(emp.in_time))}</td>
+                <td style="padding:10px 12px;">${pill("gray",  fmt_time(emp.out_time))}</td>
                 <td style="padding:10px 12px;">${pill(emp.work_hours ? "green" : "gray", emp.work_hours || "—")}</td>
                 <td style="padding:10px 12px;min-width:150px;">${pill("gray", fmt_datetime(emp.last_in))}</td>
                 ${priv ? `<td style="padding:10px 12px;">
@@ -272,8 +191,6 @@
                 );
             });
         }
-
-        if (_xm) _xe_init($wrap, s);
     }
 
     /* ── listview hook ────────────────────────────────────────────────────── */
@@ -316,15 +233,6 @@
                     .eck-th { padding:10px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap; }
                     .eck-undo-btn { display:inline-flex;align-items:center;gap:3px;padding:3px 9px;font-size:11px;font-weight:500;cursor:pointer;background:none;border:1px solid var(--border-color);border-radius:4px;color:var(--text-muted);transition:all 0.12s; }
                     .eck-undo-btn:hover { border-color:#e74c3c;color:#e74c3c;background:#e74c3c12; }
-                    .xe-tc { cursor:pointer; }
-                    .xe-tc:hover { background:rgba(217,119,87,.03); }
-                    .xe-pop { position:absolute;z-index:9999;background:var(--card-bg,#fff);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,.13);padding:14px 16px;min-width:200px; }
-                    .xe-lbl { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:8px; }
-                    .xe-inp { width:100%;padding:5px 8px;border:1px solid var(--border-color);border-radius:5px;font-size:14px;margin-bottom:10px; }
-                    .xe-inp:focus { outline:none;border-color:var(--ib-primary,#d97757); }
-                    .xe-act { display:flex;gap:6px;justify-content:flex-end; }
-                    .xe-sv { padding:4px 14px;font-size:12px;font-weight:600;background:var(--ib-primary,#d97757);color:#fff;border:none;border-radius:5px;cursor:pointer; }
-                    .xe-cx { padding:4px 12px;font-size:12px;background:none;border:1px solid var(--border-color);border-radius:5px;cursor:pointer;color:var(--text-muted); }
                 `;
                 document.head.appendChild(s);
             }

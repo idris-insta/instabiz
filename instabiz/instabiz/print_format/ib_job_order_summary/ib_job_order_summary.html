@@ -19,13 +19,13 @@
      already correctly does. #}
   .print-format { margin-top: 0mm; margin-right: 0mm; margin-bottom: 0mm; margin-left: 0mm; orientation: Landscape; width: 297mm; max-width: 297mm; }
 
-  /* Header/table density tuned to fit more rows per page — a 33-item Order
-     Sheet still spills to page 2 on wkhtmltopdf (which doesn't reliably repeat
-     <thead> across page breaks, so a page-2-only reader saw an unlabeled
-     grid); this is the "shrink to fit more" mitigation, not a full fix —
-     see CLAUDE.md item 96/119/120 for why the page-2 header-repeat itself
-     is still an open gap (this Frappe version has no Chrome PDF generator
-     to fall back on — pdf_generator's only real option is wkhtmltopdf). */
+  /* Header/table density tuned to fit more rows per page. wkhtmltopdf does
+     not reliably repeat a single <table>'s <thead> across a page break, so
+     instead of one long table we now render one full <table> (own <thead>)
+     per chunk of ROWS_PER_PAGE items with a forced page-break between
+     chunks — every printed page gets a real, labeled header, not just the
+     first. ROWS_PER_PAGE is deliberately conservative (see the comment
+     below) so a chunk never itself spills past its own page. */
   /* Negative side-margins matching body's own padding so the letterhead image
      bleeds truly edge-to-edge (100% of the page) instead of 100% of the
      10px-inset content area it would otherwise be constrained to. */
@@ -45,6 +45,7 @@
   .jos-items-count { font-size: 11px; color: #666; }
 
   table.jos-items { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+  table.jos-items.jos-page-break { page-break-after: always; }
   table.jos-items th { background: #fdf3ee; color: #b9502f; font-weight: bold; border: 1px solid #f0d4c8; padding: 3px 6px; text-align: left; font-size: 10px; white-space: nowrap; }
   table.jos-items td { border-bottom: 1px solid #ddd; padding: 2px 6px; vertical-align: middle; font-size: 10px; }
   table.jos-items tr:nth-child(even) td { background: #fafafa; }
@@ -64,6 +65,7 @@
   .jos-stage-done { color: #111; }
   .jos-stage-current { font-weight: bold; background: #fdf3ee; color: #b9502f; }
   .jos-stage-hold { font-weight: bold; color: #b3261e; }
+  .jos-stage-skipped { font-style: italic; color: #6b6b6b; }
 
   .jos-empty { text-align: center; padding: 20px; color: #888; font-size: 12px; }
 
@@ -89,7 +91,10 @@
 </div>
 
 {% if items %}
-<table class="jos-items">
+{% set ROWS_PER_PAGE = 28 %}
+{% for page_items in items | batch(ROWS_PER_PAGE) %}
+{% set page_offset = loop.index0 * ROWS_PER_PAGE %}
+<table class="jos-items{% if not loop.last %} jos-page-break{% endif %}">
   <thead>
     <tr>
       <th>#</th>
@@ -118,9 +123,9 @@
     </tr>
   </thead>
   <tbody>
-  {% for item in items %}
+  {% for item in page_items %}
     <tr>
-      <td>{{ loop.index }}</td>
+      <td>{{ page_offset + loop.index }}</td>
       <td class="jos-item-code">{{ item.item_code }}</td>
       <td>{{ item.item_name or "" }}</td>
       <td>
@@ -153,6 +158,8 @@
           <div>{{ st.machine or "Done" }}</div>
           {%- if st.operator -%}<div class="jos-subnote">{{ st.operator }}</div>{%- endif -%}
         </td>
+        {%- elif st.status == "Skipped" -%}
+        <td class="jos-stage-cell jos-stage-skipped">skipped</td>
         {%- elif st.status == "On Hold" -%}
         <td class="jos-stage-cell jos-stage-hold">{{ st.machine or "" }} (Hold)</td>
         {%- elif st.is_current -%}
@@ -165,6 +172,7 @@
   {% endfor %}
   </tbody>
 </table>
+{% endfor %}
 {% else %}
 <div class="jos-empty">No items to print for this order.</div>
 {% endif %}

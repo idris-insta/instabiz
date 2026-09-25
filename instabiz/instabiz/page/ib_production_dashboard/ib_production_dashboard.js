@@ -32,6 +32,61 @@ function _go_to_production_stages(route_options) {
 	shell._activate("stages");
 }
 
+// Command Center is a Stages sub-tab now (2026-09-21), not a top-level
+// shell tab — route to Stages, then switch that tab's OWN sub-tab. Handles
+// both cases: Stages isn't even mounted yet (fresh navigation — activate it
+// first, its constructor reads frappe.route_options via
+// _consume_route_options()), and Stages is already the active shell tab
+// (just flip its sub-tab in place, no full teardown/rebuild needed).
+function _go_to_command_center() {
+	const shell = frappe.pages["ib-production-dashboard"]._shell;
+	if (!shell) return;
+	if (shell._active_tab === "stages" && shell._active) {
+		shell._active._switch_tab("command");
+		return;
+	}
+	frappe.route_options = { tab: "command" };
+	frappe.set_route("ib-production-dashboard", "stages");
+	shell._activate("stages");
+}
+
+// One place to operate a WO instead of three (Dashboard's own inline row
+// buttons, Command Center's inline buttons, and the shared dialog every
+// Stages sub-tab used to pop open in place) — Dashboard's Active Production
+// Plan row actions (Start/Resume/Next Stage/Finish) call this instead of
+// acting directly. Unlike the Stages sub-tabs (which already have the WO's
+// full data sitting in their own `_wo_data` cache — see the four
+// `this._switch_tab("command"); this._open_wo_panel(...)` call sites in
+// IBProductionStages), Dashboard only ever has a bare WO name, so this
+// fetches the one WO it needs (get_run_row — same shape Stage-wise's rows
+// already come in, reusing _stage_row_to_wo's existing adapter) before
+// switching. IBCommandCenter is a separate class from IBProductionStages
+// (own click handlers, own inline actions) — the shared operate panel
+// (_open_wo_panel/_render_wo_panel) lives on IBProductionStages regardless,
+// so opening it while active_tab === "command" is just the same floating
+// frappe.ui.Dialog on top of whichever sub-tab happens to be underneath.
+function _go_to_command_center_with_wo(work_order) {
+	frappe.call({
+		method: "instabiz.overrides.production_run.get_run_row",
+		args: { work_order },
+		callback: (r) => {
+			if (!r.message) return;
+			const shell = frappe.pages["ib-production-dashboard"]._shell;
+			if (!shell) return;
+			if (shell._active_tab === "stages" && shell._active) {
+				shell._active._switch_tab("command");
+			} else {
+				frappe.route_options = { tab: "command" };
+				frappe.set_route("ib-production-dashboard", "stages");
+				shell._activate("stages");
+			}
+			const stages = shell._active;
+			const wo = stages._stage_row_to_wo(r.message);
+			stages._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || "");
+		},
+	});
+}
+
 /* ─── Outer shell — tabs between Dashboard and Stages ────────────────────── */
 class IBProductionShell {
 	constructor(page, wrapper) {
@@ -52,7 +107,14 @@ class IBProductionShell {
 
 	_route_tab() {
 		const route = frappe.get_route();
-		return route[1] === "stages" ? "stages" : "dashboard";
+		// route[1] === "command" (the old top-level Command Center tab's own
+		// route, from before 2026-09-21) now resolves to Stages — a stale
+		// bookmark/link still lands somewhere real instead of the fallback
+		// Dashboard. _go_to_command_center() itself never sets this route
+		// shape anymore (it routes to "stages" + a route_options.tab), this
+		// is purely a soft landing for old links.
+		if (route[1] === "stages" || route[1] === "command") return "stages";
+		return "dashboard";
 	}
 
 	_build_shell() {
@@ -313,35 +375,92 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 	// share one route) — fall back to all canonical stages only if the
 	// server sent none.
 	const route = (items[0] && items[0].route && items[0].route.length) ? items[0].route.slice() : ALL_LABELS.slice();
-	const firstSuggestion = items.map((it) => it.next_stage_suggestion).find((s) => route.includes(s)) || route[0];
 	const item_codes = new Set(items.map((it) => it.item_code));
 	const subtitle = item_codes.size === 1
 		? `${items.length} output(s) of ${Array.from(item_codes)[0]}`
 		: `${items.length} outputs across ${item_codes.size} SKUs`;
 
-	// Per-row Stage picker — direct ask: "the user prompt where we choose
-	// the stages with the multi selection, give this ability." A run's
-	// outputs must all share ONE route/start_stage (they're produced
-	// together in one physical pass — see the route comment above), but
-	// selected items in a bulk start are very often NOT all sitting at the
-	// same real point in their own route (one fresh, one already past
-	// Coating/Slitting). Forcing everyone onto one dialog-level Start Stage
-	// field would silently mis-start whichever items don't match it. Each
-	// row defaults to ITS OWN next_stage_suggestion (independently
-	// checkable/changeable); on submit, rows are grouped by their selected
-	// stage and one run is created per group — a genuinely different-stage
-	// selection produces genuinely separate runs, not one run lying about
-	// where some of its outputs actually are.
-	const rowOptions = (it) => {
+	// Small toggle chips, not raw checkboxes — direct ask: "keep the form
+	// consistent in ui/ux." Same per-stage colors IB_STAGES already defines
+	// for the stage chip everywhere else on this page (no new palette), same
+	// compact/functional density as this dialog's own input-sm grid fields.
+	if (!document.getElementById("ib-sr-stage-styles")) {
+		const stageCss = IB_STAGES.map((s) => `
+			.ib-sr-stage-box input[value="${s.label}"]:checked + span { background:${s.color}; border-color:${s.color}; color:#fff; }
+		`).join("");
+		$(`<style id="ib-sr-stage-styles">
+			.ib-sr-stage-row { display: flex; gap: 4px; flex-wrap: wrap; }
+			.ib-sr-stage-box {
+				position: relative; display: inline-flex; align-items: center; justify-content: center;
+				margin: 0; cursor: pointer;
+			}
+			.ib-sr-stage-box input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+			.ib-sr-stage-box span {
+				display: inline-flex; align-items: center; justify-content: center;
+				min-width: 26px; height: 22px; padding: 0 6px;
+				border: 1px solid var(--border-color, #d1d5db); border-radius: 20px;
+				background: var(--card-bg, #fff); color: var(--text-muted, #6b7280);
+				font-size: 10px; font-weight: 700; letter-spacing: .02em;
+				transition: background .12s, border-color .12s, color .12s;
+			}
+			.ib-sr-stage-box input:focus-visible + span { outline: 2px solid var(--ib-primary, #d97757); outline-offset: 1px; }
+			.ib-sr-stage-box--off span { opacity: .35; text-decoration: line-through; }
+			.ib-sr-stage-box--off input { cursor: not-allowed; }
+			.ib-sr-stage-box--head span { background: var(--subtle-fg, #f1f5f9); }
+			${stageCss}
+		</style>`).appendTo("head");
+	}
+
+	// Per-row Stage TEMPLATE picker — direct ask: "prompt user to select
+	// stages... create a template for the process to run through, then the
+	// stages get pushed next to next stage." Was a single "start here"
+	// dropdown (implicitly running every remaining canonical stage after
+	// it) — now a bank of checkboxes over the item's own real route, so a
+	// run's custom stage sequence (e.g. skip Rewinding entirely) can be
+	// built explicitly instead of only ever picking where to START a run
+	// through the full default chain. Pick/skip only — order stays fixed
+	// at the canonical Coating->Slitting->Rewinding->Cutting->Packing
+	// sequence (confirmed: reordering has no support anywhere in the real
+	// machine/route logic, which assumes a stage never runs before its
+	// usual predecessor); create_run()'s own `route` param already accepts
+	// any ordered subset, so this is a pure frontend addition.
+	//
+	// A run's outputs must all share ONE physical route (see the route
+	// comment above) — bulk-selected items are often NOT at the same real
+	// point in their own route (one fresh, one already past Slitting), so
+	// each row still defaults independently (its own next_stage_suggestion
+	// through the end of its own route, checked) and is independently
+	// editable; on submit, rows are grouped by their FULL resulting route
+	// (not just a single start stage) — two rows only share a run if their
+	// entire chosen stage sequence matches exactly.
+	// Real stage icon (IB_STAGES' own icon — same one on the stage chip
+	// everywhere else on this page, no new icon set) instead of a 2-letter
+	// code — icons scan faster once there are 5 of them side by side, and
+	// the tooltip carries the full name + why a box is greyed out, so
+	// nothing legible is lost by dropping the text label. Direct ask: "use
+	// icons and tooltip info for chips."
+	const stageBoxes = (it, i) => {
 		const r = (it.route && it.route.length) ? it.route : route;
-		const def = r.includes(it.next_stage_suggestion) ? it.next_stage_suggestion : r[0];
-		return r.map((s) => `<option value="${s}" ${s === def ? "selected" : ""}>${s}</option>`).join("");
+		const fromIdx = Math.max(0, r.indexOf(it.next_stage_suggestion));
+		return IB_STAGES.map((s) => {
+			const label = s.label;
+			const inRoute = r.includes(label);
+			const checked = inRoute && r.indexOf(label) >= fromIdx;
+			const tip = !inRoute
+				? `${label} — not part of this item's route`
+				: `${label}${checked ? " — included in this run" : " — skipped for this run"}`;
+			return `<label class="ib-sr-stage-box${inRoute ? "" : " ib-sr-stage-box--off"}" title="${tip}">
+				<input type="checkbox" class="ib-sr-stage-cb" data-row="${i}" value="${label}" ${checked ? "checked" : ""} ${inRoute ? "" : "disabled"}>
+				<span><iconify-icon icon="lucide:${s.icon}" width="12" height="12"></iconify-icon></span>
+			</label>`;
+		}).join("");
 	};
 	const rows = items.map((it, i) => `
 		<tr data-i="${i}">
+			<td><input type="checkbox" class="ib-sr-row-check"></td>
 			<td style="white-space:nowrap"><strong>${frappe.utils.escape_html(it.item_code || "")}</strong>
 				<div class="text-muted" style="font-size:11px">${it.uom || ""}</div></td>
-			<td><select class="form-control input-sm ib-sr-stage" style="width:120px">${rowOptions(it)}</select></td>
+			<td><div class="ib-sr-stage-row">${stageBoxes(it, i)}</div></td>
 			<td><input type="number" class="form-control input-sm ib-sr-qty" value="${flt(it.qty) || 0}" step="any" style="width:100px"></td>
 			<td><input type="number" class="form-control input-sm ib-sr-pack" placeholder="boxes/rolls" step="1" style="width:100px"></td>
 			<td>
@@ -350,6 +469,55 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 			</td>
 		</tr>`).join("");
 
+	// Redesigned per direct feedback ("too many fields upfront"): the dialog
+	// used to open with 3 full-width form fields (Source Batch, RM Qty
+	// Consumed, Set Stage For All Rows) stacked ABOVE the grid before you
+	// could even see what you're starting. Only Source Batch is something
+	// every run genuinely needs — the other two are quick-fill/override
+	// conveniences, not independent decisions, so they're folded into the
+	// grid itself: "Set stage" lives in the Stage column's own header (right
+	// next to the thing it fills in), and the RM-qty override sits behind a
+	// one-line toggle instead of always taking up its own field.
+	//
+	// Row checkboxes (added per direct follow-up ask: items on one order
+	// often need DIFFERENT stages in different-sized groups — not "one
+	// shared stage for everyone" and not "click each row's dropdown one at
+	// a time" either. Check a subset, pick a stage, it applies to just that
+	// subset; check a different subset, pick a different stage; repeat.
+	// With nothing checked, it still falls back to applying to every row —
+	// the original one-click "these are all the same" case stays just as
+	// fast as before this existed.
+	// Header quick-fill: one toggle chip per canonical stage — click checks
+	// that stage on (or unchecks it, if already checked on every applicable
+	// row) across the checked rows, or every row if none are checked. Same
+	// "checked rows, else every row" convention the old single-select quick
+	// fill already used, just toggling one stage at a time instead of
+	// replacing the whole selection — a template is a SET of stages, not
+	// one pick, so a single-value dropdown could never drive it.
+	const headerToggles = IB_STAGES.map((s) => `
+		<label class="ib-sr-stage-box ib-sr-stage-box--head" title="Toggle ${s.label} for the ticked rows (or all rows if none ticked)">
+			<input type="checkbox" class="ib-sr-set-all-cb" value="${s.label}">
+			<span><iconify-icon icon="lucide:${s.icon}" width="12" height="12"></iconify-icon></span>
+		</label>`).join("");
+	const rowsGrid = `
+		<div style="overflow-x:auto"><table class="table table-bordered" style="margin-bottom:0">
+			<thead><tr>
+				<th><input type="checkbox" class="ib-sr-check-all" title="Select all rows"></th>
+				<th>Output Item</th>
+				<th style="white-space:nowrap">Stages<br><div class="ib-sr-stage-row" style="margin-top:3px">${headerToggles}</div></th>
+				<th>Planned Qty</th><th>Pack Count</th><th>Packing (optional)</th>
+			</tr></thead>
+			<tbody>${rows}</tbody>
+		</table></div>
+		<div class="text-muted" style="font-size:11px;margin-top:4px">Untick a stage to skip it for this run — the checked stages chain together in order as the run's route. Tick rows first to change just that subset; with nothing ticked, a header toggle applies to every row.</div>
+		<div style="margin-top:8px;font-size:12px">
+			<a href="#" class="ib-sr-qty-toggle">+ Override total RM qty consumed</a>
+			<div class="ib-sr-qty-box" style="display:none;margin-top:6px;max-width:260px">
+				<input type="number" class="form-control input-sm ib-sr-source-qty" step="any" placeholder="RM qty consumed">
+				<div class="text-muted" style="font-size:11px;margin-top:3px">Only applies when every row below ends up in one run (all on the same stage sequence). Leave it closed to use each run's own summed output qty — the only option once rows split across different sequences.</div>
+			</div>
+		</div>`;
+
 	const d = new frappe.ui.Dialog({
 		title: `Start Production — ${subtitle}`,
 		size: "large",
@@ -357,24 +525,23 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 			{ fieldname: "source_batch", fieldtype: "Link", options: "IB Batch", label: "Source RM Batch", reqd: 1,
 				get_query: () => ({ filters: { kind: "Raw Material", status: "Active" } }),
 				description: "The one raw-material / jumbo batch each run below consumes from." },
-			{ fieldname: "source_qty", fieldtype: "Float", label: "RM Qty Consumed",
-				description: "Only used when every row below ends up in ONE run (all on the same stage). Leave blank to use each run's own summed output quantity — the only option once rows span more than one stage." },
-			{ fieldname: "set_all_stage", fieldtype: "Select", label: "Set Stage For All Rows",
-				options: [""].concat(route).join("\n"),
-				description: "Quick-fill: applies the picked stage to every row's own selector below. Leave blank to keep each row's own default." },
-			{ fieldname: "grid", fieldtype: "HTML", options: `
-				<div style="overflow-x:auto"><table class="table table-bordered" style="margin-bottom:0">
-					<thead><tr><th>Output Item</th><th>Stage</th><th>Planned Qty</th><th>Pack Count</th><th>Packing (optional)</th></tr></thead>
-					<tbody>${rows}</tbody>
-				</table></div>` },
+			{ fieldname: "grid", fieldtype: "HTML", options: rowsGrid },
 		],
 		primary_action_label: "Start Run(s)",
 		primary_action: (v) => {
 			if (!v.source_batch) { frappe.show_alert({ message: "Pick a source RM batch.", indicator: "orange" }); return; }
+			const sourceQtyOverride = flt(d.$wrapper.find(".ib-sr-source-qty").val());
+			// Each row's checked stage-boxes -> its OWN custom route, in fixed
+			// canonical order (ALL_LABELS is already Coating->...->Packing, so
+			// filtering it preserves order regardless of click sequence).
+			let bad = null;
 			const rowData = items.map((it, i) => {
 				const $r = d.$wrapper.find(`tr[data-i="${i}"]`);
+				const rowRoute = ALL_LABELS.filter((label) =>
+					$r.find(`.ib-sr-stage-cb[value="${label}"]`).prop("checked"));
+				if (!rowRoute.length) bad = it.item_code || `row ${i + 1}`;
 				return {
-					stage: $r.find(".ib-sr-stage").val() || firstSuggestion,
+					route: rowRoute,
 					output: {
 						order_sheet_item: it.name,
 						sales_order_item: it.sales_order_item || undefined,
@@ -387,28 +554,45 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 					},
 				};
 			});
-			const groups = new Map();
-			for (const { stage, output } of rowData) {
-				if (!groups.has(stage)) groups.set(stage, []);
-				groups.get(stage).push(output);
+			if (bad) {
+				frappe.show_alert({ message: `${bad} has no stages checked — pick at least one.`, indicator: "orange" });
+				return;
 			}
-			const stages = Array.from(groups.keys());
+			// Two rows only share a run if their FULL stage sequence matches —
+			// a run is one physical pass through the machines, so a partial
+			// overlap (one row skipping Rewinding, another not) can't be
+			// merged into one route without lying about one of them.
+			//
+			// UOM is part of the same key, not just route: a run's outputs must
+			// share one unit (server now enforces this — create_run throws on a
+			// mixed-UOM group). Several real item groups mix stock_uom (PLASTIC/
+			// PVC/FOIL all have both KG and SQMT members) and share one route,
+			// so two such rows could otherwise land in the same bulk-start group
+			// and hit that throw instead of silently becoming two separate runs
+			// the way every other route-only split already does.
+			const groups = new Map();
+			for (const { route: r, output } of rowData) {
+				const key = r.join("→") + "‖" + (output.uom || "");
+				if (!groups.has(key)) groups.set(key, { route: r, outputs: [] });
+				groups.get(key).outputs.push(output);
+			}
+			const groupKeys = Array.from(groups.keys());
 			d.get_primary_btn().prop("disabled", true).text("Starting…");
 			let created = 0, failed = 0;
 			const runNext = () => {
-				if (!stages.length) {
+				if (!groupKeys.length) {
 					d.hide();
 					if (failed) {
 						frappe.show_alert({ message: `${created} run(s) started, ${failed} failed.`, indicator: created ? "orange" : "red" }, 5);
 					} else {
 						frappe.show_alert({ message: groups.size > 1
-							? `${created} runs started (grouped by stage).` : "Run started.", indicator: "green" }, 4);
+							? `${created} runs started (grouped by stage sequence).` : "Run started.", indicator: "green" }, 4);
 					}
 					if (onDone) onDone();
 					return;
 				}
-				const stage = stages.shift();
-				const outputs = groups.get(stage);
+				const key = groupKeys.shift();
+				const { route: groupRoute, outputs } = groups.get(key);
 				frappe.call({
 					method: "instabiz.overrides.production_run.create_run",
 					args: {
@@ -417,9 +601,10 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 						// everything collapsed into one run — split across several
 						// stage-groups it's ambiguous, so each group falls back to
 						// its own summed output quantity instead of guessing a split.
-						source_qty: (groups.size === 1 && v.source_qty) ? v.source_qty : null,
+						source_qty: (groups.size === 1 && sourceQtyOverride) ? sourceQtyOverride : null,
 						outputs: JSON.stringify(outputs),
-						start_stage: stage,
+						route: JSON.stringify(groupRoute),
+						start_stage: groupRoute[0],
 					},
 					callback: (r) => {
 						if (r.exc || !r.message) failed += 1; else created += 1;
@@ -431,13 +616,61 @@ function _ibStartRunDialogBuild(order_sheet, items, onDone) {
 			runNext();
 		},
 	});
-	// Quick-fill wiring — applies the picked stage to every row's own select.
-	d.fields_dict.set_all_stage.$input.on("change", () => {
-		const val = d.get_value("set_all_stage");
-		if (!val) return;
-		d.$wrapper.find(".ib-sr-stage").each((_, el) => { if ($(el).find(`option[value="${val}"]`).length) $(el).val(val); });
+	// Quick-fill wiring — each header toggle checkbox sets (checked) or
+	// clears (unchecked) ITS OWN stage across the checked rows, or every
+	// row when nothing's checked — same "checked rows, else every row"
+	// convention the rest of this dialog already uses. Only touches rows
+	// where that stage is actually part of the item's own route (a
+	// disabled box has no state to flip).
+	d.$wrapper.find(".ib-sr-set-all-cb").on("change", (e) => {
+		const $cb = $(e.currentTarget);
+		const label = $cb.val();
+		const want = $cb.prop("checked");
+		const $checkedRows = d.$wrapper.find(".ib-sr-row-check:checked");
+		const $targetRows = $checkedRows.length ? $checkedRows.closest("tr") : d.$wrapper.find("tbody tr");
+		$targetRows.find(`.ib-sr-stage-cb[value="${label}"]:not(:disabled)`).prop("checked", want);
+	});
+	d.$wrapper.find(".ib-sr-check-all").on("change", (e) => {
+		d.$wrapper.find(".ib-sr-row-check").prop("checked", $(e.currentTarget).prop("checked"));
+	});
+	// RM-qty override — collapsed behind a one-line toggle instead of an
+	// always-visible field, since it's only relevant once every row lands
+	// on the same stage (see the box's own description).
+	d.$wrapper.find(".ib-sr-qty-toggle").on("click", (e) => {
+		e.preventDefault();
+		d.$wrapper.find(".ib-sr-qty-box").slideDown(120);
+		d.$wrapper.find(".ib-sr-qty-toggle").hide();
 	});
 	d.show();
+
+	// Auto-suggest the Source RM Batch instead of always starting blank —
+	// direct ask: this shouldn't need picking by hand every time. Calls the
+	// same recipe-then-item_group matching create_run() itself now enforces
+	// (production_run.suggest_source_batches) — the OLD version here only
+	// matched a batch whose own item_code was IDENTICAL to the item being
+	// produced, which real data shows is rare (one jumbo/RM batch legitimately
+	// becomes many different finished SKUs of the same material family), so
+	// it almost never actually fired. Picks the top (largest-qty) candidate
+	// when one exists; still a plain editable field either way — a
+	// suggestion, not a lock, since picking the wrong physical batch matters.
+	const totalNeeded = items.reduce((sum, it) => sum + (flt(it.qty) || 0), 0);
+	if (items[0] && items[0].item_code) {
+		frappe.call({
+			method: "instabiz.overrides.production_run.suggest_source_batches",
+			args: { item_code: items[0].item_code, needed_qty: totalNeeded || null },
+			callback: (r) => {
+				const matches = r.message || [];
+				if (!matches.length) return;
+				const top = matches[0];
+				d.set_value("source_batch", top.name);
+				const basis = top.match_basis === "recipe" ? "matches this item's recipe" : "same material family";
+				const alt = matches.length > 1 ? ` (${matches.length - 1} other candidate${matches.length > 2 ? "s" : ""} available)` : "";
+				const warn = top.sufficient ? "" : " — may not have enough qty, check before starting";
+				d.set_df_property("source_batch", "description",
+					`Auto-picked — ${top.qty} remaining, ${basis}${alt}${warn}. Change it if that's wrong.`);
+			},
+		});
+	}
 }
 
 
@@ -935,14 +1168,22 @@ class IBProductionDashboard {
 				},
 			},
 			{
-				label: "Pending", value: s.pending ?? 0, color: "#d97706", icon: "clock",
-				sub: "Awaiting start",
+				// Real bug, fixed: this card used to read s.pending (IB Work
+				// Order.status == "Pending"), which is structurally always 0
+				// under the WO-per-run model (create_run never leaves a run
+				// Pending) and routed to Item-wise filtered by that same dead
+				// status — a view that can never show anything either, since
+				// an item with zero runs doesn't appear in Item-wise at all.
+				// Confirmed live: "Pending" showed 0 while the real
+				// not-yet-started backlog was 346. Now reads the same real
+				// ready-to-run count Command Center shows, and routes there
+				// — the actual view built for this queue.
+				label: "Ready to Run", value: s.ready_to_run ?? 0, color: "#d97706", icon: "list-checks",
+				sub: "Queued, not started",
 				// Only metric that gets a colour cue — an amber status dot when
 				// there's a real backlog. Everything else stays monochrome.
-				attention: (s.pending ?? 0) > 0,
-				click: () => {
-					_go_to_production_stages({ tab: "item_wise", status: "Pending" });
-				},
+				attention: (s.ready_to_run ?? 0) > 0,
+				click: () => _go_to_command_center(),
 			},
 			{
 				label: "Completed Today", value: s.completed_today ?? 0, color: "#059669", icon: "check-circle",
@@ -1078,7 +1319,7 @@ class IBProductionDashboard {
 			return;
 		}
 
-		const stageStatusCls = { "Completed": "ib-pd-stg--done", "In Progress": "ib-pd-stg--inprog", "Pending": "ib-pd-stg--pending" };
+		const stageStatusCls = { "Completed": "ib-pd-stg--done", "In Progress": "ib-pd-stg--inprog", "Pending": "ib-pd-stg--pending", "Skipped": "ib-pd-stg--skipped" };
 
 		const rows = filteredSheets.map(os => {
 			const allItems = os.items || [];
@@ -1147,9 +1388,22 @@ class IBProductionDashboard {
 				if (woName && (curInfo.status === "Pending" || curInfo.status === "On Hold")) {
 					primaryBtn = `<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-pd-row-start" data-wo="${frappe.utils.escape_html(woName)}" title="${curInfo.status === "On Hold" ? "Resume work on this stage" : "Begin work on this stage"}">${curInfo.status === "On Hold" ? "Resume" : "Start"}</button>`;
 				} else if (woName && curInfo.status === "In Progress" && isLastStage) {
-					primaryBtn = `<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-pd-row-advance" data-wo="${frappe.utils.escape_html(woName)}" data-target-qty="${item.qty || 0}" data-target-uom="${frappe.utils.escape_html(item.uom || "")}" title="Mark this item as fully produced">Finish</button>`;
+					// Real bug, fixed (QC pass, subagent-confirmed live): this used
+					// to default to item.qty — the Order Sheet Item's FULL ordered
+					// quantity — not what THIS run actually started with. A run is
+					// routinely a partial fulfillment (length-split, multi-output,
+					// partial hold — all real live flows), so item.qty can be wildly
+					// larger than the run's real source_qty. curInfo.target_qty
+					// (== run.source_qty, computed server-side in
+					// production_run._stage_map_for_run) is the number every other
+					// part of this same row already uses (stage-pill tooltip, adj
+					// badge, WO side-panel's own copy of this dialog) — using it
+					// here too keeps the wastage-capture dialog's default/label
+					// correct instead of producing nonsensical negative "wastage"
+					// when an operator doesn't override it.
+					primaryBtn = `<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-pd-row-advance" data-wo="${frappe.utils.escape_html(woName)}" data-target-qty="${curInfo.target_qty || 0}" data-target-uom="${frappe.utils.escape_html(curInfo.target_uom || "")}" title="Mark this item as fully produced">Finish</button>`;
 				} else if (woName && curInfo.status === "In Progress") {
-					primaryBtn = `<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-pd-row-advance" data-wo="${frappe.utils.escape_html(woName)}" data-target-qty="${item.qty || 0}" data-target-uom="${frappe.utils.escape_html(item.uom || "")}" title="Complete this stage and move to the next">Next Stage →</button>`;
+					primaryBtn = `<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-pd-row-advance" data-wo="${frappe.utils.escape_html(woName)}" data-target-qty="${curInfo.target_qty || 0}" data-target-uom="${frappe.utils.escape_html(curInfo.target_uom || "")}" title="Complete this stage and move to the next">Next Stage →</button>`;
 				} else if (!woName && !isFullyDone) {
 					// JIT stage model (2026-08-13): the normal resting state now —
 					// nothing active/pending for this item (never started, or its
@@ -1315,48 +1569,24 @@ class IBProductionDashboard {
 			else if (this._plan_keep_open === os) this._plan_keep_open = null;
 		});
 
+		// Start/Resume and Next Stage/Finish both used to act directly on
+		// this row (start_work_order / advance_with_split_check inline).
+		// Routed to Command Center instead (2026-09-23) — a WO with real
+		// stage-log/machine/hold state gets operated in exactly one place
+		// now, not three (this row, the Stages sub-tabs' own shared dialog,
+		// and Command Center's own inline buttons). "Start Production" for
+		// an item with no WO yet (.ib-pd-row-start-stage, below) is
+		// unaffected — there's no WO to route to until this dialog creates
+		// one, and it's already the same dialog Command Center's own "Run"
+		// button uses (_start_production_flow), so there was nothing
+		// inconsistent to fix there.
 		$el.off("click", ".ib-pd-row-start").on("click", ".ib-pd-row-start", (e) => {
 			e.stopPropagation();
-			// Disable immediately — refresh() re-renders everything with fresh
-			// buttons on success, but the RPC round-trip leaves a window where
-			// this exact button would otherwise still be sitting there
-			// clickable, showing "Start" on a WO that's already In Progress.
-			const $btn = $(e.currentTarget);
-			if ($btn.prop("disabled")) return;
-			$btn.prop("disabled", true);
-			this._plan_keep_open = $btn.closest("[data-os-body]").data("osBody") || null;
-			this._plan_row_call("instabiz.overrides.production.start_work_order",
-				{ work_order: $btn.data("wo") }, "Started", $btn);
+			_go_to_command_center_with_wo($(e.currentTarget).data("wo"));
 		});
 		$el.off("click", ".ib-pd-row-advance").on("click", ".ib-pd-row-advance", (e) => {
 			e.stopPropagation();
-			const $btn = $(e.currentTarget);
-			if ($btn.prop("disabled")) return;
-			const wo = $btn.data("wo");
-			this._plan_keep_open = $btn.closest("[data-os-body]").data("osBody") || null;
-			// Asks actual output vs target first (wastage capture) — same dialog
-			// the WO side panel's Advance/Complete buttons use. Not disabled
-			// until Confirm, same reasoning as the panel's guarded()-exclusion
-			// comment: nothing to re-enable this button with if the dialog is
-			// cancelled.
-			_prompt_actual_output(
-				{ target_qty: $btn.data("targetQty"), target_uom: $btn.data("targetUom") },
-				(actual_qty) => {
-					$btn.prop("disabled", true);
-					_advance_with_split_check(
-						wo, actual_qty,
-						(msg) => {
-							frappe.show_alert({ message: msg.message || "Advanced.", indicator: "green" }, 3);
-							this.refresh();
-						},
-						(err) => {
-							frappe.show_alert({ message: err, indicator: "red" });
-							$btn.prop("disabled", false);
-						},
-					);
-				},
-				wo,
-			);
+			_go_to_command_center_with_wo($(e.currentTarget).data("wo"));
 		});
 		$el.off("click", ".ib-pd-row-start-stage").on("click", ".ib-pd-row-start-stage", (e) => {
 			e.stopPropagation();
@@ -1651,22 +1881,6 @@ class IBProductionDashboard {
 		}
 		(this._plan_all_rows || []).forEach(os => {
 			if (os.sales_order === sales_order) os.comment_count = (os.comment_count || 0) + 1;
-		});
-	}
-
-	_plan_row_call(method, args, successLabel, $btn) {
-		frappe.call({
-			method,
-			args,
-			callback: (r) => {
-				if (r.exc || (r.message && r.message.status && r.message.status !== "ok")) {
-					frappe.show_alert({ message: `Failed — ${successLabel.toLowerCase()} did not apply.`, indicator: "red" });
-					if ($btn) $btn.prop("disabled", false);
-					return;
-				}
-				frappe.show_alert({ message: successLabel, indicator: "green" }, 2);
-				this.refresh();
-			},
 		});
 	}
 
@@ -2218,6 +2432,10 @@ class IBProductionDashboard {
 			.ib-pd-stg--done    { background: #dcfce7; color: #15803d; }
 			.ib-pd-stg--inprog  { background: #dbeafe; color: #1d4ed8; }
 			.ib-pd-stg--pending { background: var(--subtle-fg, #f1f5f9); color: #94a3b8; }
+			/* Distinct from Pending — a skipped stage was already passed
+			   through (no work done, real production moved on), not something
+			   still waiting to be reached. */
+			.ib-pd-stg--skipped { background: #f1f0fd; color: #6d28d9; font-style: italic; }
 			/* Genuinely running right now — a soft pulse so "In Progress" reads
 			   as actively moving, not just a static blue label sitting next to
 			   a green "done" one. */
@@ -2365,6 +2583,9 @@ const IB_STATUS_COLOR = {
 	"Completed": "green",
 	"On Hold": "orange",
 	"Cancelled": "red",
+	// A stage skip_stage()'d through — no real work done, distinct from a
+	// genuinely-completed stage (green) or one still waiting (gray).
+	"Skipped": "purple",
 };
 
 function _ib_status_color(text) {
@@ -2394,6 +2615,13 @@ class IBProductionStages {
 		this.os_priority_filter = "All";
 		this.os_search = "";
 		this.location_filter = localStorage.getItem("ib_prod_location") || "";
+		// Floor only exists on Machine-wise — IB Machine carries `floor`
+		// directly (no join needed), and Gujarat is the only location with
+		// real floors configured today (item 145). Cleared whenever location
+		// isn't gujarat so a stale floor value can't silently scope a tab
+		// that has no floor concept.
+		this.floor_filter = this.location_filter === "gujarat"
+			? (localStorage.getItem("ib_prod_floor") || "") : "";
 		this.current_os = null;
 		this.active_wo = null;
 		this.machines_cache = null;
@@ -2452,13 +2680,15 @@ class IBProductionStages {
 		this.$body.find(".ib-ps-tab").removeClass("active");
 		this.$body.find(`.ib-ps-tab[data-tab="${this.active_tab}"]`).addClass("active");
 		this.$body.find("#ib-ps-location").val(this.location_filter);
+		this._sync_own_toolbar_visibility();
+		this._sync_floor_ui();
 	}
 
 	_consume_route_options() {
 		const ro = frappe.route_options;
 		if (!ro) return;
 
-		const VALID_TABS = ["order_wise", "item_wise", "machine_wise", "stage_wise"];
+		const VALID_TABS = ["order_wise", "item_wise", "machine_wise", "stage_wise", "command"];
 		if (ro.tab && VALID_TABS.includes(ro.tab)) {
 			this.active_tab = ro.tab;
 			delete ro.tab;
@@ -2492,9 +2722,24 @@ class IBProductionStages {
 	// other station's progress. Debounced (1.5s) + route-checked, matching the
 	// established pattern in ib_stock_common.js's make_live().
 	_start_live_updates() {
-		frappe.realtime.off("ib_floor_update");
-		let timer = null;
-		frappe.realtime.on("ib_floor_update", () => {
+		// Real bug, fixed: frappe.realtime.off("ib_floor_update") with no
+		// callback arg wipes EVERY listener registered for that event name,
+		// not just this class's own (socket.io-client's off(event) — no
+		// listener arg — behaves that way, confirmed against
+		// frappe/public/js/frappe/socketio_client.js). Harmless pre-merge,
+		// when Stages and Command Center were mutually-exclusive sibling
+		// top-level tabs (only one ever alive, each fully torn down and
+		// rebuilt — including a fresh _start_live_updates() call — on every
+		// switch). Post-merge, Command Center is a child of a live Stages
+		// instance whose OWN listener is registered once at construction
+		// (this method) — every later visit to the Command Center sub-tab
+		// re-ran ITS OWN bare off()+on() cycle, silently wiping Stages' own
+		// listener with no way to re-register it (nothing ever called this
+		// method a second time). A bound, per-instance handler + the
+		// callback-scoped off() form means each class's cleanup can only
+		// ever remove its own listener, never the other's — no re-
+		// registration logic needed on either side.
+		this._floor_update_handler = () => {
 			// No route/tab check needed here (unlike the old standalone-page
 			// version of this guard, which checked frappe.get_route()[0] ===
 			// "ib-production-stages" — a route that no longer exists post-merge
@@ -2505,9 +2750,11 @@ class IBProductionStages {
 			// away, so there's no "wrong tab" state in which this callback
 			// could fire against a hidden view.
 			if (this.active_wo) return;
-			clearTimeout(timer);
-			timer = setTimeout(() => this.refresh(), 1500);
-		});
+			clearTimeout(this._floor_update_timer);
+			this._floor_update_timer = setTimeout(() => this.refresh(), 1500);
+		};
+		frappe.realtime.off("ib_floor_update", this._floor_update_handler);
+		frappe.realtime.on("ib_floor_update", this._floor_update_handler);
 	}
 
 	// Called by IBProductionShell._teardown_active() whenever the outer tab
@@ -2519,7 +2766,7 @@ class IBProductionStages {
 	// the next activation — this exact bug class (leaked realtime subscription
 	// on repeated tab-switching) is why this method exists.
 	_cleanup() {
-		frappe.realtime.off("ib_floor_update");
+		frappe.realtime.off("ib_floor_update", this._floor_update_handler);
 		if (this._key_handler) {
 			document.removeEventListener("keydown", this._key_handler);
 			this._key_handler = null;
@@ -2527,6 +2774,10 @@ class IBProductionStages {
 		if (this._sortables) {
 			this._sortables.forEach((s) => s.destroy && s.destroy());
 			this._sortables = [];
+		}
+		if (this._cc) {
+			this._cc._cleanup();
+			this._cc = null;
 		}
 		this._close_side_panel();
 	}
@@ -2559,6 +2810,10 @@ class IBProductionStages {
 					<iconify-icon icon="lucide:settings-2" width="12" height="12" style="vertical-align:middle;margin-right:4px"></iconify-icon>
 					Machine-wise
 				</button>
+				<button class="ib-ps-tab" data-tab="command">
+					<iconify-icon icon="lucide:radio" width="12" height="12" style="vertical-align:middle;margin-right:4px"></iconify-icon>
+					Command Center
+				</button>
 				<span style="flex:1"></span>
 				<div class="ib-ps-loc-group">
 					<iconify-icon icon="lucide:map-pin" width="12" height="12" style="color:var(--text-muted)"></iconify-icon>
@@ -2567,6 +2822,12 @@ class IBProductionStages {
 						<option value="gujarat">Gujarat (Factory)</option>
 						<option value="maharashtra">Maharashtra (Warehouse)</option>
 						<option value="chennai">Chennai (Warehouse)</option>
+					</select>
+				</div>
+				<div class="ib-ps-loc-group" id="ib-ps-floor-group" style="display:none">
+					<iconify-icon icon="lucide:layers" width="12" height="12" style="color:var(--text-muted)"></iconify-icon>
+					<select id="ib-ps-floor" class="ib-ps-select form-control">
+						<option value="">All Floors</option>
 					</select>
 				</div>
 				<button class="ib-ps-refresh-btn" id="ib-ps-refresh">
@@ -2581,6 +2842,7 @@ class IBProductionStages {
 		`);
 
 		this.$body.find("#ib-ps-location").val(this.location_filter);
+		this._sync_floor_ui();
 
 		// Tab clicks
 		this.$body.on("click", ".ib-ps-tab", (e) => {
@@ -2591,7 +2853,18 @@ class IBProductionStages {
 		this.$body.on("change", "#ib-ps-location", (e) => {
 			this.location_filter = $(e.target).val();
 			localStorage.setItem("ib_prod_location", this.location_filter);
+			// A floor picked for one location makes no sense once location
+			// changes away from gujarat (the only location with real floors).
+			this.floor_filter = "";
+			localStorage.removeItem("ib_prod_floor");
 			this.current_os = null;
+			this._sync_floor_ui();
+			this.refresh();
+		});
+
+		this.$body.on("change", "#ib-ps-floor", (e) => {
+			this.floor_filter = $(e.target).val();
+			localStorage.setItem("ib_prod_floor", this.floor_filter);
 			this.refresh();
 		});
 
@@ -2610,6 +2883,22 @@ class IBProductionStages {
 		document.addEventListener("keydown", this._key_handler);
 	}
 
+	// Command Center is a self-contained mini-app with its own location/
+	// search/priority toolbar (_load_command_center) — Stages' own outer
+	// location/refresh cluster would just sit redundantly above it, so it's
+	// hidden for this one tab only. Called both from _switch_tab (a click)
+	// and _sync_route_ui (a fresh construction landing directly on "command"
+	// via frappe.route_options — _switch_tab is never called on that path,
+	// so without this the outer toolbar would show through unhidden the
+	// first time _go_to_command_center() navigates here from elsewhere).
+	// ":first" scopes to the location group specifically — machine-wise's
+	// floor group is a second ".ib-ps-loc-group" under _sync_floor_ui's own
+	// control, not this toggle.
+	_sync_own_toolbar_visibility() {
+		this.$body.find(".ib-ps-loc-group:first").toggle(this.active_tab !== "command");
+		this.$body.find("#ib-ps-refresh").toggle(this.active_tab !== "command");
+	}
+
 	_switch_tab(tab) {
 		this.active_tab = tab;
 		this.current_os = null;
@@ -2622,7 +2911,52 @@ class IBProductionStages {
 		this.$body.find(".ib-ps-tab").removeClass("active");
 		this.$body.find(`.ib-ps-tab[data-tab="${tab}"]`).addClass("active");
 		this._close_side_panel();
+		this._sync_own_toolbar_visibility();
+		this._sync_floor_ui();
+		// Command Center owns its own lifecycle (realtime listener, styles) —
+		// torn down the moment the user switches to a different Stages
+		// sub-tab, same discipline as the outer shell's own tab teardown, so
+		// it never leaks a duplicate "ib_floor_update" subscription.
+		if (tab !== "command" && this._cc) {
+			this._cc._cleanup();
+			this._cc = null;
+		}
 		this.refresh();
+	}
+
+	// Floor is only a meaningful filter on Machine-wise (IB Machine carries
+	// `floor` directly, no join needed) at Gujarat (the only location with
+	// real floors configured — item 145). Hidden everywhere else rather than
+	// shown-but-inert, so it never implies scoping a tab it doesn't affect.
+	_sync_floor_ui() {
+		const $group = this.$body.find("#ib-ps-floor-group");
+		const show = this.active_tab === "machine_wise" && this.location_filter === "gujarat";
+		$group.toggle(show);
+		if (!show) return;
+		const $sel = this.$body.find("#ib-ps-floor");
+		if ($sel.data("ib-loaded")) {
+			$sel.val(this.floor_filter);
+			return;
+		}
+		frappe.call({
+			method: "frappe.client.get_list",
+			args: {
+				doctype: "IB Production Floor",
+				filters: { location: "gujarat", is_active: 1 },
+				fields: ["name", "floor_name"],
+				order_by: "floor_name asc",
+				limit_page_length: 0,
+			},
+			callback: (r) => {
+				const floors = r.message || [];
+				$sel.find("option:not(:first)").remove();
+				floors.forEach((f) => {
+					$sel.append(`<option value="${frappe.utils.escape_html(f.name)}">${frappe.utils.escape_html(f.floor_name || f.name)}</option>`);
+				});
+				$sel.data("ib-loaded", true);
+				$sel.val(this.floor_filter);
+			},
+		});
 	}
 
 	refresh() {
@@ -2638,7 +2972,24 @@ class IBProductionStages {
 			this._load_machine_wise();
 		} else if (this.active_tab === "stage_wise") {
 			this._load_stage_wise();
+		} else if (this.active_tab === "command") {
+			this._load_command_center();
 		}
+	}
+
+	// Command Center, folded in as a Stages sub-tab (2026-09-21) — was
+	// previously a sibling top-level page tab of its own (IBProductionShell),
+	// duplicating a chunk of Order-wise's own job (both answer "what needs
+	// attention right now"), with its own copy of shared CSS that could drift
+	// from Stages'/Dashboard's. IBCommandCenter itself is unchanged — a
+	// self-contained class with its own toolbar/styles/realtime lifecycle —
+	// only WHERE it mounts changed: into this tab's own content div instead
+	// of owning the whole page. Constructed lazily (only once this tab is
+	// actually visited) and torn down on tab switch by _switch_tab, same
+	// discipline the outer shell used to apply to it as a top-level tab.
+	_load_command_center() {
+		if (this._cc) { this._cc.refresh(); return; }
+		this._cc = new IBCommandCenter(this.page, this._content());
 	}
 
 	_content() {
@@ -2651,10 +3002,15 @@ class IBProductionStages {
 	_load_item_wise() {
 		const $c = this._content();
 		$c.html('<div class="ib-ps-loading">Loading item view…</div>');
+		// Bumped here, not only in refresh() — this loader is also called
+		// directly (pagination, filter changes) bypassing refresh(), so it
+		// must be able to invalidate its own in-flight predecessor too.
+		const gen = (this._load_gen = (this._load_gen || 0) + 1);
 		frappe.call({
 			method: "instabiz.overrides.production.get_item_wise_view",
 			args: { location: this.location_filter || null },
 			callback: (r) => {
+				if (gen !== this._load_gen) return; // stale — a newer refresh() already superseded this
 				if (r.exc) {
 					$c.html('<div class="ib-ps-empty">Failed to load item view.</div>');
 					return;
@@ -2792,12 +3148,17 @@ class IBProductionStages {
 			this._render_item_wise(this._item_wise_all, this._item_wise_page);
 		});
 
-		// Clicking a WO chip inside an expanded row's customer breakdown opens
-		// the same WO detail dialog every other tab on this page uses.
+		// Clicking a WO chip inside an expanded row's customer breakdown routes
+		// to Command Center and opens the same WO detail dialog there — one
+		// place to operate a run instead of every sub-tab popping it open
+		// in place (2026-09-23).
 		$c.off("click", ".ib-ps-wo-chip").on("click", ".ib-ps-wo-chip", (e) => {
 			const woid = $(e.currentTarget).data("woid");
 			const wo = this._wo_data.get(woid);
-			if (wo) this._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || "");
+			if (wo) {
+				this._switch_tab("command");
+				this._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || "");
+			}
 		});
 	}
 
@@ -2815,7 +3176,22 @@ class IBProductionStages {
 
 		const by_so = {};
 		(item.work_orders || []).forEach((wo) => {
-			this._wo_data.set(wo.name, wo);
+			// Every per-stage pseudo-row here shares the SAME real work_order id
+			// (one real WO covers the whole route) — `wo.status`/`wo.machine`
+			// are per-stage chip-colour values (Completed/current/Pending), not
+			// the run's real live state. Caching those directly clobbered
+			// _wo_data with whichever stage was processed last (route order),
+			// so opening the panel from ANY stage chip showed that last stage's
+			// fake Pending/no-machine state instead of the run's real one —
+			// exactly the "Rewinding shows Assign Machine" bug reported live.
+			// Store the real state instead; the chip's own render below still
+			// reads `wo.status`/`wo.stage` from the original per-stage object.
+			this._wo_data.set(wo.name, {
+				...wo,
+				status: wo.real_status || wo.status,
+				machine: wo.real_machine || wo.machine,
+				stage: wo.current_stage || wo.stage,
+			});
 			const key = wo.order_sheet || wo.sales_order || "unknown";
 			if (!by_so[key]) {
 				by_so[key] = {
@@ -2932,10 +3308,12 @@ class IBProductionStages {
 			if (key) this.stage_wise_pill = key;
 			this._route_stage_filter = null;
 		}
+		const gen = (this._load_gen = (this._load_gen || 0) + 1);
 		frappe.call({
 			method: "instabiz.overrides.production.get_stage_pipeline",
 			args: { location: this.location_filter || null },
 			callback: (r) => {
+				if (gen !== this._load_gen) return; // stale — a newer refresh() already superseded this
 				if (r.exc) {
 					$c.html('<div class="ib-ps-empty">Failed to load stage view.</div>');
 					return;
@@ -3070,7 +3448,10 @@ class IBProductionStages {
 		});
 		$c.on("click", "tr[data-woid]", (e) => {
 			const wo = this._wo_data.get($(e.currentTarget).data("woid"));
-			if (wo) this._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || this.stage_wise_pill);
+			if (wo) {
+				this._switch_tab("command");
+				this._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || this.stage_wise_pill);
+			}
 		});
 	}
 
@@ -3080,6 +3461,10 @@ class IBProductionStages {
 	_load_order_sheets() {
 		const $c = this._content();
 		$c.html('<div class="ib-ps-loading">Loading orders…</div>');
+		// Self-bumped, not just in refresh() — this loader is also called
+		// directly (pagination, search, filter changes), so a rapid second
+		// call here must invalidate its own in-flight predecessor too.
+		const gen = (this._load_gen = (this._load_gen || 0) + 1);
 		frappe.call({
 			method: "instabiz.overrides.production.get_order_sheets",
 			args: {
@@ -3089,6 +3474,7 @@ class IBProductionStages {
 				search: this.os_search || "",
 			},
 			callback: (r) => {
+				if (gen !== this._load_gen) return; // stale — a newer refresh() already superseded this
 				if (r.exc) {
 					$c.html('<div class="ib-ps-empty">Failed to load orders.</div>');
 					return;
@@ -3157,7 +3543,12 @@ class IBProductionStages {
 							<small>${pct}%</small>
 						</td>
 						<td>${_ib_status_pill(os.priority || "Normal", "sm")}</td>
-						<td>${_ib_status_pill(os.status, "sm")}</td>
+						<td>
+							${_ib_status_pill(os.status, "sm")}
+							${os.halted_count ? `<span class="ib-ps-halted-flag" title="${os.halted_count} item(s) on hold — see Command Center">
+								<iconify-icon icon="lucide:pause-circle" width="12" height="12"></iconify-icon> ${os.halted_count} held
+							</span>` : ""}
+						</td>
 						<td>
 							<div style="display:flex;gap:6px">
 								<button class="ib-ps-btn-sm ib-ps-os-view-btn" data-os="${frappe.utils.escape_html(os.name)}" title="Open this order's item/stage detail">
@@ -3257,10 +3648,14 @@ class IBProductionStages {
 	_load_os_detail(os_name) {
 		const $c = this._content();
 		$c.html('<div class="ib-ps-loading">Loading order…</div>');
+		// Self-bumped — called directly from many places (click into an
+		// order, bulk-start dialog completion), not only via refresh().
+		const gen = (this._load_gen = (this._load_gen || 0) + 1);
 		frappe.call({
 			method: "instabiz.overrides.production.get_order_sheet_detail",
 			args: { order_sheet: os_name },
 			callback: (r) => {
+				if (gen !== this._load_gen) return; // stale — a newer refresh() already superseded this
 				if (r.exc) {
 					$c.html('<div class="ib-ps-empty">Failed to load order.</div>');
 					return;
@@ -3548,7 +3943,10 @@ class IBProductionStages {
 		$body.off("click", ".ib-ps-wo-chip").on("click", ".ib-ps-wo-chip", (e) => {
 			const woid = $(e.currentTarget).data("woid");
 			const wo = this._wo_data.get(woid);
-			if (wo) this._open_wo_panel(wo, IB_STAGES.find(s => s.label === wo.stage)?.key || "");
+			if (wo) {
+				this._switch_tab("command");
+				this._open_wo_panel(wo, IB_STAGES.find(s => s.label === wo.stage)?.key || "");
+			}
 		});
 		$body.off("click", ".ib-ps-owise-start").on("click", ".ib-ps-owise-start", (e) => {
 			const $btn = $(e.currentTarget);
@@ -3610,10 +4008,14 @@ class IBProductionStages {
 	_load_machine_wise() {
 		const $c = this._content();
 		$c.html('<div class="ib-ps-loading">Loading machine dashboard…</div>');
+		// Self-bumped — also called directly from the realtime floor-update
+		// handler, not only via refresh().
+		const gen = (this._load_gen = (this._load_gen || 0) + 1);
 		frappe.call({
 			method: "instabiz.overrides.production.get_machine_wise_dashboard",
-			args: { location: this.location_filter || "" },
+			args: { location: this.location_filter || "", floor: this.floor_filter || "" },
 			callback: (r) => {
+				if (gen !== this._load_gen) return; // stale — a newer refresh() already superseded this
 				if (r.exc) {
 					$c.html('<div class="ib-ps-empty">Failed to load machine dashboard.</div>');
 					return;
@@ -3812,7 +4214,10 @@ class IBProductionStages {
 		});
 		$c.on("click", "tr[data-woid]", (e) => {
 			const wo = this._wo_data.get($(e.currentTarget).data("woid"));
-			if (wo) this._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || "");
+			if (wo) {
+				this._switch_tab("command");
+				this._open_wo_panel(wo, IB_STAGES.find((s) => s.label === wo.stage)?.key || "");
+			}
 		});
 
 		this._load_setup_bundle_hint(selected);
@@ -3856,7 +4261,22 @@ class IBProductionStages {
 		const d = new frappe.ui.Dialog({
 			title: is_edit ? "Edit Machine" : "New Machine",
 			fields: [
-				{ fieldname: "machine_code", label: "Machine Code", fieldtype: "Data", reqd: 1, default: machine?.machine_code },
+				// Real bug, fixed: this field was fully editable even when
+				// editing an existing machine. IB Machine autonames as
+				// field:machine_code (machine_code IS the doc name), and
+				// save_machine() keys its create-vs-update branch purely on
+				// whatever machine_code value gets submitted — so changing
+				// it here (typo "fix", accidental edit) didn't rename the
+				// machine, it silently created a brand-new duplicate machine
+				// under the new code and left the original untouched, with
+				// every real Work Order/queue history still attached to the
+				// old one. Locked read-only on edit — a genuine rename needs
+				// the desk's own Rename action on IB Machine (which correctly
+				// uses frappe.rename_doc and updates every Link reference),
+				// not this dialog.
+				{ fieldname: "machine_code", label: "Machine Code", fieldtype: "Data", reqd: 1,
+					default: machine?.machine_code, read_only: is_edit ? 1 : 0,
+					description: is_edit ? "Rename via the machine's own Rename action in the desk, not here." : "" },
 				{ fieldname: "machine_name", label: "Machine Name", fieldtype: "Data", reqd: 1, default: machine?.machine_name },
 				{
 					fieldname: "machine_type",
@@ -3919,7 +4339,12 @@ class IBProductionStages {
 			primary_action: (values) => {
 				frappe.call({
 					method: "instabiz.overrides.production.save_machine",
-					args: values,
+					// original_machine_code lets the backend refuse a mismatch
+					// even if something other than this (now read-only) field
+					// ever submits a changed code for an edit — belt-and-
+					// suspenders, since a client-side read_only is real but
+					// isn't the only way this endpoint can be called.
+					args: Object.assign({}, values, { original_machine_code: is_edit ? machine.machine_code : null }),
 					callback: (r) => {
 						if (r.exc) {
 							frappe.show_alert({ message: "Failed to save machine.", indicator: "red" });
@@ -4022,13 +4447,32 @@ class IBProductionStages {
 		// Was previously gated only on target_uom, letting the option appear
 		// for a WO that had already shipped.
 		const can_adjust_qty = wo.status !== "Completed" && wo.status !== "Cancelled";
+		// Cancel Run — cancel_run() (production_run.py) has always existed,
+		// fully built (locking, batch-qty restore, genealogy reversal,
+		// Order Sheet Item rollup), but no UI ever called it. Same valid-from
+		// set as Hold — a run that's already Completed/Cancelled/Delivered
+		// has nothing left to cancel.
+		const can_cancel = wo.status === "Pending" || wo.status === "In Progress" || wo.status === "On Hold";
+		// Skip Stage — skip_stage() (production_run.py) has always existed,
+		// fully built (real skipped=1 stage_log entry, distinct from Move to
+		// Different Stage's blunt "put it anywhere" — reassigns the next
+		// stage's machine, correctly finishes the run if it was the last
+		// stage), but no UI ever called it. Same bug class as Cancel Run.
+		// Only valid from In Progress — matches skip_stage's own guard.
+		const can_skip = wo.status === "In Progress";
 		const menu_items = [
 			can_hold ? `<a class="dropdown-item" href="#" id="ib-wo-hold"><iconify-icon icon="lucide:pause" width="12" height="12" style="vertical-align:middle;margin-right:6px"></iconify-icon>Put On Hold</a>` : "",
 			(can_adjust_qty && (wo.target_uom === "PCS" || wo.target_uom === "SQMT"))
 				? `<a class="dropdown-item" href="#" id="ib-wo-adjust-qty"><iconify-icon icon="lucide:sliders-horizontal" width="12" height="12" style="vertical-align:middle;margin-right:6px"></iconify-icon>Adjust Qty</a>`
 				: "",
+			can_skip
+				? `<a class="dropdown-item" href="#" id="ib-wo-skip-stage"><iconify-icon icon="lucide:skip-forward" width="12" height="12" style="vertical-align:middle;margin-right:6px"></iconify-icon>Skip This Stage</a>`
+				: "",
 			cint(wo.produced_serials) > 0
 				? `<a class="dropdown-item" href="/printview?doctype=IB Work Order&name=${encodeURIComponent(wo.name)}&format=IB Serial Label" target="_blank" id="ib-wo-serial-labels"><iconify-icon icon="lucide:qr-code" width="12" height="12" style="vertical-align:middle;margin-right:6px"></iconify-icon>Print Serial Labels (${cint(wo.produced_serials)})</a>`
+				: "",
+			can_cancel
+				? `<a class="dropdown-item text-danger" href="#" id="ib-wo-cancel"><iconify-icon icon="lucide:x-circle" width="12" height="12" style="vertical-align:middle;margin-right:6px"></iconify-icon>Cancel Run</a>`
 				: "",
 		].filter(Boolean).join("");
 		const more_menu = menu_items
@@ -4149,6 +4593,79 @@ class IBProductionStages {
 		$panel.on("click", "#ib-wo-advance", () => _prompt_actual_output(wo, (qty) => this._advance_wo(wo, stage_key, qty)));
 		$panel.on("click", "#ib-wo-complete", () => _prompt_actual_output(wo, (qty) => this._update_wo_status(wo, "Completed", stage_key, qty)));
 		$panel.on("click", "#ib-wo-adjust-qty", (e) => { e.preventDefault(); this._show_adjust_qty_dialog(wo, stage_key); });
+		// Not wrapped in guarded() — opens a confirm prompt first; the real
+		// RPC (and its own disabled-state handling) only fires once the
+		// operator actually confirms, same reasoning as Assign Machine/
+		// Advance/Complete above.
+		$panel.on("click", "#ib-wo-cancel", (e) => { e.preventDefault(); this._cancel_wo(wo, stage_key); });
+		// Not wrapped in guarded() — same reasoning as Cancel Run just above.
+		$panel.on("click", "#ib-wo-skip-stage", (e) => { e.preventDefault(); this._skip_stage(wo, stage_key); });
+	}
+
+	// Marks the current stage skipped (no work done) in the run's real
+	// stage_log, then moves on to the next stage — distinct from Move to
+	// Different Stage's blunt escape hatch, which doesn't record a skip.
+	_skip_stage(wo, stage_key) {
+		const stage = IB_STAGES.find((s) => s.key === stage_key) || { label: stage_key };
+		frappe.confirm(
+			`Skip <strong>${stage.label}</strong> for this run without recording any work done, and move on to the next stage?`,
+			() => {
+				frappe.call({
+					method: "instabiz.overrides.production.skip_work_order_stage",
+					args: { work_order: wo.name },
+					callback: (r) => {
+						if (r.exc) {
+							frappe.show_alert({ message: "Failed to skip stage.", indicator: "red" });
+							return;
+						}
+						frappe.show_alert({ message: (r.message && r.message.message) || "Stage skipped.", indicator: "green" }, 3);
+						this._close_side_panel();
+						this.refresh();
+					},
+				});
+			},
+		);
+	}
+
+	// Destructive — asks for a reason and a real confirmation before calling
+	// cancel_work_order(). Reverses any genealogy already produced (FG batch/
+	// serials) and restores the source batch's reserved qty; see
+	// production_run.cancel_run's own docstring for the full effect.
+	_cancel_wo(wo, stage_key) {
+		const d = new frappe.ui.Dialog({
+			title: `Cancel Run — ${wo.item_code || wo.name}`,
+			fields: [
+				{
+					fieldtype: "HTML",
+					options: `<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
+						This cancels the whole production run for this item, not just the
+						current stage. Any material reserved from its source batch is
+						restored; any Finished Goods batch/serials already generated by
+						this run are reversed.
+					</div>`,
+				},
+				{ fieldtype: "Small Text", fieldname: "reason", label: "Reason (optional)" },
+			],
+			primary_action_label: "Cancel Run",
+			primary_action: (values) => {
+				d.hide();
+				frappe.call({
+					method: "instabiz.overrides.production.cancel_work_order",
+					args: { work_order: wo.name, reason: values.reason || null },
+					callback: (r) => {
+						if (r.exc) {
+							frappe.show_alert({ message: "Failed to cancel run.", indicator: "red" });
+							return;
+						}
+						frappe.show_alert({ message: "Run cancelled.", indicator: "green" }, 3);
+						this._close_side_panel();
+						this.refresh();
+					},
+				});
+			},
+		});
+		d.show();
+		d.$wrapper.find(".btn-primary").removeClass("btn-primary").addClass("btn-danger");
 	}
 
 	// Dormant, not deleted — same precedent as this file's other removed-from-
@@ -4242,9 +4759,14 @@ class IBProductionStages {
 		const is_pcs = wo.target_uom === "PCS";
 		const fieldname = is_pcs ? "pcs_to_make" : "logs_to_make";
 		const label = is_pcs ? "Pieces to Make" : "Logs to Make";
+		// Real bug, fixed: frappe.client.get_value meta-validates its
+		// fieldname and rejects pcs_to_make/logs_to_make outright (orphaned
+		// DB columns the WO-per-run schema no longer declares — see
+		// get_production_qty's own docstring) — threw "Field not permitted
+		// in query" before this dialog could even open, on every tab.
 		frappe.call({
-			method: "frappe.client.get_value",
-			args: { doctype: "IB Work Order", filters: wo.name, fieldname },
+			method: "instabiz.overrides.production.get_production_qty",
+			args: { work_order: wo.name },
 			callback: (r) => {
 				const current = (r.message && r.message[fieldname]) || 0;
 				const d = new frappe.ui.Dialog({
@@ -4266,6 +4788,22 @@ class IBProductionStages {
 					],
 					primary_action_label: "Save",
 					primary_action: (vals) => {
+						// Real bug, fixed: the field's own `default: current` is 0 the
+						// very first time this dialog opens for a WO (no prior
+						// pcs_to_make/logs_to_make set yet) — reqd:1 only blocks an
+						// EMPTY field, not a literal 0, and the backend
+						// (update_production_qty) only rejects negative values, not
+						// zero. A manager opening this dialog and clicking Save
+						// without noticing the default would silently write "0" as
+						// the reconciled qty, which then prints "Pieces to Make: 0"
+						// on the Job Order — meaningless for the floor, with no
+						// warning shown anywhere. Block it client-side instead of
+						// relying on the backend, which intentionally still allows 0
+						// via direct API calls.
+						if (!vals[fieldname] || vals[fieldname] <= 0) {
+							frappe.show_alert({ message: __("{0} must be greater than 0.", [label]), indicator: "red" });
+							return;
+						}
 						const args = { work_order: wo.name };
 						args[fieldname] = vals[fieldname];
 						frappe.call({
@@ -4884,6 +5422,14 @@ tr.ib-ps-wo-sub-item--clickable:hover td { background: var(--subtle-fg, #f8fafc)
 	cursor: pointer; color: var(--text-color);
 }
 .ib-ps-btn-sm:hover { border-color: var(--ib-primary); color: var(--ib-primary); }
+/* Order-wise's Status column has no "Halted" value of its own (Order Sheet
+   status is only ever Draft/In Progress/Completed) — this flags a row that
+   has a real On Hold item right now without touching that rollup. */
+.ib-ps-halted-flag {
+	display: inline-flex; align-items: center; gap: 3px; margin-left: 6px;
+	font-size: 10px; font-weight: 700; color: #b45309; background: #fef3c7;
+	border-radius: 999px; padding: 1px 7px; white-space: nowrap;
+}
 
 /* ----------------------------------------------------------------
    WO detail panel — rendered inside a frappe.ui.Dialog's own body
@@ -5185,5 +5731,615 @@ tr.ib-ps-wo-sub-item--clickable:hover td { background: var(--subtle-fg, #f8fafc)
 `;
 		const $style = $(`<style id="ib-ps-styles">${css}</style>`);
 		$("head").append($style);
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+// Command Center — factory-manager live control board (2026-09-20)
+// ---------------------------------------------------------------------------
+// Glance-and-act, not browse-and-inspect (Stages already covers the latter):
+// every run genuinely Processing or Halted right now, plus the Ready-to-run
+// queue, laid out as 3 live columns. Every action fires straight off the
+// card — no side panel/drawer, no confirm dialog — same no-confirm pattern
+// the WO side panel's own Hold/Start buttons already use (_update_wo_status).
+// create_run() always inserts a run already started (see its own docstring),
+// so "Run" here always means "create + start a new run for this not-yet-
+// touched item", never "un-pause a Pending record" — there is no such thing
+// under the run model. Markup/CSS deliberately reuses the exact same classes
+// as the Dashboard tab's KPI row / Active Production Plan cards (.ib-pd-kpi-*,
+// .ib-pd-plan-card, .ib-pd-stg-chip, .ib-pd-row-btn, .ib-pd-prog-bar) instead
+// of inventing a parallel visual language — direct ask: "match UI to dash
+// and stages tab... all 3 tabs consistent." Duplicated into this class's own
+// injected style block rather than assuming Dashboard's copy already loaded
+// — a user can land on this tab first (deep link/bookmark), same reasoning
+// documented on IBProductionStages' own .ib-ps-pill-sm duplication.
+class IBCommandCenter {
+	constructor(page, $mount) {
+		this.page = page;
+		this.$mount = $mount;
+		// Shared with Dashboard/Stages' own location filter (item 128/145) so
+		// picking a location on any tab carries over to the others.
+		this.location_filter = localStorage.getItem("ib_prod_location") || "";
+		this.search = "";
+		this.priority_filter = "All";
+		this._data = null;
+		this._loading = false;
+		this._build_layout();
+		this._inject_styles();
+		this.refresh();
+		this._start_live_updates();
+	}
+
+	_build_layout() {
+		this.$mount.html(`
+			<div class="ib-cc-page">
+				<div class="ib-pd-top-bar">
+					<div class="ib-pd-loc-group">
+						<iconify-icon icon="lucide:map-pin" width="13" height="13" style="color:var(--text-muted)"></iconify-icon>
+						<select id="ib-cc-location" class="ib-pd-select">
+							<option value="">All Locations</option>
+							<option value="gujarat">Gujarat (Factory)</option>
+							<option value="maharashtra">Maharashtra (Warehouse)</option>
+							<option value="chennai">Chennai (Warehouse)</option>
+						</select>
+					</div>
+					<span class="ib-refresh-time" id="ib-cc-refresh-ts"></span>
+				</div>
+				<div class="ib-ps-os-toolbar" style="margin-bottom:14px">
+					<div class="ib-ps-filter-group ib-ps-filter-group--search">
+						<iconify-icon icon="lucide:search" width="13" height="13" style="color:var(--text-muted)"></iconify-icon>
+						<input type="text" id="ib-cc-search" class="ib-ps-search-input form-control"
+							placeholder="Search item, order, customer, machine…" value="${frappe.utils.escape_html(this.search)}">
+					</div>
+					<div class="ib-ps-filter-group">
+						<label>Priority</label>
+						<select id="ib-cc-priority" class="ib-ps-select form-control">
+							${["All", "Urgent", "High", "Normal", "Low"].map((p) => `<option value="${p}" ${p === this.priority_filter ? "selected" : ""}>${p}</option>`).join("")}
+						</select>
+					</div>
+				</div>
+				<div class="ib-pd-kpi-row" id="ib-cc-kpis"></div>
+				<div class="ib-cc-board" id="ib-cc-board"></div>
+			</div>`);
+		this.$mount.find("#ib-cc-location").val(this.location_filter);
+		this.$mount.off()
+			.on("change", "#ib-cc-location", (e) => {
+				this.location_filter = e.target.value;
+				localStorage.setItem("ib_prod_location", this.location_filter);
+				this.refresh();
+			})
+			.on("input", "#ib-cc-search", (e) => {
+				clearTimeout(this._search_debounce);
+				const val = e.target.value;
+				this._search_debounce = setTimeout(() => { this.search = val; this._render(); }, 250);
+			})
+			.on("change", "#ib-cc-priority", (e) => {
+				this.priority_filter = e.target.value;
+				this._render();
+			})
+			.on("click", ".ib-cc-hold-btn", (e) => this._act(e, "hold_run", "held"))
+			.on("click", ".ib-cc-resume-btn", (e) => this._act(e, "resume_run", "resumed"))
+			.on("click", ".ib-cc-advance-btn", (e) => {
+				// Real bug, fixed (QC pass, subagent-confirmed live): same
+				// double-click race already fixed on .ib-cc-run-btn — this
+				// button opens a confirm dialog (_prompt_actual_output)
+				// before ever disabling itself (_advance() only disables
+				// AFTER the dialog is confirmed), so a fast double-click
+				// stacked 2+ "Complete Stage" modals (confirmed live: 3
+				// clicks -> 3 simultaneous dialogs on a real WO). Short
+				// debounce, not a persistent disable, for the same reason
+				// as Run — the dialog can be cancelled without ever
+				// re-enabling a persistently-disabled button.
+				const $btn = $(e.currentTarget);
+				if ($btn.prop("disabled")) return;
+				$btn.prop("disabled", true);
+				setTimeout(() => $btn.prop("disabled", false), 800);
+				this._advance(e);
+			})
+			.on("click", ".ib-cc-run-btn", (e) => {
+				const $btn = $(e.currentTarget);
+				if ($btn.prop("disabled")) return;
+				// Real bug, fixed: Hold/Resume/Advance all disable their own
+				// button immediately (see _act/_advance) — Run didn't, so a
+				// fast double-click opened _ibStartRunDialog twice (it has no
+				// singleton guard of its own, each call builds a fresh
+				// frappe.ui.Dialog). A short debounce instead of a persistent
+				// disable, since the dialog this opens can be cancelled
+				// without ever calling onDone/refresh() — a disable tied to
+				// that would leave the button stuck forever on cancel.
+				$btn.prop("disabled", true);
+				setTimeout(() => $btn.prop("disabled", false), 800);
+				_start_production_flow($btn.data("osi"), $btn.data("item"), $btn.data("suggestion"), () => this.refresh());
+			})
+			.on("click", "[data-so-nav]", (e) => {
+				e.stopPropagation();
+				frappe.set_route("Form", "Sales Order", $(e.currentTarget).data("so-nav"));
+			});
+	}
+
+	_act(e, method, verb) {
+		const $btn = $(e.currentTarget);
+		if ($btn.prop("disabled")) return;
+		const wo = $btn.data("wo");
+		if (!wo) return;
+		$btn.prop("disabled", true);
+		frappe.call({
+			method: `instabiz.overrides.production_run.${method}`,
+			args: { work_order: wo },
+			callback: (r) => {
+				if (r.exc) { $btn.prop("disabled", false); return; }
+				frappe.show_alert({ message: `${wo} ${verb}.`, indicator: verb === "held" ? "orange" : "green" });
+				this.refresh();
+			},
+			error: () => { $btn.prop("disabled", false); },
+		});
+	}
+
+	// Complete/Next Stage are the SAME backend action under the run model
+	// (advance_run — see its own docstring: "complete the current stage and
+	// move to the next, or finish"); the button just relabels itself when
+	// the run is at Packing (the run model's own last stage — STAGES in
+	// production.py has no separate Ready-to-Deliver/Delivered step, unlike
+	// the old per-stage-WO model). Reuses the exact same actual-output
+	// prompt + length-split-aware advance already wired on the WO panel
+	// (_advance_wo) — never duplicated ad hoc here.
+	_advance(e) {
+		// No disabled-check here — the click handler that calls this already
+		// checked+disabled the button (short debounce) before invoking us;
+		// checking again here would see disabled===true and bail out on
+		// every legitimate click, never opening the dialog at all.
+		const $btn = $(e.currentTarget);
+		const wo = $btn.data("wo");
+		const wo_shim = { name: wo, target_qty: $btn.data("qty"), target_uom: $btn.data("uom") };
+		_prompt_actual_output(wo_shim, (actual_qty) => {
+			$btn.prop("disabled", true);
+			_advance_with_split_check(
+				wo, actual_qty,
+				(msg) => {
+					frappe.show_alert({ message: msg.message || "Advanced.", indicator: "green" }, 3);
+					this.refresh();
+				},
+				(err) => {
+					frappe.show_alert({ message: err, indicator: "red" });
+					$btn.prop("disabled", false);
+				},
+			);
+		});
+	}
+
+	refresh() {
+		if (this._loading) return;
+		this._loading = true;
+		frappe.call({
+			method: "instabiz.overrides.production_run.get_command_center_data",
+			args: { location: this.location_filter },
+			callback: (r) => {
+				this._loading = false;
+				this._data = r.message || { processing: [], halted: [], ready: [], counts: {} };
+				this._render();
+			},
+			error: () => { this._loading = false; },
+		});
+	}
+
+	_render() {
+		const d = this._data;
+		this.$mount.find("#ib-cc-refresh-ts").text("Updated " + frappe.datetime.now_time());
+		const counts = d.counts || {};
+		const kpis = [
+			{ label: "Processing", value: counts.processing || 0, icon: "activity", sub: "Running right now", live: (counts.processing || 0) > 0 },
+			{ label: "Halted", value: counts.halted || 0, icon: "pause-circle", sub: "On hold", attention: (counts.halted || 0) > 0, color: "#dc2626" },
+			{ label: "Ready to Run", value: counts.ready || 0, icon: "list-checks", sub: "Queued, not started" },
+		];
+		this.$mount.find("#ib-cc-kpis").html(kpis.map((k) => `
+			<div class="ib-pd-kpi-card">
+				<div class="ib-pd-kpi-head">
+					<span class="ib-pd-kpi-label">${k.label}</span>
+					${k.attention
+						? `<span class="ib-pd-kpi-dot" style="background:${k.color}"></span>`
+						: `<span class="ib-pd-kpi-icon"><iconify-icon icon="lucide:${k.icon}" width="14" height="14"></iconify-icon></span>`}
+				</div>
+				<div class="ib-pd-kpi-value">${k.value}${k.live ? _live_pulse_svg() : ""}</div>
+				<div class="ib-pd-kpi-sub">${k.sub}</div>
+			</div>
+		`).join(""));
+
+		const col = (title, icon, itemCount, cardsHtml, emptyMsg, countLabel) => `
+			<div class="ib-cc-col">
+				<div class="ib-pd-section-title ib-cc-col-title">
+					<iconify-icon icon="lucide:${icon}" width="13" height="13" style="vertical-align:middle;margin-right:5px"></iconify-icon>
+					${title}<span class="ib-cc-col-count">${countLabel != null ? countLabel : itemCount}</span>
+				</div>
+				${itemCount ? cardsHtml : `<div class="ib-pd-empty ib-cc-empty">${frappe.utils.escape_html(emptyMsg)}</div>`}
+			</div>`;
+
+		// Ready to Run's rendered list is capped (_command_center_ready's own
+		// limit=60 — a live board doesn't need 300+ cards) but the real queue
+		// can be much bigger; say so explicitly rather than letting the
+		// column header quietly under-report against the KPI card above it.
+		const readyRowsFetched = d.ready || [];
+		const readyTotal = counts.ready || 0;
+
+		const hasFilter = !!(this.search || (this.priority_filter && this.priority_filter !== "All"));
+		const processingRows = this._apply_filters(d.processing || []);
+		const haltedRows = this._apply_filters(d.halted || []);
+		const readyRows = this._apply_filters(readyRowsFetched);
+
+		// Search/priority only ever filter what's already on the client — for
+		// Processing/Halted that's the real, complete set (no server cap), but
+		// Ready to Run only ever has its own first-60-by-priority fetched. A
+		// filtered "3 of 347" would wrongly imply the other 344 were searched
+		// too; say what actually happened instead.
+		const readyLabel = hasFilter
+			? `${readyRows.length} of ${readyRowsFetched.length} shown`
+			: (readyTotal > readyRowsFetched.length ? `${readyRowsFetched.length} of ${readyTotal}` : readyRowsFetched.length);
+		const procLabel = hasFilter && processingRows.length !== (d.processing || []).length
+			? `${processingRows.length} of ${(d.processing || []).length}` : null;
+		const haltLabel = hasFilter && haltedRows.length !== (d.halted || []).length
+			? `${haltedRows.length} of ${(d.halted || []).length}` : null;
+
+		// Consolidated by Sales Order, not one card per item/run — a single
+		// order with several items in flight used to show as that many
+		// separate, disconnected cards (a factory manager working one real
+		// order had to piece it back together across the board). One group
+		// card per order now holds all its items as compact rows.
+		const processingGroups = this._group_by_so(processingRows);
+		const haltedGroups = this._group_by_so(haltedRows);
+		const readyGroups = this._group_by_so(readyRows);
+
+		const noMatchMsg = "No matches for this search/filter.";
+		this.$mount.find("#ib-cc-board").html(
+			col("Processing", "activity", processingRows.length,
+				processingGroups.map((g) => this._order_group_card(g, "processing")).join(""),
+				hasFilter ? noMatchMsg : "Nothing running right now.", procLabel) +
+			col("Halted", "pause-circle", haltedRows.length,
+				haltedGroups.map((g) => this._order_group_card(g, "halted")).join(""),
+				hasFilter ? noMatchMsg : "Nothing on hold.", haltLabel) +
+			col("Ready to Run", "list-checks", readyRows.length,
+				readyGroups.map((g) => this._order_group_card(g, "ready")).join(""),
+				hasFilter && !readyRows.length ? noMatchMsg : "Nothing queued.", readyLabel)
+		);
+	}
+
+	// Search matches item code, Sales Order, customer, or machine — the same
+	// fields a floor manager would actually know off the top of their head.
+	// Client-side only: Processing/Halted are always the real complete set
+	// (no server cap), Ready to Run filters within whatever was fetched (see
+	// readyLabel's own comment on why that's disclosed, not hidden).
+	_apply_filters(rows) {
+		let out = rows;
+		if (this.priority_filter && this.priority_filter !== "All") {
+			out = out.filter((r) => (r.priority || "Normal") === this.priority_filter);
+		}
+		if (this.search) {
+			out = window.ib_multi_token_filter(out, ["item_code", "sales_order", "customer", "machine"], this.search);
+		}
+		return out;
+	}
+
+	// Groups already arrive roughly priority-sorted per row (both
+	// _command_center_runs and _command_center_ready order by it) — take the
+	// most urgent item's priority as the group's own, re-sort groups by that,
+	// so one Urgent item doesn't get buried inside a card sorted by whatever
+	// its Normal siblings' position happened to be.
+	_group_by_so(rows) {
+		const rank = { Urgent: 0, High: 1, Normal: 2, Low: 3 };
+		const groups = [];
+		const byKey = new Map();
+		rows.forEach((r) => {
+			const key = r.sales_order || `—:${r.work_order || r.order_sheet_item || groups.length}`;
+			let g = byKey.get(key);
+			if (!g) {
+				g = { sales_order: r.sales_order || "", customer: r.customer || "", priority: r.priority || "Normal", rows: [] };
+				byKey.set(key, g);
+				groups.push(g);
+			}
+			g.rows.push(r);
+			if ((rank[r.priority] ?? 2) < (rank[g.priority] ?? 2)) g.priority = r.priority;
+		});
+		groups.sort((a, b) => (rank[a.priority] ?? 2) - (rank[b.priority] ?? 2));
+		return groups;
+	}
+
+	_order_group_card(g, kind) {
+		const soLine = g.sales_order
+			? `<a href="#" data-so-nav="${frappe.utils.escape_html(g.sales_order)}" class="ib-pd-plan-so-link">${frappe.utils.escape_html(g.sales_order)}</a>`
+			: "—";
+		const cls = kind === "processing" ? " ib-cc-card--live" : kind === "halted" ? " ib-cc-card--halted" : " ib-cc-card--ready";
+		return `
+			<div class="ib-pd-plan-card ib-cc-card ib-cc-group${cls}">
+				<div class="ib-cc-card-body">
+					<div class="ib-cc-group-head">
+						<span class="ib-pd-tag ib-pd-tag--so">SO</span>${soLine}
+						<span class="ib-cc-group-customer">${frappe.utils.escape_html(g.customer || "—")}</span>
+						${_ib_status_pill(g.priority, "sm")}
+						<span class="ib-cc-group-count">${g.rows.length} item${g.rows.length === 1 ? "" : "s"}</span>
+					</div>
+					<div class="ib-cc-group-items">
+						${g.rows.map((r) => kind === "ready" ? this._ready_item_row(r) : this._run_item_row(r, kind === "processing")).join("")}
+					</div>
+				</div>
+			</div>`;
+	}
+
+	_run_item_row(r, isProcessing) {
+		const isLast = (r.current_stage || "").toLowerCase() === "packing";
+		const pct = r.planned_qty > 0 ? Math.min(100, Math.round((r.produced_qty / r.planned_qty) * 100)) : 0;
+		const stageInfo = IB_STAGES.find((s) => s.label === r.current_stage);
+		const watermark = (isProcessing && stageInfo)
+			? `<div class="ib-cc-card-watermark" style="color:${stageInfo.color}">
+					<iconify-icon icon="lucide:${stageInfo.icon}"></iconify-icon>
+				</div>`
+			: "";
+		const stageCls = isProcessing ? "ib-pd-stg--inprog ib-pd-stg--live" : "ib-pd-stg--pending";
+		const actions = isProcessing
+			? `<button class="ib-pd-row-btn ib-cc-hold-btn" data-wo="${frappe.utils.escape_html(r.work_order)}">
+					<iconify-icon icon="lucide:pause" width="11" height="11" style="vertical-align:middle;margin-right:3px"></iconify-icon>Hold
+				</button>
+				<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-cc-advance-btn"
+					data-wo="${frappe.utils.escape_html(r.work_order)}" data-qty="${r.planned_qty || 0}" data-uom="${frappe.utils.escape_html(r.uom || "")}">
+					${isLast
+						? `<iconify-icon icon="lucide:check" width="11" height="11" style="vertical-align:middle;margin-right:3px"></iconify-icon>Complete`
+						: `Next Stage <iconify-icon icon="lucide:arrow-right" width="11" height="11" style="vertical-align:middle;margin-left:3px"></iconify-icon>`}
+				</button>`
+			: `<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-cc-resume-btn" data-wo="${frappe.utils.escape_html(r.work_order)}">
+					<iconify-icon icon="lucide:play" width="11" height="11" style="vertical-align:middle;margin-right:3px"></iconify-icon>Resume
+				</button>`;
+		return `
+			<div class="ib-cc-item-row" title="${frappe.utils.escape_html(r.work_order || "")}">
+				${watermark}
+				<div class="ib-cc-item-body">
+					<div class="ib-cc-item-top">
+						<span class="ib-pd-stg-chip ${stageCls}">${frappe.utils.escape_html(r.current_stage || "—")}</span>
+						${isProcessing ? _live_pulse_svg("Processing right now") : `<iconify-icon icon="lucide:snowflake" width="12" height="12" class="ib-cc-halt-icon"></iconify-icon>`}
+						<span class="ib-cc-item-code">${frappe.utils.escape_html(r.item_code || "—")}</span>
+						${r.extra_items ? `<span class="text-muted" style="font-size:11px">+${r.extra_items} more</span>` : ""}
+					</div>
+					<div class="ib-cc-card-machine">
+						<iconify-icon icon="lucide:cog" width="11" height="11"></iconify-icon>
+						${r.machine ? frappe.utils.escape_html(r.machine) : `<span class="text-muted">Unassigned</span>`}
+					</div>
+					<div class="ib-pd-plan-row-progress">
+						<div class="ib-pd-prog-bar-wrap"><div class="ib-pd-prog-bar" style="width:${pct}%"></div></div>
+						<span class="ib-pd-prog-pct">${r.produced_qty || 0}/${r.planned_qty || 0} ${frappe.utils.escape_html(r.uom || "")}</span>
+					</div>
+				</div>
+				<div class="ib-pd-row-actions ib-cc-card-actions">${actions}</div>
+			</div>`;
+	}
+
+	_ready_item_row(r) {
+		return `
+			<div class="ib-cc-item-row">
+				<div class="ib-cc-item-body">
+					<div class="ib-cc-item-top">
+						<span class="ib-pd-stg-chip ib-pd-stg--pending">${frappe.utils.escape_html(r.next_stage_suggestion || "—")}</span>
+						<span class="ib-cc-item-code">${frappe.utils.escape_html(r.item_code || "—")}</span>
+						<span class="ib-cc-item-qty">${r.qty || 0} ${frappe.utils.escape_html(r.uom || "")}</span>
+					</div>
+				</div>
+				<div class="ib-pd-row-actions ib-cc-card-actions">
+					<button class="ib-pd-row-btn ib-pd-row-btn--primary ib-cc-run-btn"
+						data-osi="${frappe.utils.escape_html(r.order_sheet_item)}"
+						data-item="${frappe.utils.escape_html(r.item_code)}"
+						data-suggestion="${frappe.utils.escape_html(r.next_stage_suggestion || "")}">
+						<iconify-icon icon="lucide:play" width="11" height="11" style="vertical-align:middle;margin-right:3px"></iconify-icon>Run
+					</button>
+				</div>
+			</div>`;
+	}
+
+	// Same "ib_floor_update" event Stages already listens to (production_run's
+	// _notify_floor_update, fired by create_run/hold_run/resume_run/
+	// advance_run/skip_stage/_finish_run) — a control room is meaningless if
+	// it needs a manual refresh to show another terminal's Hold/Resume/Run.
+	//
+	// Real bug, fixed: the bare frappe.realtime.off("ib_floor_update") form
+	// (no callback arg) removes EVERY listener for that event name, not just
+	// this class's own — confirmed against socket.io-client's off(event)
+	// behavior. Now that Command Center mounts as a child of a live Stages
+	// instance (lazily constructed/torn down on every sub-tab switch, unlike
+	// Stages' own listener which registers once at construction) — every
+	// visit here used to silently wipe Stages' listener with no way for it
+	// to ever re-register, permanently killing live cross-terminal refresh
+	// for the rest of that Stages instance's life. A bound, per-instance
+	// handler + the callback-scoped off() form means this class's own
+	// off()/on() cycles can only ever touch its own listener.
+	_start_live_updates() {
+		this._floor_update_handler = () => {
+			clearTimeout(this._floor_update_timer);
+			this._floor_update_timer = setTimeout(() => this.refresh(), 1200);
+		};
+		frappe.realtime.off("ib_floor_update", this._floor_update_handler);
+		frappe.realtime.on("ib_floor_update", this._floor_update_handler);
+	}
+
+	// Torn down by IBProductionShell._teardown_active() (top-level tab
+	// switch) AND by IBProductionStages._switch_tab()/_cleanup() (sub-tab
+	// switch, now that this mounts inside Stages) on every tab switch —
+	// must release the realtime listener or it leaks a duplicate on next
+	// visit.
+	_cleanup() {
+		frappe.realtime.off("ib_floor_update", this._floor_update_handler);
+	}
+
+	_inject_styles() {
+		if (document.getElementById("ib-cc-styles")) return;
+		const css = `
+/* Shared primitives duplicated from Dashboard's own #ib-pd-styles — this
+   tab can be the first one a user ever opens (deep link/bookmark), so it
+   can't assume that block already loaded. Values kept identical on purpose
+   so all 3 tabs look like one product, not three. */
+/* Real bug, fixed: this duplicated copy (see the block comment above)
+   had dropped flex-wrap/gap — Dashboard's own #ib-pd-styles copy has
+   them (still the correct source of truth). Both #ib-pd-styles and
+   #ib-cc-styles are injected once each into <head> and never removed;
+   since they define the same bare class name at equal specificity,
+   whichever <style> tag lands in the DOM LAST wins for BOTH tabs, not
+   just this one — visiting Command Center even once made Dashboard's
+   own top bar (location select + refresh timestamp) stop wrapping at
+   narrow widths too, for the rest of that page session. Keeping both
+   copies identical (rather than fixing this properly by not sharing a
+   bare class name across two independently-injected stylesheets) is
+   the same tradeoff the rest of this deliberately-duplicated block
+   already makes. */
+.ib-pd-top-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
+.ib-pd-loc-group { display: flex; align-items: center; gap: 7px; }
+.ib-pd-select {
+	padding: 6px 12px; border: 1px solid var(--border-color, #e2e8f0); border-radius: 7px;
+	background: var(--card-bg, #fff); color: var(--text-color, #1e293b);
+	font-size: 12.5px; font-weight: 600; min-width: 190px; cursor: pointer;
+}
+.ib-pd-select:focus { outline: none; border-color: var(--ib-primary, #d97757); }
+.ib-refresh-time { font-size: 11px; color: var(--text-muted, #6b7280); }
+/* Search/priority toolbar — same classes Stages' own Order-wise toolbar
+   uses (.ib-ps-os-toolbar etc, defined in IBProductionStages' own style
+   block), duplicated here for the same "might be the first tab opened"
+   reason as everything else in this block. Real bug this fixes: without
+   this, landing on Command Center directly rendered the toolbar as
+   unstyled stacked full-width rows (Stages' stylesheet was never injected
+   since that class was never constructed) instead of a compact inline bar. */
+.ib-ps-os-toolbar { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; flex-wrap: wrap; }
+.ib-ps-filter-group { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted, #6b7280); }
+.ib-ps-filter-group--search {
+	flex: 1; min-width: 200px; max-width: 320px; background: var(--card-bg, #fff);
+	border: 1px solid var(--border-color, #e2e8f0); border-radius: 6px; padding: 5px 10px;
+}
+.ib-ps-filter-group--search input { border: none; background: none; outline: none; flex: 1; font-size: 13px; color: var(--text-color, #1e293b); padding: 0; }
+.ib-ps-select {
+	padding: 5px 10px; border: 1px solid var(--border-color, #e2e8f0); border-radius: 6px;
+	background: var(--card-bg, #fff); font-size: 13px; font-family: inherit; color: var(--text-color, #1e293b);
+}
+.ib-pd-kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 22px; }
+.ib-pd-kpi-card {
+	background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb);
+	border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 6px;
+}
+.ib-pd-kpi-head { display: flex; align-items: center; justify-content: space-between; }
+.ib-pd-kpi-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted, #6b7280); }
+.ib-pd-kpi-icon { color: var(--text-muted, #9ca3af); display: inline-flex; }
+.ib-pd-kpi-dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+.ib-pd-kpi-value { font-size: 28px; font-weight: 650; line-height: 1; color: var(--text-color, #111827); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.ib-pd-kpi-sub { font-size: 11px; color: var(--text-muted, #6b7280); }
+@media (max-width: 720px) { .ib-pd-kpi-row { grid-template-columns: repeat(1, 1fr); } }
+.ib-pd-section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted, #6b7280); margin: 0 0 10px; display: flex; align-items: center; }
+.ib-pd-tag { display: inline-block; font-size: 9.5px; font-weight: 800; letter-spacing: .03em; border-radius: 4px; padding: 1px 5px; margin-right: 4px; vertical-align: middle; }
+.ib-pd-tag--so { background: #dbeafe; color: #1e3a8a; }
+.ib-pd-plan-so-link { font-weight: 700; color: var(--ib-primary, #d97757); text-decoration: none; }
+.ib-pd-plan-so-link:hover { text-decoration: underline; }
+.ib-pd-plan-customer { font-weight: 700; font-size: 13.5px; color: var(--text-color, #1e293b); }
+.ib-pd-plan-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-bottom: 3px; }
+.ib-pd-plan-subline { font-size: 11px; color: var(--text-muted, #6b7280); margin-bottom: 3px; }
+.ib-pd-plan-row-progress { display: flex; align-items: center; gap: 9px; margin: 8px 0; }
+.ib-pd-prog-bar-wrap { height: 6px; background: var(--subtle-fg, #eef1f5); border-radius: 20px; overflow: hidden; flex: 1 1 auto; min-width: 40px; }
+.ib-pd-prog-bar { height: 100%; background: linear-gradient(90deg, #059669, #10b981); border-radius: 20px; transition: width .3s; }
+.ib-pd-prog-pct { font-size: 10.5px; font-weight: 600; color: var(--text-muted, #64748b); flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ib-pd-row-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ib-pd-row-btn {
+	background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 20px;
+	padding: 4px 12px; font-size: 11px; font-weight: 600; color: var(--text-color, #1e293b);
+	cursor: pointer; transition: background .12s, border-color .12s, box-shadow .12s;
+}
+.ib-pd-row-btn:hover { background: var(--subtle-fg, #f8fafc); border-color: var(--ib-primary, #d97757); }
+.ib-pd-row-btn:disabled { opacity: .5; cursor: not-allowed; }
+.ib-pd-row-btn--primary { background: var(--ib-primary, #d97757); border-color: var(--ib-primary, #d97757); color: #fff; box-shadow: 0 1px 2px rgba(217,119,87,.25); }
+.ib-pd-row-btn--primary:hover { background: #c4623e; border-color: #c4623e; box-shadow: 0 2px 6px rgba(217,119,87,.35); }
+.ib-pd-stg-chip { font-size: 9.5px; font-weight: 700; border-radius: 20px; padding: 2.5px 8px; letter-spacing: .03em; display: inline-block; }
+.ib-pd-stg--inprog { background: #dbeafe; color: #1d4ed8; }
+.ib-pd-stg--pending { background: var(--subtle-fg, #f1f5f9); color: #94a3b8; }
+.ib-pd-stg--live { animation: ib-pd-stg-pulse 1.6s ease-in-out infinite; }
+@keyframes ib-pd-stg-pulse {
+	0%, 100% { box-shadow: 0 0 0 0 rgba(29, 78, 216, 0.35); }
+	50%      { box-shadow: 0 0 0 4px rgba(29, 78, 216, 0); }
+}
+.ib-pd-live-pulse { vertical-align: middle; margin-left: 4px; overflow: visible; }
+.ib-pd-live-pulse-dot { fill: #10b981; }
+.ib-pd-live-pulse-ring { fill: none; stroke: #10b981; stroke-width: 1.5; transform-origin: 6px 6px; animation: ib-pd-pulse-ring 1.8s ease-out infinite; }
+@keyframes ib-pd-pulse-ring {
+	0%   { transform: scale(.45); opacity: .9; }
+	70%  { transform: scale(1.4); opacity: 0; }
+	100% { transform: scale(1.4); opacity: 0; }
+}
+.ib-pd-empty { font-size: 12px; color: var(--text-muted); padding: 18px 6px; text-align: center; background: var(--card-bg, #fff); border: 1px dashed var(--border-color, #e2e8f0); border-radius: 12px; }
+@media (prefers-reduced-motion: reduce) {
+	.ib-pd-live-pulse-ring { animation: none; opacity: .35; }
+	.ib-pd-stg--live { animation: none; }
+}
+
+/* Duplicated from Dashboard's own #ib-pd-styles for the same self-sufficiency
+   reason as the primitives above — this class carries the card's rounded
+   corner, border and (critically, for the watermark below) overflow:hidden
+   clipping, and Command Center can be the first tab a session ever loads. */
+.ib-pd-plan-card {
+	background: var(--card-bg, #fff); border: 1px solid var(--border-color, #eef1f5);
+	border-radius: 14px; margin-bottom: 12px; overflow: hidden;
+	box-shadow: 0 1px 2px rgba(15,23,42,.04); transition: box-shadow .18s, border-color .18s;
+}
+.ib-pd-plan-card:hover { box-shadow: 0 8px 20px rgba(15,23,42,.07); border-color: var(--border-color, #e2e8f0); }
+
+/* Command Center's own layout */
+.ib-cc-page { padding: 4px 0 24px; }
+.ib-cc-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: start; }
+@media (max-width: 900px) { .ib-cc-board { grid-template-columns: 1fr; } }
+.ib-cc-col-title { justify-content: flex-start; }
+.ib-cc-col-count {
+	margin-left: 7px; background: var(--subtle-fg, #f1f5f9); border-radius: 999px;
+	padding: 0 8px; font-size: 10.5px; font-weight: 700; color: var(--text-muted); letter-spacing: 0;
+	text-transform: none;
+}
+.ib-cc-card { position: relative; margin-bottom: 10px; padding: 13px 15px; display: flex; flex-direction: column; gap: 10px; }
+.ib-cc-card-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* Order-consolidated group card — one per Sales Order, several item rows
+   inside, instead of one flat card per item/run (a real order with 3
+   in-flight items used to scatter as 3 disconnected cards on the board). */
+.ib-cc-group-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ib-cc-group-customer { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+.ib-cc-group-count { margin-left: auto; font-size: 10.5px; font-weight: 700; color: var(--text-muted); background: var(--subtle-fg, #f1f5f9); border-radius: 999px; padding: 1px 8px; }
+.ib-cc-group-items { display: flex; flex-direction: column; gap: 8px; }
+.ib-cc-item-row {
+	position: relative; overflow: hidden; display: flex; align-items: flex-end; justify-content: space-between;
+	gap: 8px; padding: 9px 10px; border-radius: 9px; background: var(--subtle-fg, #f8fafc);
+	border: 1px solid var(--border-color, #eef1f5);
+}
+.ib-cc-item-body { position: relative; z-index: 1; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.ib-cc-item-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ib-cc-item-code { font-size: 12.5px; font-weight: 650; color: var(--heading-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ib-cc-item-qty { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+.ib-cc-item-row .ib-cc-card-watermark { right: -18px; bottom: -18px; width: 64px; height: 64px; opacity: .1; }
+.ib-cc-item-row .ib-cc-card-actions { flex-shrink: 0; }
+.ib-cc-card-machine { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-color, #1e293b); }
+/* Buttons sit bottom-right, the same corner the watermark anchors to —
+   needs its own stacking context or the (visually behind, but DOM-later,
+   position:absolute) watermark would paint over static in-flow content. */
+.ib-cc-card-actions { position: relative; z-index: 1; justify-content: flex-end; }
+.ib-cc-halt-icon { color: #60a5fa; }
+/* Watermark — a big faint stage icon sitting behind the card's own content,
+   clipped to the card's rounded corner by .ib-pd-plan-card's overflow:hidden.
+   pointer-events:none so it never intercepts a click meant for the card/
+   buttons; .ib-cc-card-body carries z-index so real content always wins. */
+.ib-cc-card-watermark {
+	position: absolute; right: -14px; bottom: -14px; width: 92px; height: 92px;
+	opacity: .07; pointer-events: none; z-index: 0;
+}
+.ib-cc-card-watermark iconify-icon { width: 100%; height: 100%; }
+.ib-cc-card-body { position: relative; z-index: 1; }
+/* Processing — the pulsing chip + flowing progress bar (below) are the
+   animation; the card itself stays the same calm sleek surface every other
+   tab uses, not a separate glow theme. */
+.ib-cc-card--live .ib-pd-prog-bar {
+	background: linear-gradient(90deg, #059669, #10b981, #059669);
+	background-size: 200% 100%;
+	animation: ib-cc-flow 2.4s linear infinite;
+}
+@keyframes ib-cc-flow { 0% { background-position: 0% 0; } 100% { background-position: -200% 0; } }
+/* Halted — quiet, not alarming: desaturated + a small snowflake, same card shell */
+.ib-cc-card--halted { opacity: .82; }
+.ib-cc-card--halted:hover { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+	.ib-cc-card--live .ib-pd-prog-bar { animation: none; }
+}
+`;
+		$(`<style id="ib-cc-styles">${css}</style>`).appendTo("head");
 	}
 }

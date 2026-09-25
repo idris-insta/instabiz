@@ -1,4 +1,4 @@
-﻿"""IB Gate Pass â€” the security gate register.
+"""IB Gate Pass — the security gate register.
 
 Every vehicle / material going out or coming in gets a gate pass, usually made
 from the Delivery Note, Purchase Receipt or Stock Entry it belongs to (items,
@@ -115,7 +115,7 @@ def auto_create_for_delivery_note(dn_name):
 	if not gp.vehicle_no:
 		pass  # todo52: do not invent TBD vehicle
 	# System-generated on DN submit: the dispatch user who submits the DN does not
-	# need submit rights on IB Gate Pass, and insert already bypasses permissions â€”
+	# need submit rights on IB Gate Pass, and insert already bypasses permissions —
 	# submitting under the caller's roles would fail and lose the gate pass.
 	gp.flags.ignore_permissions = True
 	gp.insert(ignore_permissions=True)

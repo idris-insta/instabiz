@@ -166,6 +166,13 @@ class IBSalesIncentives {
 
 	_fmt(v) { return "₹" + Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 }); }
 
+	// KPI-card version — crore/lakh scale with the exact amount as a hover
+	// title, same fix as the other dashboards' KPI cards. Table amounts
+	// (_fmt) stay full precision.
+	_fmtC(v) {
+		return `<span title="${this._fmt(v)}">${window.ib_fmt_inr_compact ? window.ib_fmt_inr_compact(v) : this._fmt(v)}</span>`;
+	}
+
 	_month_label(full) {
 		return new Date(this._month + "T00:00:00").toLocaleDateString("en-IN", {
 			month: full ? "long" : "short", year: "numeric",
@@ -345,11 +352,11 @@ class IBSalesIncentives {
 		$kpis.html(`
 			<div class="ib-si-kpi c-rev">
 				<div class="ib-si-kpi-label">Revenue</div>
-				<div class="ib-si-kpi-value">${this._fmt(rep.revenue)}</div>
+				<div class="ib-si-kpi-value">${this._fmtC(rep.revenue)}</div>
 			</div>
 			<div class="ib-si-kpi c-col">
 				<div class="ib-si-kpi-label">Collected</div>
-				<div class="ib-si-kpi-value">${this._fmt(rep.collected)}</div>
+				<div class="ib-si-kpi-value">${this._fmtC(rep.collected)}</div>
 				${rep.target ? `
 				<div class="ib-si-kpi-sub">
 					<div class="ib-si-prog-track"><div class="ib-si-prog-fill" style="width:${Math.min(100,pct)}%;background:${bar_c}"></div></div>
@@ -359,13 +366,13 @@ class IBSalesIncentives {
 			<div class="ib-si-kpi c-tgt">
 				<div class="ib-si-kpi-label">Target</div>
 				<div class="ib-si-kpi-value">
-					${rep.target ? this._fmt(rep.target) : `<span style="color:#d1d5db;font-size:1rem">Not set</span>`}
+					${rep.target ? this._fmtC(rep.target) : `<span style="color:#d1d5db;font-size:1rem">Not set</span>`}
 					${this._is_manager ? `<button class="ib-set-tgt" id="ib-si-set-tgt-btn" title="Set target">✎</button>` : ""}
 				</div>
 			</div>
 			<div class="ib-si-kpi c-com">
 				<div class="ib-si-kpi-label">Commission</div>
-				<div class="ib-si-kpi-value" style="color:#8b5cf6">${this._fmt(rep.commission)}</div>
+				<div class="ib-si-kpi-value" style="color:#8b5cf6">${this._fmtC(rep.commission)}</div>
 				<div class="ib-si-kpi-sub">${slab_html}</div>
 			</div>
 		`);

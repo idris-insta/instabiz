@@ -109,7 +109,20 @@ class IBExpense(AccountsController):
 
 	def _make_gl_entries(self, cancel: bool = False) -> None:
 		cost_center = self._cost_center()
-		credit_account = self._credit_account()
+		# Real bug, fixed: this used to call _credit_account() fresh on BOTH
+		# submit and cancel — for Paid expenses that's a live Mode of Payment
+		# -> account lookup (erpnext's get_bank_cash_account), a mapping that
+		# lives on a separate document and can change at any time regardless
+		# of this doc's own submitted state. If it changes between submit and
+		# cancel, the cancel reversal posts against the NEW account instead
+		# of the one actually debited/credited at submit — the original
+		# entry never gets properly reversed, a real GL imbalance. Cancel now
+		# reads back what was actually posted; only submit re-derives fresh.
+		# (Same gap exists in IB Credit Note / IB Debit Note — not fixed here.)
+		if cancel:
+			credit_account = self.posted_credit_account or self._credit_account()
+		else:
+			credit_account = self._credit_account()
 		amount = flt(self.amount, 2)
 		remark = (self.remarks or "").strip() or (
 			_("Expense {0} — {1}").format(self.name, self.description or "")
@@ -147,3 +160,10 @@ class IBExpense(AccountsController):
 		gl.append(self.get_gl_dict(credit_row))
 
 		make_gl_entries(gl, cancel=cancel, adv_adj=False)
+
+		if not cancel:
+			# Persist what was actually posted — apply_workflow-style pattern
+			# this app already uses elsewhere (e.g. production_run.py) for a
+			# field set during submit that a plain doc.save() might not
+			# reliably carry through; explicit db.set_value is unambiguous.
+			frappe.db.set_value(self.doctype, self.name, "posted_credit_account", credit_account)

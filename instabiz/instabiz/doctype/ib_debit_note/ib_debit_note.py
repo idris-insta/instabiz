@@ -217,7 +217,12 @@ class IBDebitNote(AccountsController):
     def _make_gl_entries(self, cancel: bool = False) -> None:
         if not getattr(self, "company_gstin", None):
             self.company_gstin = self._get_company_gstin()
-        ap_account = get_party_account("Supplier", self.supplier, self.company)
+        # Real bug, fixed: same gap as IB Credit Note / IB Expense — see their
+        # own comments. Cancel now reads back what was actually posted.
+        if cancel and getattr(self, "posted_ap_account", None):
+            ap_account = self.posted_ap_account
+        else:
+            ap_account = get_party_account("Supplier", self.supplier, self.company)
         cost_center = self._location_cost_center()
         remark = (self.remarks or "").strip() or (
             "Debit Note {name} against {pi}".format(
@@ -304,6 +309,9 @@ class IBDebitNote(AccountsController):
                 )
 
         make_gl_entries(gl, cancel=cancel, adv_adj=False)
+
+        if not cancel:
+            frappe.db.set_value(self.doctype, self.name, "posted_ap_account", ap_account)
 
     # ── Stock Ledger Entries ──────────────────────────────────────────────────
 

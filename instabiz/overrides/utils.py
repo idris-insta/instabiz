@@ -3,6 +3,14 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+# Users who must never be swept into automatic rotation: never a recipient
+# of an auto-assigned lead or dormant/regular pool customer, and their own
+# owned customers are never auto-reassigned away by the dormant-escalation
+# sweep. Explicit per-user exemption (2026-09-24, user request) — a Sales
+# Manager can otherwise still be a legitimate rotation participant, this is
+# not role-based.
+ROTATION_EXEMPT_USERS = {"sales1@instabizsolutions.com"}  # Nazim Ansari
+
 
 def build_multi_token_where(fields, search):
 	"""Multi-token search condition: every whitespace-separated token in

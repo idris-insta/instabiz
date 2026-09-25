@@ -124,32 +124,42 @@ class IBDPRPage {
 	_load_daily() {
 		this._set_refresh_label("Loading…");
 		this._show_skeleton(5);
+		// Self-bumped request-generation token — date change, Daily/Weekly
+		// toggle, and the Refresh button all call back into refresh(), so a
+		// slower response for a date/mode the user has already changed away
+		// from could otherwise land after a newer one and render the wrong
+		// date's numbers under the currently-selected date (same bug class
+		// fixed on the Production Stages page's loaders).
+		const gen = (this._load_gen = (this._load_gen || 0) + 1);
 		frappe.call({
 			method: "instabiz.overrides.production.get_dpr",
 			args:   { date: this._date },
 			callback: (r) => {
+				if (gen !== this._load_gen) return; // stale — a newer refresh() already superseded this
 				if (r.message) {
 					this._render_daily(r.message);
 					this._set_refresh_label("Updated " + frappe.datetime.now_time());
 				}
 			},
-			error: () => this._set_refresh_label("Error loading data"),
+			error: () => { if (gen === this._load_gen) this._set_refresh_label("Error loading data"); },
 		});
 	}
 
 	_load_weekly() {
 		this._set_refresh_label("Loading…");
 		this._show_skeleton(3);
+		const gen = (this._load_gen = (this._load_gen || 0) + 1);
 		frappe.call({
 			method: "instabiz.overrides.production.get_weekly_dpr",
 			args:   { date: this._date },
 			callback: (r) => {
+				if (gen !== this._load_gen) return; // stale — a newer refresh() already superseded this
 				if (r.message) {
 					this._render_weekly(r.message);
 					this._set_refresh_label("Updated " + frappe.datetime.now_time());
 				}
 			},
-			error: () => this._set_refresh_label("Error loading data"),
+			error: () => { if (gen === this._load_gen) this._set_refresh_label("Error loading data"); },
 		});
 	}
 

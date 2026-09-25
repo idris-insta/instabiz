@@ -8,4 +8,4 @@ scripts
 __pycache__
 scripts
 CLAUDE.md
-.worktrees/
+.worktrees/.superpowers/

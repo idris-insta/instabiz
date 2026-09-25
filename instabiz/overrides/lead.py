@@ -6,6 +6,7 @@ import json as _json
 
 from instabiz.overrides.permissions import _is_privileged
 from instabiz.overrides.utils import territory_from_gstin as _territory_from_gstin
+from instabiz.overrides.utils import ROTATION_EXEMPT_USERS
 
 # --- Lead scoring + pipeline status sync (Idris 2026-09-21) ---
 _TEMP_SCORE = {"Hot": 60, "Warm": 30, "Cold": 0}
@@ -279,12 +280,13 @@ def _do_assign(doc):
     try:
         team = frappe.get_doc("Lead Sales Team", team_name)
 
-        if not team.members:
+        members = [m for m in team.members if m.user not in ROTATION_EXEMPT_USERS]
+        if not members:
             return
 
-        idx      = (team.rr_index or 0) % len(team.members)
-        member   = team.members[idx]
-        next_idx = (idx + 1) % len(team.members)
+        idx      = (team.rr_index or 0) % len(members)
+        member   = members[idx]
+        next_idx = (idx + 1) % len(members)
 
         full_name = frappe.db.get_value("User", member.user, "full_name") or member.user
 

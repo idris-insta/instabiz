@@ -494,6 +494,19 @@ doc_events = {
         ],
         "on_trash": "instabiz.overrides.production_run.reverse_run_stock",
     },
+    "IB Batch": {
+        # Real incident 2026-09-19: a raw delete of a batch still referenced
+        # as `source_batch` on 9+ real Work Orders silently orphaned that
+        # link — surfaced a day later as an opaque core "Could not find
+        # Source (RM) Batch" error the moment one of them tried to advance.
+        # No doc_event existed for this doctype at all before this.
+        # `before_delete` is NOT a real Frappe doc-event (frappe/model/
+        # delete_doc.py only ever calls `on_trash`, before the link check
+        # runs) — same "hook name that silently never fires" mistake this
+        # file's own Lead Sales Team entry already warns about above; caught
+        # only by testing a real force=True delete, not by inspection.
+        "on_trash": "instabiz.overrides.traceability.prevent_delete_if_traced",
+    },
 }
 
 # ── Row-level permission restrictions ────────────────────────────────────────

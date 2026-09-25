@@ -14,7 +14,7 @@
   "sec_route","route",
   "sec_outputs","outputs",
   "sec_log","stage_log",
-  "sec_result","fg_batch","stock_entry","col_result","total_output_qty","total_wastage_qty","roll_diameter_mm",
+  "sec_result","fg_batch","start_stock_entry","stock_entry","col_result","total_output_qty","total_wastage_qty","roll_diameter_mm",
   "sec_notes","notes"
  ],
  "fields": [
@@ -44,6 +44,7 @@
   {"fieldname":"stage_log","fieldtype":"Table","options":"IB WO Stage Event","label":"Stage Log"},
   {"fieldname":"sec_result","fieldtype":"Section Break","label":"Result"},
   {"fieldname":"fg_batch","fieldtype":"Link","options":"IB Batch","label":"FG Batch","read_only":1},
+  {"fieldname":"start_stock_entry","fieldtype":"Link","options":"Stock Entry","label":"Start Transfer (RM -> WIP)","read_only":1},
   {"fieldname":"stock_entry","fieldtype":"Link","options":"Stock Entry","label":"Repack Stock Entry","read_only":1},
   {"fieldname":"col_result","fieldtype":"Column Break"},
   {"fieldname":"total_output_qty","fieldtype":"Float","label":"Total Output Qty","read_only":1},

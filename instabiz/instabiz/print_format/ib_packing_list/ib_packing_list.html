@@ -188,16 +188,36 @@
       {% set total_wt = namespace(v=0.0) %}
       {% for row in doc.items %}
         {% set item = frappe.get_cached_doc("Item", row.item_code) %}
-        {# Prefer the row's own packing figures. For an SQMT item row.qty is an AREA,
-           so qty / rolls_per_box counted square metres as rolls and reported a box
-           count that was wrong by a factor of width x length. qty_pkg / total_pkg are
-           what the qty formula itself multiplies out, so they are the real figures. #}
-        {% set rolls_per_box = row.get("qty_pkg") or item.custom_rolls_per_box or 1 %}
+        {#- Box count, resolved from the most trustworthy figure available.
+
+            Both branches fixed the same bug here and each got half of it:
+
+            1. The row's own qty_pkg / total_pkg are the real packing figures —
+               they are literally what the qty formula multiplies out — so when
+               total_pkg is set it IS the box count, no arithmetic needed.
+            2. Falling back to qty / rolls_per_box is only valid when
+               rolls_per_box is actually known. It used to default to 1, and
+               since every real item in the catalog has custom_rolls_per_box
+               unset, that turned "no packaging data" into "1 roll per box" and
+               printed the full SQMT quantity as a box count — a real
+               1,860 SQMT line printed "1860 boxes".
+            3. With neither known, print "—" and leave the row out of the
+               TOTAL. An unknown box count cannot be summed, and a guessed one
+               on a packing list travels with the goods.
+
+            Same no-guessing rule this app already applies to UOM conversion
+            and RM/FG recipe matching. -#}
+        {% set rolls_per_box = row.get("qty_pkg") or item.custom_rolls_per_box or 0 %}
         {% set carton_wt = item.custom_carton_weight_kg or 0 %}
-        {% set boxes = row.get("total_pkg") | round(2) if row.get("total_pkg") else (row.qty / rolls_per_box) | round(2) %}
-        {% set line_wt = (boxes * carton_wt) | round(2) %}
-        {% set total_boxes.v = total_boxes.v + boxes %}
-        {% set total_wt.v = total_wt.v + line_wt %}
+        {% set boxes = (row.get("total_pkg") | round(2)) if row.get("total_pkg")
+                       else ((row.qty / rolls_per_box) | round(2) if rolls_per_box else None) %}
+        {% set line_wt = (boxes * carton_wt) | round(2) if boxes is not none else None %}
+        {% if boxes is not none %}
+          {% set total_boxes.v = total_boxes.v + boxes %}
+        {% endif %}
+        {% if line_wt is not none %}
+          {% set total_wt.v = total_wt.v + line_wt %}
+        {% endif %}
         <tr>
           <td>{{ loop.index }}</td>
           <td class="wrap-anywhere">{{ row.item_code }}</td>
@@ -214,10 +234,10 @@
           <td>{{ row.custom_branding or "" }}</td>
           <td>{{ fq(row.qty) }}</td>
           <td>{{ row.uom }}</td>
-          <td>{{ rolls_per_box }}</td>
-          <td>{{ boxes }}</td>
+          <td>{{ rolls_per_box or "—" }}</td>
+          <td>{{ boxes if boxes is not none else "—" }}</td>
           <td>{{ carton_wt }}</td>
-          <td>{{ line_wt }}</td>
+          <td>{{ line_wt if line_wt is not none else "—" }}</td>
           <td>{{ row.custom_marking or item.custom_carton_marking or "" }}</td>
         </tr>
       {% endfor %}

@@ -158,8 +158,24 @@
 		},
 
 		// ── formatting ──────────────────────────────────────────────────────
-		money(v) {
-			return `<span class="ib-ui-num">${frappe.format(v || 0, { fieldtype: "Currency" })}</span>`;
+		// compact: true renders crore/lakh-scale amounts as "₹ 13.55 Cr" instead
+		// of the full "₹ 13,55,12,753.11" — real bug this fixes: a full-precision
+		// crore amount is wider than a ~180px auto-fit stat card, and even with
+		// white-space:nowrap (see .ib-ui-num) that just overflows the card
+		// instead of wrapping it. Stat cards want the headline number to fit;
+		// table cells have room for the exact figure, so this stays opt-in
+		// rather than the default. Full amount is kept in `title` so it's a
+		// hover away.
+		money(v, opts) {
+			opts = opts || {};
+			v = flt(v || 0);
+			const full = frappe.format(v, { fieldtype: "Currency" });
+			if (!opts.compact) return `<span class="ib-ui-num">${full}</span>`;
+			const abs = Math.abs(v);
+			const suffix = abs >= 1e7 ? [1e7, "Cr"] : abs >= 1e5 ? [1e5, "L"] : null;
+			const txt = suffix ? `₹ ${(v / suffix[0]).toFixed(2)} ${suffix[1]}` : full.replace(/<[^>]+>/g, "");
+			const title = full.replace(/<[^>]+>/g, "");
+			return `<span class="ib-ui-num" title="${esc(title)}">${txt}</span>`;
 		},
 		num(v, dp = 0) {
 			return `<span class="ib-ui-num">${frappe.format(flt(v || 0), { fieldtype: "Float", precision: dp })}</span>`;

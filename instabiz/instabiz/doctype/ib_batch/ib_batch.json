@@ -21,6 +21,7 @@
   "supplier",
   "supplier_lot",
   "received_date",
+  "warehouse",
   "sec2",
   "work_order",
   "parent_batches",
@@ -113,6 +114,14 @@
    "fieldname": "received_date",
    "fieldtype": "Date",
    "label": "Received Date"
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "options": "Warehouse",
+   "label": "Warehouse",
+   "read_only": 1,
+   "description": "Real physical location this batch's material sits in — snapshotted at receipt time. Used by Phase 3 stock posting to resolve the source warehouse for a run's Start-time transfer."
   },
   {
    "fieldname": "sec2",

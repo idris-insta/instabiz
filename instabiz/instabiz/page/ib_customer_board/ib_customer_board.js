@@ -365,13 +365,16 @@ class IBCustomerBoard {
 	_render_target(t) {
 		if (!t.has_target) { $("#ib-cb-target-card").hide(); return; }
 		const fmt = (v) => "₹" + Number(v).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+		// Compact crore/lakh display for this headline card, same convention
+		// as the other dashboards' KPI cards — exact amount lives in title.
+		const fmtC = (v) => window.ib_fmt_inr_compact ? window.ib_fmt_inr_compact(v) : fmt(v);
 		const pct = t.pct || 0;
 		const bar_color = pct >= 100 ? IB_CB_COLOR_SUCCESS : pct >= 60 ? "var(--ib-primary)" : IB_CB_COLOR_WARNING;
 		const d = frappe.datetime.str_to_user(t.month);
 		const month_label = d ? d.slice(3) : t.month;  // "May 2026" from "01-05-2026"
 		$("#ib-cb-target-month").text(month_label);
-		$("#ib-cb-target-actual").text(fmt(t.actual));
-		$("#ib-cb-target-goal").text(fmt(t.target));
+		$("#ib-cb-target-actual").text(fmtC(t.actual)).attr("title", fmt(t.actual));
+		$("#ib-cb-target-goal").text(fmtC(t.target)).attr("title", fmt(t.target));
 		$("#ib-cb-target-pct").text(pct + "%");
 		$("#ib-cb-target-bar-fill").css({ width: pct + "%", background: bar_color });
 		const cnt = t.order_count || 0;
@@ -1663,6 +1666,7 @@ class IBAssignmentAdmin {
 					if (v >= 1e5) return "₹" + (v / 1e5).toFixed(1) + "L";
 					return "₹" + Math.round(v).toLocaleString("en-IN");
 				};
+				const fmt_full = (v) => "₹" + Math.round(v || 0).toLocaleString("en-IN");
 				const tpct = u.target_pct || 0;
 				const tpct_cls = tpct >= 80 ? "good" : tpct >= 40 ? "mid" : "low";
 				const tbar_color = tpct >= 80 ? "#22c55e" : tpct >= 40 ? "var(--ib-primary)" : "#cbd5e1";
@@ -1672,9 +1676,9 @@ class IBAssignmentAdmin {
 					</span>` : "";
 				const target_html = u.target ? `<div class="ib-aa-row-target-wrap">
 					<div class="ib-aa-row-target-text">
-						<span class="ib-aa-target-actual ib-aa-pct--${tpct_cls}">${fmt_short(u.actual || 0)}</span>
+						<span class="ib-aa-target-actual ib-aa-pct--${tpct_cls}" title="${fmt_full(u.actual)}">${fmt_short(u.actual || 0)}</span>
 						<span class="ib-aa-target-sep">/</span>
-						<span class="ib-aa-target-goal">${fmt_short(u.target || 0)}</span>
+						<span class="ib-aa-target-goal" title="${fmt_full(u.target)}">${fmt_short(u.target || 0)}</span>
 						<span class="ib-aa-target-pct ib-aa-pct--${tpct_cls}">${tpct}%</span>
 						${incentive_html}
 					</div>

@@ -1,112 +1,320 @@
 """instabiz.overrides.production_stock
 
-When a production run finishes, post it to stock (IB Stock Settings →
-"Post production to stock", on by default):
+Phase 3 — real stock-ledger integration for the WO-per-run production model.
 
-  one Repack Stock Entry per run
-    out  the run's source material — source item × source qty, from the run's
-         source warehouse (the jumbo / film actually loaded, wastage included)
-    out  anything else the finished item's IB Production Recipe lists (core,
-         carton, adhesive…), recipe qty × produced qty
-    in   every output — produced qty in its unit, into the finished-goods
-         warehouse for the location (IB Stock Settings) or the source warehouse
+Everything here is gated behind the `ib_production_posts_stock` site_config
+flag (off by default, per the name already promised in production_run.py's
+own module docstring since Phase 1). When the flag is off, every function
+below is a no-op — IB Batch's existing annotation-level qty tracking
+(separate from this, unaffected) is the only accounting that happens,
+exactly as it has all along.
 
-ERPNext spreads the cost of what went out over what came in, so finished goods
-carry the real material cost including wastage. Machine time is added on top as
-an additional cost: hours of each stage × the machine's Running Cost per Hour
-(or IB Stock Settings default), booked to Expenses Included In Valuation. If the entry can't be
-submitted (short stock, missing conversion…) it is kept as a draft, the run
-still completes, and stock managers get a bell with the reason. Cancelling the
-run cancels / deletes the entry.
+Flow per run, when the flag is on:
+
+  Start  (create_run):  RM warehouse -> WIP warehouse         (Material Transfer)
+  Finish (_finish_run):  WIP warehouse -> FG warehouse(s)      (Repack, one row
+                          per real output row with produced_qty > 0)
+                       -> WIP warehouse -> Scrap warehouse     (Repack, same
+                          entry, RM-equivalent wastage qty) -- ONLY when a
+                          real IB Production Recipe ratio exists for the
+                          RM/FG item pair. Never guessed for a pair with no
+                          recipe data; that pair's wastage simply isn't
+                          posted to Scrap (matches how wastage already works
+                          for every item today — a tracked number on the
+                          run, no stock movement).
+  Cancel (cancel_run):   reverses whichever of the above already posted, via
+                          a real Stock Entry .cancel() (correctly reverses
+                          the ledger), not a manual counter-posting.
+
+Only Gujarat has real production machines/floors today (established
+throughout this app's history — Maharashtra/Chennai are warehouse-only) —
+warehouse resolution below is Gujarat-only by design, same as every other
+location-gated piece of this module (_WAREHOUSE_ONLY_LOCATIONS,
+IB Production Floor, etc).
 """
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import flt, nowdate
 
-from instabiz.overrides import ib_settings
-from instabiz.overrides.utils import roll_area
-
-LOC_FIELD = {"maharashtra": "fg_warehouse_maharashtra", "gujarat": "fg_warehouse_gujarat", "chennai": "fg_warehouse_chennai"}
-
-
-def _leaf_warehouse(wh):
-	"""A group warehouse (e.g. GUJARAT - IB) → its first real warehouse."""
-	if not wh or not frappe.db.get_value("Warehouse", wh, "is_group"):
-		return wh
-	lft, rgt = frappe.db.get_value("Warehouse", wh, ["lft", "rgt"])
-	return frappe.db.get_value("Warehouse", {"lft": [">", lft], "rgt": ["<", rgt], "is_group": 0, "disabled": 0}, "name", order_by="lft")
+_LOCATION_WAREHOUSES = {
+	"gujarat": {
+		"wip": "WIP - GUJARAT - IB",
+		"fg": "Finished Goods - GUJARAT - IB",
+		"scrap": "Scrap - GUJARAT - IB",
+	},
+}
 
 
-def _source_warehouse(doc):
-	from instabiz.overrides.production_run import _batch_source_warehouse
-	from instabiz.overrides.utils import LOCATION_WAREHOUSE
-
-	wh = doc.source_warehouse or (doc.source_batch and _batch_source_warehouse(doc.source_batch))
-	return _leaf_warehouse(wh or LOCATION_WAREHOUSE.get((doc.location or "").lower()))
+def posts_stock():
+	return bool(frappe.conf.get("ib_production_posts_stock"))
 
 
-def _stock_qty(item_code, qty, uom):
-	from erpnext.stock.get_item_details import get_conversion_factor
+def _wh(location, kind):
+	return (_LOCATION_WAREHOUSES.get((location or "").lower()) or {}).get(kind)
 
-	stock_uom = frappe.get_cached_value("Item", item_code, "stock_uom")
+
+def _company():
+	return frappe.db.get_single_value("Global Defaults", "default_company")
+
+
+def _recipe_ratio(rm_item, fg_item):
+	"""RM qty consumed per 1 unit of fg_item, or None if no real recipe
+	exists for this exact pair. Never guessed/defaulted — see this module's
+	own docstring for why."""
+	if not rm_item or not fg_item:
+		return None
+	return frappe.db.get_value(
+		"IB Production Recipe", {"finished_item": fg_item, "recipe_item": rm_item}, "qty_per"
+	)
+
+
+def _real_uom_conversion_factor(item_code, uom, stock_uom):
+	"""How many `stock_uom` one `uom` unit of item_code is worth, or None if
+	there's no REAL UOM Conversion Detail row for this exact pair. Never
+	falls back to a generic UOM-category conversion or a silent 1.0 the way
+	ERPNext's own `get_item_details.get_conversion_factor` does — confirmed
+	live (2026-09-21) that every real run's UOM WO Output row whose `uom`
+	differs from its Item's `stock_uom` (11 of 11 sampled, e.g. produced_qty
+	in PCS against an item stock-tracked in SQMT) has zero UOM Conversion
+	Detail row for that pair. Posting `produced_qty` straight into a Stock
+	Entry Item row with no explicit uom/conversion_factor silently defaults
+	conversion_factor to 1.0 — i.e. "144 PCS produced" would post as "144
+	SQMT received", an item-specific, unbounded, silently-wrong stock
+	quantity the moment ib_production_posts_stock is switched on. Real fix:
+	resolve every output row's conversion explicitly before posting; a row
+	with no real conversion blocks the whole finish-transfer post (see
+	post_run_finish_transfer) rather than posting a subset at a guessed
+	factor."""
 	if not uom or uom == stock_uom:
-		return flt(qty)
-	cf = flt((get_conversion_factor(item_code, uom) or {}).get("conversion_factor"))
-	return flt(qty) * cf if cf else flt(qty)
+		return 1.0
+	return frappe.db.get_value(
+		"UOM Conversion Detail", {"parent": item_code, "uom": uom}, "conversion_factor"
+	) or None
 
 
-def build_entry(doc):
-	src_wh = _source_warehouse(doc)
-	fg_wh = _leaf_warehouse(ib_settings.get(LOC_FIELD.get((doc.location or "").lower(), ""), None)) or src_wh
-	company = frappe.db.get_value("Warehouse", src_wh or fg_wh, "company") or frappe.db.get_single_value("Global Defaults", "default_company")
+def post_run_start_transfer(doc):
+	"""RM warehouse -> WIP, for the run's full source_qty. Called from
+	create_run(), inside its existing per-order-sheet lock, right after the
+	IB Batch qty reservation. Returns the Stock Entry name, or None if stock
+	posting is off, the run's location isn't wired (non-Gujarat), or the
+	source batch has no resolvable warehouse (e.g. a batch created before
+	this feature existed and never backfilled)."""
+	if not posts_stock():
+		return None
+	wip = _wh(doc.location, "wip")
+	if not wip or not doc.source_warehouse:
+		return None
+	se = frappe.new_doc("Stock Entry")
+	se.stock_entry_type = "Material Transfer"
+	se.company = _company()
+	se.posting_date = nowdate()
+	# IB Batch has no separate uom field — batch.qty (source_qty's origin) is
+	# always in the source item's own stock_uom, so this is a defensive
+	# explicit statement of what's already true, not a conversion — same
+	# reasoning as the explicit uom now set in post_run_finish_transfer below.
+	# Real bug, fixed here (confirmed live 2026-09-24): a source item with no
+	# resolvable valuation anywhere (never received via a real Purchase
+	# Receipt/Container Import — e.g. demo/placeholder RM batches) throws
+	# "Valuation Rate ... is required" on this plain transfer, blocking Start
+	# entirely. Finish's own Repack entry already has this same fallback
+	# (allow_zero_valuation_rate) for exactly this reason; Start never did.
+	# allow_zero_valuation_rate only permits a zero-value fallback when no
+	# real rate resolves — it doesn't force one down on an item that already
+	# has real valuation history.
+	se.append("items", {
+		"item_code": doc.source_item,
+		"qty": flt(doc.source_qty),
+		"uom": frappe.get_cached_value("Item", doc.source_item, "stock_uom"),
+		"conversion_factor": 1.0,
+		"s_warehouse": doc.source_warehouse,
+		"t_warehouse": wip,
+		"allow_zero_valuation_rate": 1,
+	})
+	se.remarks = f"IB Work Order {doc.name} — start transfer (RM -> WIP)"
+	se.insert(ignore_permissions=True)
+	se.submit()
+	return se.name
+
+
+def post_run_finish_transfer(doc):
+	"""WIP -> FG (one row per real output) + WIP -> Scrap (RM-equivalent
+	wastage, only where a real recipe ratio resolves). Called from
+	_finish_run() after doc.outputs' produced_qty is final. Returns the
+	Stock Entry name, or None if there's nothing real to post (stock
+	posting off, no start transfer ever happened for this run, or every
+	output produced zero)."""
+	if not posts_stock():
+		return None
+	wip = _wh(doc.location, "wip")
+	fg = _wh(doc.location, "fg")
+	if not wip or not fg or not doc.get("start_stock_entry"):
+		return None
+
+	# Real bug, fixed here: an IB WO Output row's `uom` (the unit the operator
+	# actually recorded produced_qty in — PCS/KG/SQMT, independent per row)
+	# can differ from its Item's `stock_uom`. Confirmed live: every real run
+	# where that happens has zero real UOM Conversion Detail for the pair, so
+	# posting `qty=produced_qty` with no explicit uom/conversion_factor would
+	# have Frappe silently default conversion_factor to 1.0 — crediting FG
+	# stock in the WRONG unit at face value (144 PCS posted as 144 SQMT).
+	# Resolve every row's real conversion factor up front; if even one
+	# output row can't be safely converted, refuse the whole finish-transfer
+	# post rather than posting some rows correctly and silently dropping/
+	# mis-posting others (which would also desync WIP-consumed vs FG-credited
+	# qty). Matches this module's own no-guessing convention (_recipe_ratio).
+	plan = []
+	for o in doc.outputs:
+		qty = flt(o.produced_qty)
+		if qty <= 0:
+			continue
+		stock_uom = frappe.get_cached_value("Item", o.item_code, "stock_uom")
+		factor = _real_uom_conversion_factor(o.item_code, o.uom, stock_uom)
+		if factor is None:
+			# Real bug, fixed here: this used to log_error + return None —
+			# post_run_finish_transfer's caller (_finish_run) never checked
+			# that return value, so the run still completed normally (FG
+			# batch + serial genealogy created, workflow -> Completed) with
+			# NO finish transfer ever posted. Confirmed live: WIP stock for
+			# the source item is left stuck there forever (never credited
+			# out), the FG item never actually lands in the FG warehouse's
+			# Bin despite genealogy claiming a real unit was produced, and
+			# `stock_entry` stays blank on the run — a completed run
+			# reporting real output that was never actually received into
+			# stock anywhere, silently. Raising here instead aborts the
+			# whole Finish action (doc.save() above hasn't been committed
+			# yet — frappe.db.commit() only runs after this in advance_run
+			# — so the request rolls back the Completed status too, not
+			# just the stock post), same "refuse rather than silently
+			# drift" rule this module's own docstring already applies to
+			# the posting logic, now applied to completion itself.
+			frappe.throw(_(
+				"Cannot complete this run: output '{0}' is recorded in '{1}' but its Item's "
+				"stock unit is '{2}', and there is no UOM Conversion Detail for that exact "
+				"pair. Add the conversion on the Item first, then try Finish again."
+			).format(o.item_name or o.item_code, o.uom, stock_uom))
+		plan.append({"item_code": o.item_code, "qty": qty, "uom": o.uom or stock_uom,
+		             "conversion_factor": factor})
+
+	if not plan:
+		return None
+
 	se = frappe.new_doc("Stock Entry")
 	se.stock_entry_type = "Repack"
-	se.purpose = "Repack"
-	se.company = company
-	se.posting_date = frappe.utils.today()
-	se.remarks = _("Production run {0} ({1})").format(doc.name, doc.sales_order or doc.order_sheet or "")
-	used = set()
-	if doc.source_item and flt(doc.source_qty) > 0:
-		se.append("items", {"item_code": doc.source_item, "qty": flt(doc.source_qty), "s_warehouse": src_wh})
-		used.add(doc.source_item)
-	extra = {}
-	for o in doc.outputs:
-		if flt(o.produced_qty) <= 0:
-			continue
-		area = roll_area(o.item_code, o.uom, o.width_mm, o.length_mtr)
-		stock_out = flt(o.produced_qty) * area if area else _stock_qty(o.item_code, o.produced_qty, o.uom)
-		for r in frappe.get_all("IB Production Recipe", filters={"finished_item": o.item_code},
-				fields=["recipe_item", "qty_per"]):
-			if r.recipe_item not in used:
-				extra[r.recipe_item] = extra.get(r.recipe_item, 0) + flt(r.qty_per) * stock_out
-	for item, qty in extra.items():
-		if qty > 0:
-			se.append("items", {"item_code": item, "qty": round(qty, 3), "s_warehouse": src_wh})
-	consumed = len(se.items)
-	for o in doc.outputs:
-		if flt(o.produced_qty) > 0:
-			row = {"item_code": o.item_code, "qty": flt(o.produced_qty), "t_warehouse": fg_wh, "is_finished_item": 1,
-				"width_mm": o.width_mm, "length_mtr": o.length_mtr}  # cut size, not the jumbo's
-			if o.uom:
-				row["uom"] = o.uom
-				area = roll_area(o.item_code, o.uom, o.width_mm, o.length_mtr)
-				if area:  # rolls of an SQMT item → m² per roll
-					row["conversion_factor"] = area
-			se.append("items", row)
-	if consumed:
-		_add_conversion_cost(se, doc, company)
-	if not consumed:
-		# nothing to take out (no source item, no recipe): receive the goods at their own rate
-		se.stock_entry_type = se.purpose = "Material Receipt"
-		for r in se.items:
-			r.is_finished_item = 0
-			if not flt(frappe.get_cached_value("Item", r.item_code, "valuation_rate")):
-				r.allow_zero_valuation_rate = 1
-	return se, consumed
+	se.company = _company()
+	se.posting_date = nowdate()
+	source_stock_uom = frappe.get_cached_value("Item", doc.source_item, "stock_uom")
+	se.append("items", {
+		"item_code": doc.source_item,
+		"qty": flt(doc.source_qty),
+		"uom": source_stock_uom,
+		"conversion_factor": 1.0,
+		"s_warehouse": wip,
+	})
+
+	total_fg_equiv = 0.0
+	for row in plan:
+		ratio = _recipe_ratio(doc.source_item, row["item_code"])
+		if ratio:
+			total_fg_equiv += row["qty"] * flt(ratio)
+
+	scrap = _wh(doc.location, "scrap")
+	scrap_wastage_qty = 0.0
+	if scrap and total_fg_equiv:
+		w = flt(doc.source_qty) - total_fg_equiv
+		if w > 0:
+			scrap_wastage_qty = w
+
+	# Real bug, fixed here (confirmed live 2026-09-24): forcing
+	# set_basic_rate_manually + a static Item.valuation_rate on EVERY FG
+	# output row — including the single-output case, which is the common
+	# one — threw away core's own correct Repack costing. A Repack entry
+	# with exactly one finished-item row and no manual override auto-values
+	# it from the total real value of what was actually consumed (the WIP
+	# row's real moving-average rate, not the often-stale Item.valuation_rate
+	# snapshot). Forcing a manual rate here instead made the FG row post at
+	# whatever Item.valuation_rate happened to be (often 0 for an item never
+	# separately purchased) — confirmed live: a real run consuming ₹200 of
+	# real-valued RM produced FG at ₹0, with the ₹200 silently landing on
+	# "Stock Adjustment - IB" as Frappe's balancing difference line instead
+	# of capitalizing into the Finished Goods account. Only force a manual
+	# rate when core actually requires it — more than one finished-item row
+	# in the same entry (validate_repack_entry() hard-throws "basic rate for
+	# all finished goods must be set manually" past one such row; the scrap
+	# row below is also flagged is_finished_item by core the moment it
+	# fires, so it counts toward this total too) — where there's no single
+	# real total to auto-split across multiple different output items
+	# without guessing an allocation.
+	multi_output = (len(plan) + (1 if scrap_wastage_qty else 0)) > 1
+
+	for row in plan:
+		se_row = {
+			"item_code": row["item_code"],
+			"qty": row["qty"],
+			"uom": row["uom"],
+			"conversion_factor": row["conversion_factor"],
+			"t_warehouse": fg,
+		}
+		if multi_output:
+			# Real bug, fixed here: an FG item produced for the first time
+			# ever (no prior incoming-valued stock anywhere) has no
+			# resolvable valuation rate — ERPNext's get_valuation_rate()
+			# then hard-throws "Valuation Rate ... is required", an
+			# uncaught ValidationError that would abort the whole Finish
+			# action (advance_run/_finish_run), confirmed live. Same class
+			# of gap already fixed for Container Import's Material Receipt
+			# (ib_container_import.py _make_stock_entry) — same fallback:
+			# post at zero value rather than hard-blocking a real
+			# production completion over a bookkeeping gap; a real cost
+			# can be set on the item master and reposted later. Only
+			# reachable for the multi-output case now — the single-output
+			# case lets core auto-value it for real instead (see above).
+			rate = flt(frappe.get_cached_value("Item", row["item_code"], "valuation_rate"))
+			se_row["set_basic_rate_manually"] = 1
+			se_row["basic_rate"] = rate
+			if not rate:
+				se_row["allow_zero_valuation_rate"] = 1
+		se.append("items", se_row)
+
+	if scrap_wastage_qty:
+		scrap_row = {
+			"item_code": doc.source_item,
+			"qty": scrap_wastage_qty,
+			"uom": source_stock_uom,
+			"conversion_factor": 1.0,
+			"t_warehouse": scrap,
+		}
+		if multi_output:
+			scrap_rate = flt(frappe.get_cached_value("Item", doc.source_item, "valuation_rate"))
+			scrap_row["set_basic_rate_manually"] = 1
+			scrap_row["basic_rate"] = scrap_rate
+			if not scrap_rate:
+				scrap_row["allow_zero_valuation_rate"] = 1
+		se.append("items", scrap_row)
+
+	se.remarks = f"IB Work Order {doc.name} — finish (WIP -> FG/Scrap)"
+	_add_conversion_cost(se, doc)
+	se.insert(ignore_permissions=True)
+	se.submit()
+	return se.name
+
+
+# ── Machine time in the valuation ─────────────────────────────────────────────
+# Merged in from the other branch's production_stock (2026-09-25). Everything
+# above values FG from the material that went into it, which is right as far as
+# it goes — but a coated, slit and cut roll costs more than the film it came
+# from, and booking none of that conversion means gross margin reads high on
+# exactly the items that take the most machine time.
+#
+# ERPNext already has the mechanism: additional_costs on the entry, spread over
+# the finished rows the same way material cost is. Hours come from the run's own
+# completed stage log, the rate from the machine (falling back to an IB Stock
+# Settings default), so nothing has to be estimated.
 
 
 def run_conversion_cost(doc):
 	"""[(stage, machine, hours, rate, amount)] for the run's completed stages."""
+	from instabiz.overrides import ib_settings
+
 	default_rate = ib_settings.get_float("default_machine_cost_per_hour", 0)
 	out = []
 	for ev in doc.get("stage_log") or []:
@@ -119,67 +327,54 @@ def run_conversion_cost(doc):
 	return out
 
 
-def _add_conversion_cost(se, doc, company):
-	lines = run_conversion_cost(doc)
-	account = frappe.get_cached_value("Company", company, "expenses_included_in_valuation")
-	if not lines or not account:
-		return
-	for stage, machine, hours, rate, amount in lines:
-		se.append("additional_costs", {"expense_account": account, "amount": amount,
-			"description": _("{0} on {1}: {2} h × ₹{3}").format(stage, machine or "-", hours, rate)})
+def _add_conversion_cost(se, doc):
+	"""Append one additional_costs row per costed stage. Never raises.
 
-
-def post_run_stock(doc):
-	"""Called at the end of a run. Never raises; returns a short note for the completion message."""
-	if not ib_settings.get_check("production_posts_stock", True) or doc.get("stock_entry"):
-		return None
-	if not any(flt(o.produced_qty) > 0 for o in doc.outputs):
-		return None
-	se, consumed = build_entry(doc)
-	if not se.items:
-		return None
-	submit = (ib_settings.get("production_stock_mode", "Submit") or "Submit") == "Submit"
-	frappe.db.savepoint("ib_run_stock")
+	A missing Expenses Included In Valuation account, or a run with no machine
+	rates, means no conversion cost — not a failed production posting.
+	"""
 	try:
-		se.insert(ignore_permissions=True)
-		if submit:
-			se.submit()
-		note = None if consumed else _("no source material or recipe — goods received only")
-	except Exception as e:
-		frappe.db.rollback(save_point="ib_run_stock")
-		reason = frappe.utils.strip_html(str(e))[:300]
-		se, _consumed = build_entry(doc)
-		try:
-			se.insert(ignore_permissions=True)
-		except Exception:
-			frappe.log_error("IB run stock entry", f"{doc.name}\n{frappe.get_traceback()}")
-			_tell_stock(doc, None, reason)
-			return _("stock not posted: {0}").format(reason)
-		_tell_stock(doc, se.name, reason)
-		note = _("stock entry {0} left as draft: {1}").format(se.name, reason)
-	frappe.db.set_value("IB Work Order", doc.name, "stock_entry", se.name, update_modified=False)
-	if se.docstatus == 0 and not note:
-		note = _("stock entry {0} is a draft for the store to submit").format(se.name)
-	return note
+		account = frappe.get_cached_value("Company", se.company, "expenses_included_in_valuation")
+		if not account:
+			return
+		for stage, machine, hours, rate, amount in run_conversion_cost(doc):
+			se.append("additional_costs", {
+				"expense_account": account,
+				"amount": amount,
+				"description": _("{0} on {1}: {2} h x {3}/h").format(stage, machine or "-", hours, rate),
+			})
+	except Exception:
+		frappe.log_error("IB run conversion cost", frappe.get_traceback())
 
 
-def _tell_stock(doc, entry, reason):
-	users = {u for u in frappe.get_all("Has Role", filters={"role": ["in", ["Stock Manager", "Factory Management"]],
-		"parenttype": "User"}, pluck="parent") if u != "Administrator" and frappe.db.get_value("User", u, "enabled")}
-	subject = _("Run {0}: stock not posted — {1}").format(doc.name, reason)[:140]
-	for u in users:
-		frappe.get_doc({"doctype": "Notification Log", "for_user": u, "type": "Alert", "subject": subject,
-			"document_type": "Stock Entry" if entry else "IB Work Order", "document_name": entry or doc.name}).insert(ignore_permissions=True)
+def reverse_run_stock(doc):
+	"""Cancel whichever Stock Entries this run posted (finish entry first,
+	then start entry — no real ordering dependency between two unlinked
+	Stock Entries, but cancelling the later one first mirrors normal
+	unwind order). Called from cancel_run(). A real Stock Entry .cancel()
+	correctly reverses the ledger; never posts a manual counter-entry.
 
+	Real bug, fixed here: advance_with_length_split() gives every sibling
+	run the SAME start_stock_entry (the parent's one RM->WIP transfer,
+	divided into shares — see that function's own comment). A naive
+	unconditional cancel would reverse the WHOLE shared transfer the
+	moment any ONE sibling got cancelled, clawing back material still
+	legitimately in WIP for the other siblings — leaving them unable to
+	Finish (their own Repack would try to consume from WIP that's no
+	longer there). The shared transfer is only actually cancelled once
+	every run referencing it has been dealt with (Cancelled itself, or
+	this run's own doc, since cancel_run() calls this before the
+	workflow transition below has flipped this run's own status yet)."""
+	stock_entry = doc.get("stock_entry")
+	if stock_entry and frappe.db.get_value("Stock Entry", stock_entry, "docstatus") == 1:
+		frappe.get_doc("Stock Entry", stock_entry).cancel()
 
-def reverse_run_stock_entry(work_order):
-	name = frappe.db.get_value("IB Work Order", work_order, "stock_entry")
-	if not name or not frappe.db.exists("Stock Entry", name):
-		return
-	se = frappe.get_doc("Stock Entry", name)
-	if se.docstatus == 1:
-		se.flags.ignore_permissions = True
-		se.cancel()
-	elif se.docstatus == 0:
-		frappe.delete_doc("Stock Entry", name, ignore_permissions=True)
-	frappe.db.set_value("IB Work Order", work_order, "stock_entry", None, update_modified=False)
+	start_se = doc.get("start_stock_entry")
+	if start_se and frappe.db.get_value("Stock Entry", start_se, "docstatus") == 1:
+		still_needed = frappe.db.exists("IB Work Order", {
+			"start_stock_entry": start_se,
+			"name": ["!=", doc.name],
+			"status": ["!=", "Cancelled"],
+		})
+		if not still_needed:
+			frappe.get_doc("Stock Entry", start_se).cancel()

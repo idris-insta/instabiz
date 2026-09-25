@@ -22,16 +22,38 @@ window.ib_load_countup = function () {
 
 /**
  * Animate all [data-countup] elements within a jQuery-wrapped container.
- *   data-countup  = raw numeric value to count to
- *   data-cu-inr   = "1"  → format as ₹ Indian locale (overrides prefix)
+ *   data-countup   = raw numeric value to count to
+ *   data-cu-inr    = "1"  → format as ₹ Indian locale (overrides prefix)
+ *   data-cu-compact = "1" → crore/lakh-scale display ("₹13.55 Cr") instead of
+ *                     full digits, with the exact amount set as `title` (a
+ *                     hover away). Real bug this avoids: a full-precision
+ *                     crore amount is wider than a typical auto-fit KPI
+ *                     card — confirmed live on Customer Health, same class
+ *                     of overflow as the .ib-ui-num fix. Skips the CountUp
+ *                     animation for that element (isInr only) — animating
+ *                     through unit-suffix transitions, e.g. "84 L" → "1.2
+ *                     Cr", reads as broken, not smooth, so compact values
+ *                     render immediately instead.
  *   data-cu-prefix = "₹" (or any text prefix)
- *   data-cu-dec   = decimal places (default 0)
- *   data-cu-dur   = animation duration in seconds (default 1.2)
+ *   data-cu-dec    = decimal places (default 0)
+ *   data-cu-dur    = animation duration in seconds (default 1.2)
  */
 window.ib_countup_all = async function ($container) {
+	const $els = ($container || $(document)).find("[data-countup]");
+
+	$els.each(function () {
+		const isInr   = this.dataset.cuInr === "1";
+		const compact = this.dataset.cuCompact === "1";
+		if (!(isInr && compact)) return;
+		const val = parseFloat(this.dataset.countup) || 0;
+		this.textContent = window.ib_fmt_inr_compact(val);
+		if (!this.title) this.title = window.ib_fmt_inr(val);
+	});
+
 	await window.ib_load_countup();
 	if (!window.CountUp) return;
-	($container || $(document)).find("[data-countup]").each(function () {
+	$els.each(function () {
+		if (this.dataset.cuInr === "1" && this.dataset.cuCompact === "1") return;
 		const val    = parseFloat(this.dataset.countup) || 0;
 		const isInr  = this.dataset.cuInr === "1";
 		const prefix = isInr ? "" : (this.dataset.cuPrefix || "");
@@ -109,6 +131,18 @@ window.ib_guarded_call = function (obj, opts, flag) {
 /** Format a number as ₹ Indian locale, 0 decimals. */
 window.ib_fmt_inr = function (v) {
 	return "₹" + Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+};
+
+/** Crore/lakh-scale ₹ display ("₹13.55 Cr", "₹4.20 L") — same thresholds as
+ * ibUI.money's compact mode, kept in sync deliberately (one convention app-
+ * wide for "this number is too big for its card"). Falls back to
+ * ib_fmt_inr for anything under ₹1L. */
+window.ib_fmt_inr_compact = function (v) {
+	v = Number(v || 0);
+	const abs = Math.abs(v);
+	if (abs >= 1e7) return "₹" + (v / 1e7).toFixed(2) + " Cr";
+	if (abs >= 1e5) return "₹" + (v / 1e5).toFixed(2) + " L";
+	return window.ib_fmt_inr(v);
 };
 
 /** Delta chip HTML — pos/neg/neu */

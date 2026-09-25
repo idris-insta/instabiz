@@ -62,9 +62,48 @@ def sales_outstanding_expr(alias="so"):
 	whatever advance has actually been paid against it (custom_advance_paid,
 	see payment_entry.py _update_so_advance). Sales Invoice already has a
 	real outstanding_amount maintained by ERPNext itself.
+
+	Real bug, fixed here (2026-09-23): dev mode used to apply the
+	grand_total-minus-advance estimate to EVERY Sales Order unconditionally
+	— including ones that already have a real, submitted Sales Invoice
+	against them. Confirmed live: a fully paid ₹98,766 order still counted
+	its full grand_total as "outstanding" here, on top of whatever the real
+	invoice said, because this expression had no way to know the invoice
+	existed. A naive `Sales Invoice Item.sales_order` join isn't enough —
+	confirmed live that an SI created via "Get Items From" a Delivery Note
+	(the normal path in this app) never populates that field, only
+	`delivery_note`; core's own `per_billed` silently stays 0 the same way.
+	Traces both real paths — direct SI Item.sales_order, and SO -> Delivery
+	Note Item.against_sales_order -> Sales Invoice Item.delivery_note — and
+	uses the real SI outstanding_amount whenever either resolves a match;
+	only Sales Orders with no real invoice yet fall back to the dev-mode
+	estimate (COALESCE only fires on NULL, i.e. zero matching SI rows —
+	a real invoice that's already fully paid correctly sums to a real 0,
+	not NULL, so it isn't masked back into the estimate).
 	"""
 	if is_dev_billing_mode():
-		return f"({sales_total_expr(alias)} - COALESCE({alias}.custom_advance_paid, 0))"
+		return f"""(
+			COALESCE(
+				(SELECT SUM(_si.outstanding_amount)
+				 FROM `tabSales Invoice` _si
+				 WHERE _si.docstatus = 1
+				   AND (
+				       _si.name IN (
+				           SELECT DISTINCT _sii.parent FROM `tabSales Invoice Item` _sii
+				           WHERE _sii.sales_order = {alias}.name
+				       )
+				       OR _si.name IN (
+				           SELECT DISTINCT _sii2.parent FROM `tabSales Invoice Item` _sii2
+				           WHERE _sii2.delivery_note IN (
+				               SELECT DISTINCT _dni.parent FROM `tabDelivery Note Item` _dni
+				               WHERE _dni.against_sales_order = {alias}.name
+				           )
+				       )
+				   )
+				),
+				{alias}.grand_total - COALESCE({alias}.custom_advance_paid, 0)
+			)
+		)"""
 	return f"{alias}.outstanding_amount"
 
 

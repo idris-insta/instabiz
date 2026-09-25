@@ -16,10 +16,29 @@ _BATCH_FIELDS = [
 	"supplier_lot", "received_date", "gsm", "width_mm", "work_order", "parent_batches",
 ]
 
+# Real bug, fixed: this listed the OLD per-stage-WO model's field names
+# (item_code/item_name/stage/order_sheet_item/produced_serials/target_qty/
+# target_uom) — none of which exist on the current WO-per-run schema
+# (confirmed via meta: real fields are current_stage, no item_code/
+# item_name/target_qty/target_uom at all on the parent — those live per-row
+# on the `outputs` child table now, and there's no order_sheet_item either).
+# Since frappe.db.get_value bypasses meta validation (raw SQL, unlike
+# frappe.client.get_value — same distinction as the Adjust Qty fix), this
+# never errored — it silently returned NULL/0 for every one of those
+# fields on every real WO under the current model. Confirmed live:
+# IB-WO-2026-29505 (real, Completed, 1 real IB FG Serial produced) showed
+# a blank Current Stage and "Serials Produced: 0" directly above a
+# "FINISHED UNITS: 1 serial(s)" section listing that exact real serial —
+# a visible self-contradiction on a page whose whole purpose is being a
+# trustworthy recall/audit tool. `stage` is aliased from the real
+# current_stage column so ib_trace.js's existing w.stage reads need no
+# change; item_code/item_name/target_qty/target_uom/produced_serials are
+# resolved separately via _enrich_wo_list (outputs child table + a real
+# IB FG Serial count), not selected here.
 _WO_FIELDS = [
-	"name", "item_code", "item_name", "stage", "status", "machine",
-	"order_sheet", "order_sheet_item", "sales_order", "source_batch", "fg_batch",
-	"produced_serials", "target_qty", "target_uom", "started_at", "completed_at",
+	"name", "current_stage as stage", "status", "machine",
+	"order_sheet", "sales_order", "source_batch", "fg_batch",
+	"started_at", "completed_at",
 ]
 
 _SERIAL_FIELDS = [
@@ -28,6 +47,47 @@ _SERIAL_FIELDS = [
 	"produced_on", "box_no", "width_mm", "length_mtr", "gsm",
 	"delivery_note", "customer",
 ]
+
+
+def _enrich_wo_list(wos):
+	"""Attach item_code/item_name/target_qty/target_uom (first real output
+	row — a run's outputs can be >1 dimension-variant/SKU, matching the
+	same first-output approximation _command_center_runs already uses) and
+	produced_serials (a real IB FG Serial count, not a parent-doctype field
+	that doesn't exist) onto each WO dict in place. Batched — no N+1 for the
+	batch/serial trace views that can list several WOs at once."""
+	if not wos:
+		return wos
+	names = [w["name"] for w in wos]
+	outs_by_wo = {}
+	for o in frappe.get_all(
+		"IB WO Output", filters={"parent": ["in", names]},
+		fields=["parent", "item_code", "item_name", "planned_qty", "uom"],
+		order_by="parent asc, idx asc",
+	):
+		outs_by_wo.setdefault(o.parent, o)  # first row per parent (idx asc), rest ignored
+	serial_counts = {}
+	for r in frappe.db.sql(
+		"""SELECT work_order, COUNT(*) AS n FROM `tabIB FG Serial`
+		   WHERE work_order IN %(names)s GROUP BY work_order""",
+		{"names": names}, as_dict=True,
+	):
+		serial_counts[r.work_order] = r.n
+	for w in wos:
+		out = outs_by_wo.get(w["name"])
+		w["item_code"] = out.item_code if out else ""
+		w["item_name"] = out.item_name if out else ""
+		w["target_qty"] = out.planned_qty if out else 0
+		w["target_uom"] = out.uom if out else ""
+		w["produced_serials"] = serial_counts.get(w["name"], 0)
+	return wos
+
+
+def _enrich_wo(wo):
+	if not wo:
+		return wo
+	_enrich_wo_list([wo])
+	return wo
 
 
 @frappe.whitelist()
@@ -89,12 +149,12 @@ def _source_doc(batch):
 
 
 def _wos_for_batch(batch_name):
-	return frappe.get_all(
+	return _enrich_wo_list(frappe.get_all(
 		"IB Work Order",
 		filters={"source_batch": batch_name, "status": ["!=", "Cancelled"]},
 		fields=_WO_FIELDS,
 		order_by="creation asc",
-	)
+	))
 
 
 def _fg_batches_for_parent(batch_name):
@@ -191,7 +251,7 @@ def _trace_from_serial(name):
 		if sn.get("fg_batch") else None
 	)
 	source = _source_doc(source_batch)
-	work_order = (
+	work_order = _enrich_wo(
 		frappe.db.get_value("IB Work Order", sn.work_order, _WO_FIELDS, as_dict=True)
 		if sn.get("work_order") else None
 	)
@@ -209,19 +269,36 @@ def _trace_from_serial(name):
 
 
 def _trace_from_wo(name):
-	wo = frappe.db.get_value("IB Work Order", name, _WO_FIELDS, as_dict=True)
+	wo = _enrich_wo(frappe.db.get_value("IB Work Order", name, _WO_FIELDS, as_dict=True))
 	source_batch = (
 		frappe.db.get_value("IB Batch", wo.source_batch, _BATCH_FIELDS, as_dict=True)
 		if wo.get("source_batch") else None
 	)
 	source = _source_doc(source_batch)
 
-	siblings = frappe.get_all(
-		"IB Work Order",
-		filters={"order_sheet_item": wo.order_sheet_item, "status": ["!=", "Cancelled"]},
-		fields=["name", "stage", "status", "machine", "started_at", "completed_at"],
-		order_by="creation asc",
-	) if wo.get("order_sheet_item") else [wo]
+	# Real bug, fixed: order_sheet_item is not a field on IB Work Order at all
+	# under the WO-per-run model (it lives per-row on the `outputs` child
+	# table instead) — wo.order_sheet_item was always None, so this always
+	# fell through to the single-WO [wo] fallback, silently hiding any real
+	# sibling runs (e.g. a length-split creates 2+ real runs against the
+	# same output item). Resolved via a real join on IB WO Output.
+	# sales_order_item instead — the actual shared key between two runs
+	# producing the same Sales Order line.
+	sales_order_item = frappe.db.get_value("IB WO Output", {"parent": name}, "sales_order_item")
+	if sales_order_item:
+		sibling_names = frappe.get_all(
+			"IB WO Output",
+			filters={"sales_order_item": sales_order_item},
+			pluck="parent", distinct=True,
+		)
+		siblings = _enrich_wo_list(frappe.get_all(
+			"IB Work Order",
+			filters={"name": ["in", sibling_names], "status": ["!=", "Cancelled"]},
+			fields=_WO_FIELDS,
+			order_by="creation asc",
+		)) if sibling_names else [wo]
+	else:
+		siblings = [wo]
 
 	return {
 		"kind": "work_order",
@@ -231,3 +308,46 @@ def _trace_from_wo(name):
 		"stages": siblings,
 		"serials": _serials_for({"work_order": name}),
 	}
+
+
+# ---------------------------------------------------------------------------
+# Delete guard (2026-09-20)
+# ---------------------------------------------------------------------------
+# Real incident this closes: IB-CTN-2026-00540::IS-51210V-029TRNANL::1 (a
+# real Raw Material batch, real Container Import) was hard-deleted via
+# frappe.delete_doc() on 2026-09-19 while 9+ real Work Orders — spanning
+# multiple Sales Orders, some already Completed, one still In Progress —
+# still carried it as their `source_batch`. Nothing broke immediately; the
+# dangling Link only surfaced a day later as an opaque core Frappe error
+# ("Could not find Source (RM) Batch: ...") the moment someone tried to
+# Complete/advance one of the affected runs, with zero indication of why or
+# what to do about it. IB Batch has no doc_events wired at all today (no
+# hooks.py entry) — nothing has ever stopped this. Restoring the deleted
+# record (from its own Deleted Document trace) fixed that one incident;
+# this stops the next one at the source instead of after the fact.
+def prevent_delete_if_traced(doc, method=None):
+	"""before_delete hook for IB Batch — refuses to delete a batch that's
+	still real genealogy: the source of a real Work Order, or a parent of a
+	real Finished Good batch. A batch with nothing pointing at it (disposable
+	test data, a genuine data-entry mistake caught immediately) still
+	deletes freely — this only blocks the specific shape of mistake that
+	silently orphans an in-use traceability chain.
+	"""
+	wo_count = frappe.db.count("IB Work Order", {"source_batch": doc.name})
+	if wo_count:
+		sample = frappe.get_all("IB Work Order", filters={"source_batch": doc.name},
+			pluck="name", limit=5, order_by="creation asc")
+		names = ", ".join(sample) + (f", +{wo_count - len(sample)} more" if wo_count > len(sample) else "")
+		frappe.throw(_(
+			"Cannot delete batch {0} — it's still the source batch on {1} Work Order(s) ({2}). "
+			"Deleting it would silently break their traceability the next time one of them "
+			"advances or completes."
+		).format(doc.name, wo_count, names))
+	fg_count = frappe.db.count("IB Batch", {"parent_batches": ["like", f"%{doc.name}%"]})
+	if fg_count:
+		sample = frappe.get_all("IB Batch", filters={"parent_batches": ["like", f"%{doc.name}%"]},
+			pluck="name", limit=5)
+		names = ", ".join(sample) + (f", +{fg_count - len(sample)} more" if fg_count > len(sample) else "")
+		frappe.throw(_(
+			"Cannot delete batch {0} — it's a parent of {1} finished-goods batch(es) ({2})."
+		).format(doc.name, fg_count, names))

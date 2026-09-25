@@ -258,7 +258,7 @@ body, .frappe-app, input, select, textarea, button {
 @media (max-width: 760px) { .ib-ui-grid--2, .ib-ui-grid--3 { grid-template-columns: 1fr; } }
 .ib-ui-row { display: flex; align-items: center; gap: var(--ib-space-2); flex-wrap: wrap; }
 .ib-ui-hint { font-size: 11px; color: var(--text-muted); }
-.ib-ui-num { font-variant-numeric: tabular-nums; }
+.ib-ui-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 @media (prefers-reduced-motion: reduce) {
     .ib-ui-skeleton { animation: none; }

@@ -8,9 +8,14 @@ One `IB Work Order` = one production run, cradle to grave: one raw-material
 end — an FG `IB Batch` + `IB FG Serial` per unit for genealogy.
 
 Phase 1 scope: create / advance / skip / hold / resume / finish (FG batch +
-serials) / cancel, plus the read APIs the Production Dashboard needs
-(`get_run_list`, `get_run_detail`, `get_production_kpis`, `get_stage_board`,
-`get_machine_board`, `get_item_wise_board`, `get_dpr` / `get_weekly_dpr`).
+serials) / cancel, plus the read APIs the Production Dashboard consumes via
+production.py's compat shims (`get_production_kpis`, `get_stage_board`,
+`get_item_wise_board`). An earlier native read-API layer meant to be
+called directly (`get_run_list`/`get_run_detail`/`get_run_panel`/
+`get_machine_board`/`get_route_for_item`/`get_order_sheet_runs_context`/
+`get_dpr`/`get_weekly_dpr`) was superseded by the compat-shim approach —
+the frontend was adapted to the old response shape rather than rebuilt —
+and removed as dead code, zero callers anywhere in the app.
 
 NOT in Phase 1: the Repack Stock Entry (ledger movement) — that is Phase 3,
 behind the `ib_production_posts_stock` site_config flag. `_finish_run` here
@@ -38,6 +43,7 @@ from instabiz.overrides.production import (
 	_check_so_production_access,
 	_get_stage_route,
 	_notify_floor_update,
+	_notify_production_hold,
 	_priority_from_delivery_date,
 	_require_production_role,
 	_serial_stamp,
@@ -118,10 +124,14 @@ def _mark_route_done(doc, stage):
 
 
 def _batch_source_warehouse(batch_name):
-	"""Where the RM sits — from the container / GRN the batch came from."""
+	"""Where the RM sits — the batch's own `warehouse` field (snapshotted at
+	receipt time, Phase 3) when set, else derived from the container / GRN
+	it came from (batches created before that field existed)."""
 	b = frappe.db.get_value(
-		"IB Batch", batch_name, ["container_import", "purchase_receipt"], as_dict=True
+		"IB Batch", batch_name, ["warehouse", "container_import", "purchase_receipt"], as_dict=True
 	) or {}
+	if b.get("warehouse"):
+		return b.warehouse
 	if b.get("container_import"):
 		return frappe.db.get_value("IB Container Import", b.container_import, "warehouse")
 	if b.get("purchase_receipt"):
@@ -149,16 +159,6 @@ def _validate_route(stages, location):
 # ---------------------------------------------------------------------------
 # route lookup (Start dialog)
 # ---------------------------------------------------------------------------
-
-@frappe.whitelist()
-def get_route_for_item(item_code, location=None):
-	"""Default route for an item — the plan the Start dialog pre-fills, editable."""
-	_require_production_role()
-	stages = _get_stage_route(item_code, location)
-	return [
-		{"stage": s, "sequence": i + 1, "machine_type": _STAGE_MACHINE_TYPE.get(s, "")}
-		for i, s in enumerate(stages)
-	]
 
 
 @frappe.whitelist()
@@ -245,58 +245,59 @@ def get_osi_context_batch(order_sheet_items):
 
 
 @frappe.whitelist()
-def get_order_sheet_runs_context(order_sheet):
-	"""Everything the Start Production dialog needs for one Order Sheet:
-	its items (grouped by item so an operator can pick which share one RM batch),
-	the RM batches available per item, and each item's default route."""
+def suggest_source_batches(item_code, needed_qty=None):
+	"""Candidate Active RM batches for producing `item_code`, best first — powers
+	the Start Production dialog's auto-suggested Source RM Batch.
+
+	Direct ask, after the item-mismatch validation added to create_run(): the
+	dialog's old auto-suggest only ever matched a batch whose OWN item_code was
+	IDENTICAL to the item being produced — real data shows that's rare (one
+	jumbo/RM batch legitimately becomes many different finished SKUs of the
+	same material family; confirmed live, one real batch is the source for a
+	dozen different real finished item codes), so the old suggestion almost
+	never fired and every Start felt fully manual. Matches the SAME two-tier
+	rule create_run() now enforces, so a suggestion is never something
+	create_run would then reject: (1) an exact IB Production Recipe pairing
+	when one exists, else (2) any Active batch sharing the output item's
+	item_group. Still just a suggestion — the field stays editable, and an
+	empty result here just means nothing auto-fills, not that the item can't
+	be produced (a legitimate batch may simply not exist yet).
+
+	Ordered by qty remaining, descending — no stock-rotation/FIFO signal
+	exists anywhere else in this app to prefer instead, and a bigger batch is
+	the safer single suggestion (less likely to fall short of `needed_qty`).
+	"""
 	_require_production_role()
-	os_doc = frappe.get_doc("IB Order Sheet", order_sheet)
-	location = _run_location(frappe._dict({"order_sheet": order_sheet}))
+	output_group = frappe.db.get_value("Item", item_code, "item_group")
+	if not output_group:
+		return []
 
-	items = []
-	for it in os_doc.items:
-		dims = frappe.db.get_value(
-			"Item", it.item_code, ["width_mm", "length_mtr", "gsm", "stock_uom"], as_dict=True
-		) or {}
-		existing_run = frappe.db.get_value(
-			"IB WO Output",
-			{"sales_order_item": it.sales_order_item, "docstatus": ["<", 2]},
-			"parent",
-		)
-		items.append({
-			"order_sheet_item": it.name,
-			"sales_order_item": it.sales_order_item,
-			"item_code": it.item_code,
-			"item_name": it.item_name,
-			"qty": flt(it.qty),
-			"uom": it.uom or dims.get("stock_uom"),
-			"width_mm": flt(dims.get("width_mm")),
-			"length_mtr": flt(dims.get("length_mtr")),
-			"gsm": flt(dims.get("gsm")),
-			"has_run": bool(existing_run),
-			"run": existing_run,
-			"route": _get_stage_route(it.item_code, location),
-		})
-
-	# RM batches: any active Raw Material IB Batch (operator picks the right one)
-	batches = frappe.get_all(
-		"IB Batch",
-		filters={"kind": "Raw Material", "status": "Active"},
-		fields=["name", "batch_id", "item", "item_name", "qty", "supplier_lot",
-		        "received_date", "container_import", "purchase_receipt"],
-		order_by="received_date asc, creation asc",
-		limit_page_length=500,
+	recipe_item = frappe.db.get_value(
+		"IB Production Recipe", {"finished_item": item_code}, "recipe_item"
 	)
+	if recipe_item:
+		candidates = frappe.get_all(
+			"IB Batch",
+			filters={"kind": "Raw Material", "status": "Active", "item": recipe_item},
+			fields=["name", "item", "qty", "width_mm"],
+			order_by="qty desc",
+		)
+		match_basis = "recipe"
+	else:
+		candidates = frappe.db.sql(
+			"""SELECT b.name, b.item, b.qty, b.width_mm FROM `tabIB Batch` b
+			   JOIN `tabItem` i ON i.name = b.item
+			   WHERE b.kind='Raw Material' AND b.status='Active' AND i.item_group=%s
+			   ORDER BY b.qty DESC""",
+			(output_group,), as_dict=True,
+		)
+		match_basis = "item_group"
 
-	return {
-		"order_sheet": order_sheet,
-		"sales_order": os_doc.sales_order,
-		"location": location,
-		"priority": os_doc.priority,
-		"items": items,
-		"rm_batches": batches,
-		"stages": list(STAGES),
-	}
+	needed = flt(needed_qty)
+	for c in candidates:
+		c["match_basis"] = match_basis
+		c["sufficient"] = (not needed) or flt(c.qty) >= needed
+	return candidates
 
 
 @frappe.whitelist()
@@ -451,6 +452,43 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 	if not outputs:
 		frappe.throw(_("A run needs at least one output item."))
 
+	# Real gap, closed: nothing anywhere in create_run/_finish_run checked
+	# that a run's outputs share one UOM. A run's `source_qty` default sums
+	# every output's planned_qty (line below, unchanged), and _finish_run
+	# later splits ONE operator-entered scalar (output_qty from the Advance
+	# dialog) across outputs proportionally by that same planned_qty ratio —
+	# both are meaningless the moment two outputs are in different units.
+	# This is reachable, not theoretical: several real item groups here mix
+	# stock_uom within the group (PLASTIC/PVC/FOIL all have both KG and SQMT
+	# members), and the Start Run dialog's own bulk-group key is the route
+	# sequence only, not item_code/uom — two same-route items with different
+	# UOM would otherwise silently land in one run. Caught here, before any
+	# batch-qty reservation or doc insert, so it's a clean abort.
+	resolved_uoms = set()
+	for o in outputs:
+		item_code = o.get("item_code")
+		u = o.get("uom") or (item_code and frappe.db.get_value("Item", item_code, "stock_uom"))
+		resolved_uoms.add(u)
+	if len(resolved_uoms) > 1:
+		frappe.throw(_(
+			"This run's outputs mix units ({0}) — a run can only produce output in one UOM. "
+			"Start these as separate runs instead."
+		).format(", ".join(sorted(u for u in resolved_uoms if u))))
+
+	# Real gap, closed: no output row was ever checked for a positive
+	# planned_qty. Confirmed live (stress test): a negative planned_qty
+	# created a real, started IB Work Order with no error anywhere — every
+	# downstream consumer of planned_qty (source_qty's sum default just
+	# above, _finish_run's proportional output split, Order Sheet Item
+	# progress %, the Order-wise/Item-wise UI's percentage bars) silently
+	# produced nonsense (negative/garbage percentages) rather than failing
+	# loudly at the one place that could have caught it before any batch
+	# reservation happened. Zero is equally meaningless (a run producing
+	# nothing isn't a run) so it's rejected too, not just negative.
+	bad_qty = [o for o in outputs if flt(o.get("planned_qty")) <= 0]
+	if bad_qty:
+		frappe.throw(_("Every output needs a planned quantity greater than zero."))
+
 	os_row = frappe.db.get_value(
 		"IB Order Sheet", order_sheet, ["name", "sales_order", "priority", "status"], as_dict=True
 	)
@@ -469,6 +507,43 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 		frappe.throw(_("Source batch {0} is not a Raw Material batch").format(source_batch))
 	if batch.status != "Active":
 		frappe.throw(_("Source batch {0} is {1}, not Active").format(source_batch, batch.status))
+
+	# Real gap, closed: nothing here ever checked that the source batch's
+	# own RM item has anything to do with the item(s) this run is supposed
+	# to produce — only qty sufficiency was validated. Confirmed live on
+	# this branch's own real data: a batch of "BOPP FILM NA" (item_group
+	# PLASTIC) recorded as the source for finished "ISTIX GLOSS SPRAY
+	# PAINT" (item_group AEROSOL-PAINT) — physically impossible, pure data
+	# corruption from picking whatever Active batch happened to have enough
+	# qty. `IB Production Recipe` (finished_item -> recipe_item) exists for
+	# exactly this but is essentially unpopulated (1 row for 536 real
+	# items, confirmed live) — it can't be the sole gate. Falls back to
+	# item_group: one jumbo roll legitimately becomes many different
+	# width/color/pack variants of the SAME material family (confirmed
+	# live: one real PLASTIC batch is the source_item for a dozen different
+	# real PLASTIC finished SKUs) — that's not a bug, that's slitting — but
+	# it can never legitimately cross into an unrelated material category.
+	batch_item_group = frappe.db.get_value("Item", batch.item, "item_group") if batch.item else None
+	for o in outputs:
+		item_code = o.get("item_code")
+		if not item_code:
+			continue
+		recipe_item = frappe.db.get_value(
+			"IB Production Recipe", {"finished_item": item_code}, "recipe_item"
+		)
+		if recipe_item:
+			if recipe_item != batch.item:
+				frappe.throw(_(
+					"Source batch {0} is {1}, but the recipe for {2} requires {3}."
+				).format(source_batch, batch.item, item_code, recipe_item))
+			continue
+		output_item_group = frappe.db.get_value("Item", item_code, "item_group")
+		if batch_item_group and output_item_group and output_item_group != batch_item_group:
+			frappe.throw(_(
+				"Source batch {0} is a {1} item ({2}), which can't produce {3} (a {4} item). "
+				"Pick a batch from the same material family, or add an IB Production Recipe "
+				"if this pairing is genuinely correct."
+			).format(source_batch, batch_item_group, batch.item, item_code, output_item_group))
 
 	source_qty = flt(source_qty) or sum(flt(o.get("planned_qty")) for o in outputs)
 
@@ -538,6 +613,27 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 			item_code = o.get("item_code")
 			if not item_code or not frappe.db.exists("Item", item_code):
 				frappe.throw(_("Output item {0} does not exist").format(item_code))
+
+			# Real gap, closed: sales_order_item is the ONLY link IB WO Output
+			# carries back to an Order Sheet Item (the doctype has no
+			# order_sheet_item field at all — see _recompute_osi_status, which
+			# joins purely on sales_order_item). Every caller today happens to
+			# resolve it correctly before calling (get_osi_context_batch for
+			# the Start dialog, os_doc.items directly for propose_runs), but
+			# nothing here ever verified that — a caller that supplies
+			# order_sheet_item without sales_order_item (a future UI path, a
+			# direct API call, a regression in either existing caller) would
+			# silently reproduce the exact IB-WO-2026-25500 class of bug
+			# get_osi_context_batch's own docstring describes: the item can
+			# NEVER reach Completed no matter how many real stages finish,
+			# permanently blocking that order's Create Delivery Note gate,
+			# with no error anywhere. Resolved server-side from the one
+			# source of truth instead of trusting the caller.
+			if o.get("order_sheet_item") and not o.get("sales_order_item"):
+				o["sales_order_item"] = frappe.db.get_value(
+					"IB Order Sheet Item", o["order_sheet_item"], "sales_order_item"
+				)
+
 			im = frappe.db.get_value(
 				"Item", item_code, ["item_name", "stock_uom", "width_mm", "length_mtr", "gsm"], as_dict=True
 			) or {}
@@ -589,9 +685,21 @@ def create_run(order_sheet, source_batch, source_qty=None, outputs=None,
 		apply_wo_name_from_os(doc)
 		doc.insert(ignore_permissions=True)
 
+		# Phase 3 (real stock-ledger integration, gated behind
+		# ib_production_posts_stock) — RM warehouse -> WIP for this run's
+		# full source_qty. A no-op returning None when the flag is off, so
+		# every existing create_run caller/test is unaffected until someone
+		# explicitly turns it on. Persisted the same way as started_at/
+		# machine below (apply_workflow's reload would otherwise discard it).
+		from instabiz.overrides.production_stock import post_run_start_transfer
+		start_se = post_run_start_transfer(doc)
+
 		# start it (Pending -> In Progress). apply_workflow reloads from DB, so
 		# every field above is already persisted by insert() — safe.
-		_wf(doc, "Start", {"started_at": ts, "machine": machine, "current_stage": start_stage})
+		_wf(doc, "Start", {
+			"started_at": ts, "machine": machine, "current_stage": start_stage,
+			"start_stock_entry": start_se,
+		})
 
 		# reflect on the Order Sheet + its items
 		if os_row.status == "Draft":
@@ -810,6 +918,16 @@ def advance_with_length_split(work_order, batches, output_qty=None, operator=Non
 			child.source_item = doc.source_item
 			child.source_qty = flt(doc.source_qty) / batches if doc.source_qty else 0
 			child.source_warehouse = doc.source_warehouse
+			# Phase 3 (real stock-ledger integration) — the parent's ONE
+			# Start-time RM->WIP transfer already moved the material this
+			# split is dividing; a child must NOT trigger a second transfer
+			# (that would double-count against the real RM warehouse). It
+			# inherits the same reference so its own Finish-time posting
+			# (which keys off start_stock_entry being set) still fires —
+			# each child's Finish independently consumes its own qty share
+			# from the shared WIP balance, which is the physically correct
+			# behavior, not a double-count.
+			child.start_stock_entry = doc.start_stock_entry
 			child.notes = _("Batch {0}/{1} split from {2} (length exceeded machine capacity)").format(
 				i + 1, batches, doc.name)
 
@@ -923,11 +1041,31 @@ def hold_run(work_order, reason=None):
 		frappe.throw(_("Could not acquire lock for run {0}. Please try again.").format(work_order))
 	try:
 		doc = frappe.get_doc("IB Work Order", work_order)
+		# Real gap, closed: with no pre-check here, double-holding (a stale
+		# tab, a fast double-click on Command Center's own Hold button —
+		# unlike Run/Advance it had no debounce) fell straight through to
+		# apply_workflow's raw engine error ("Not a valid Workflow Action"),
+		# confirmed live via stress test — meaningless to whoever reads it.
+		# put_on_hold (the Stages-tab entry point) used to catch this with a
+		# clear message before it became a shim onto this function; moved
+		# here instead of duplicated, so both surfaces get the same message.
+		if doc.status == "On Hold":
+			frappe.throw(_("Work Order {0} is already On Hold.").format(work_order))
 		if reason:
 			doc.notes = (doc.notes or "") + f"\n[Hold] {reason}"
 			doc.save(ignore_permissions=True)
 		# free the machine while held
 		_wf(doc, "Hold", {"machine": ""})
+		# Real gap, closed: this is the Command Center Hold button's own RPC
+		# (called directly, not via production.put_on_hold) — the sales-
+		# person delivery-risk alert (_notify_production_hold) only ever
+		# fired from put_on_hold's own implementation, so holding a run from
+		# Command Center never notified anyone, while holding the exact same
+		# run from the Stages tab's WO panel did. Both surfaces now funnel
+		# through this one real Hold implementation (put_on_hold is a compat
+		# shim onto this function — see its own docstring), so there is only
+		# one notification path to keep correct.
+		_notify_production_hold(doc)
 		frappe.db.commit()
 		_notify_floor_update()
 		return {"ok": True, "status": "On Hold"}
@@ -943,6 +1081,16 @@ def resume_run(work_order):
 		frappe.throw(_("Could not acquire lock for run {0}. Please try again.").format(work_order))
 	try:
 		doc = frappe.get_doc("IB Work Order", work_order)
+		# Same reasoning as hold_run's own pre-check just above it in this
+		# file — confirmed live via stress test: resuming an already
+		# In-Progress run fell through to apply_workflow's raw
+		# "Not a valid Workflow Action" instead of a clear message.
+		if doc.status == "In Progress":
+			return {"ok": True, "status": "In Progress", "machine": doc.machine}
+		if doc.status != "On Hold":
+			frappe.throw(_("Work Order {0} cannot be resumed from status '{1}'. Expected: On Hold.").format(
+				work_order, doc.status
+			))
 		machine = _assign_machine(doc.current_stage, _run_location(doc), _spec_from_run(doc)) or ""
 		_wf(doc, "Resume", {"machine": machine})
 		frappe.db.commit()
@@ -966,58 +1114,81 @@ def cancel_run(work_order, reason=None):
 	production that had just been undone. Recompute every affected item
 	(and the Order Sheet's own rollup) after the cancel, same as a finish
 	does — see _recompute_osi_status's own comment for the real rule.
+
+	Second real bug, fixed here: unlike every sibling mutator in this file
+	(create_run/advance_run/skip_stage/hold_run/resume_run), this function
+	had no GET_LOCK at all — a double-click on the UI's Cancel Run button
+	(no double-submit guard on a frappe.ui.Dialog's primary_action by
+	default) or two tabs racing could both read run_row.status !=
+	'Cancelled' before either write landed, and both run the batch-qty
+	restore UPDATE below — silently double-crediting the source batch's
+	remaining qty. Same lock convention as every other mutator here.
 	"""
 	_require_production_role()
-	run_row = frappe.db.get_value(
-		"IB Work Order", work_order,
-		["order_sheet", "status", "source_batch", "source_qty"], as_dict=True,
-	)
-	if not run_row:
-		frappe.throw(_("Run {0} not found").format(work_order))
-	sales_order_items = frappe.get_all(
-		"IB WO Output", filters={"parent": work_order}, pluck="sales_order_item"
-	)
-
-	# Give back what this run had reserved from its source batch (see
-	# create_run's own comment for why that reservation exists) — a
-	# cancelled run's material was never actually consumed. Guarded on the
-	# run's status BEFORE this call, not just "not already restored" —
-	# cancel_run can be called again on an already-Cancelled run (the
-	# workflow-transition fallback below tolerates it) and must not
-	# restore the same qty twice.
-	if run_row.status != "Cancelled" and run_row.source_batch and flt(run_row.source_qty):
-		frappe.db.sql(
-			"UPDATE `tabIB Batch` SET qty = qty + %s WHERE name = %s",
-			(run_row.source_qty, run_row.source_batch),
+	lock_name = f"IB-WO-{work_order}"
+	locked = frappe.db.sql("SELECT GET_LOCK(%s, 5)", lock_name)[0][0]
+	if not locked:
+		frappe.throw(_("Could not acquire lock for run {0}. Please try again.").format(work_order))
+	try:
+		run_row = frappe.db.get_value(
+			"IB Work Order", work_order,
+			["order_sheet", "status", "source_batch", "source_qty"], as_dict=True,
+		)
+		if not run_row:
+			frappe.throw(_("Run {0} not found").format(work_order))
+		sales_order_items = frappe.get_all(
+			"IB WO Output", filters={"parent": work_order}, pluck="sales_order_item"
 		)
 
-	from instabiz.overrides.production_stock import reverse_run_stock_entry
 
-	reverse_run_stock_entry(work_order)  # cancel / delete the run's Repack entry
-	_reverse_run_genealogy(work_order)  # also nulls fg_batch links on the run + outputs
+		# Give back what this run had reserved from its source batch (see
+		# create_run's own comment for why that reservation exists) — a
+		# cancelled run's material was never actually consumed. Guarded on the
+		# run's status BEFORE this call, not just "not already restored" —
+		# cancel_run can be called again on an already-Cancelled run (the
+		# workflow-transition fallback below tolerates it) and must not
+		# restore the same qty twice.
+		if run_row.status != "Cancelled" and run_row.source_batch and flt(run_row.source_qty):
+			frappe.db.sql(
+				"UPDATE `tabIB Batch` SET qty = qty + %s WHERE name = %s",
+				(run_row.source_qty, run_row.source_batch),
+			)
 
-	if reason:
-		note = (frappe.db.get_value("IB Work Order", work_order, "notes") or "")
-		frappe.db.set_value("IB Work Order", work_order, "notes",
-		                    f"{note}\n[Cancelled] {reason}".strip(), update_modified=False)
 
-	doc = frappe.get_doc("IB Work Order", work_order)
-	try:
-		_wf(doc, "Cancel", {"current_stage": "Cancelled"})
-	except Exception:
-		# "Completed" has no "Cancel" transition in the workflow — force it.
-		frappe.db.set_value("IB Work Order", work_order,
-		                    {"status": "Cancelled", "current_stage": "Cancelled"})
+		_reverse_run_genealogy(work_order)  # also nulls fg_batch links on the run + outputs
 
-	if run_row.order_sheet:
-		for soi in sales_order_items:
-			if soi:
-				_recompute_osi_status(run_row.order_sheet, soi)
-		_roll_up_order_sheet_status(run_row.order_sheet)
+		if reason:
+			note = (frappe.db.get_value("IB Work Order", work_order, "notes") or "")
+			frappe.db.set_value("IB Work Order", work_order, "notes",
+			                    f"{note}\n[Cancelled] {reason}".strip(), update_modified=False)
 
-	frappe.db.commit()
-	_notify_floor_update()
-	return {"ok": True, "status": "Cancelled"}
+		doc = frappe.get_doc("IB Work Order", work_order)
+
+		# Phase 3 (real stock-ledger integration) — reverse whichever real
+		# Stock Entries this run posted (Start transfer, and Finish repack
+		# if it got that far). No-op when ib_production_posts_stock is off
+		# or this run never posted any (both fields blank).
+		from instabiz.overrides.production_stock import reverse_run_stock
+		reverse_run_stock(doc)
+
+		try:
+			_wf(doc, "Cancel", {"current_stage": "Cancelled"})
+		except Exception:
+			# "Completed" has no "Cancel" transition in the workflow — force it.
+			frappe.db.set_value("IB Work Order", work_order,
+			                    {"status": "Cancelled", "current_stage": "Cancelled"})
+
+		if run_row.order_sheet:
+			for soi in sales_order_items:
+				if soi:
+					_recompute_osi_status(run_row.order_sheet, soi)
+			_roll_up_order_sheet_status(run_row.order_sheet)
+
+		frappe.db.commit()
+		_notify_floor_update()
+		return {"ok": True, "status": "Cancelled"}
+	finally:
+		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name)
 
 
 def _reverse_run_genealogy(work_order):
@@ -1037,9 +1208,40 @@ def _reverse_run_genealogy(work_order):
 
 
 def reverse_run_stock(doc, method=None):
-	"""IB Work Order on_trash hook — clean up genealogy if a run is hard-deleted."""
+	"""IB Work Order on_trash hook.
+
+	Real bug, fixed here: this only ever cleaned up genealogy (FG batch +
+	serials). Factory Management has real `delete` permission on this
+	doctype (confirmed in the doctype's own permission rows — not just
+	System Manager), so a hard delete of a run that had already posted real
+	Stock Entries (Phase 3 stock-ledger integration, `ib_production_posts_stock`
+	on) silently orphaned them: no reversal, no source-batch qty restore,
+	and no Order Sheet Item status recompute — a submitted, GL-affecting
+	Stock Entry left with nothing in the app able to trace it back to a run
+	that no longer exists, permanently understating the source batch's real
+	remaining qty. cancel_run already guards against exactly this for the
+	normal cancel path; reuse its restore logic here instead of leaving a
+	second, easier-to-reach path (delete needs no active-run precondition
+	cancel_run's own lock/status checks would otherwise apply) with none of it."""
 	try:
+		if doc.status != "Cancelled" and doc.get("source_batch") and flt(doc.get("source_qty")):
+			frappe.db.sql(
+				"UPDATE `tabIB Batch` SET qty = qty + %s WHERE name = %s",
+				(doc.source_qty, doc.source_batch),
+			)
+
+		from instabiz.overrides.production_stock import reverse_run_stock as _reverse_posted_stock
+		_reverse_posted_stock(doc)
+
+		order_sheet = doc.get("order_sheet")
+		sales_order_items = [o.sales_order_item for o in doc.outputs if o.sales_order_item]
+
 		_reverse_run_genealogy(doc.name)
+
+		if order_sheet:
+			for soi in sales_order_items:
+				_recompute_osi_status(order_sheet, soi)
+			_roll_up_order_sheet_status(order_sheet)
 	except Exception:
 		frappe.log_error("reverse_run_stock", frappe.get_traceback())
 
@@ -1112,6 +1314,14 @@ def _finish_run(doc, outputs_qty=None):
 	for o in doc.outputs:
 		o.produced_qty = produced.get(o.name, 0.0)
 	doc.save(ignore_permissions=True)
+
+	# Phase 3 (real stock-ledger integration) — WIP -> FG/Scrap, now that
+	# every output's produced_qty is final. No-op when
+	# ib_production_posts_stock isn't set, or this particular run never had
+	# a Start-time transfer posted (e.g. created before the flag was turned
+	# on, or a non-Gujarat location).
+	from instabiz.overrides.production_stock import post_run_finish_transfer
+	finish_se = post_run_finish_transfer(doc)
 
 	# FG batch (genealogy root for this run's output) — one per distinct
 	# output item_code, not one batch blended across all outputs. A run's
@@ -1199,22 +1409,17 @@ def _finish_run(doc, outputs_qty=None):
 	except Exception:
 		frappe.log_error("IB run serial gen", frappe.get_traceback())
 
-	frappe.db.set_value("IB Work Order", doc.name, {"fg_batch": fg_batch_id}, update_modified=False)
+	frappe.db.set_value("IB Work Order", doc.name,
+	                    {"fg_batch": fg_batch_id, "stock_entry": finish_se}, update_modified=False)
 	_wf(doc, "Complete", {"current_stage": "Done", "completed_at": ts})
 
 	# roll the Order Sheet / its items up
 	_settle_order_sheet(doc)
 
 	message = _("Run complete — FG batch {0}, {1} serial(s)").format(fg_batch_id, serials_made)
-	# material out / finished goods in (Repack) — never blocks completing the run
-	try:
-		from instabiz.overrides.production_stock import post_run_stock
-
-		stock_note = post_run_stock(doc)
-		if stock_note:
-			message += " — " + stock_note
-	except Exception:
-		frappe.log_error("IB run stock posting", frappe.get_traceback())
+	# Stock posting happens in _finish_run via post_run_finish_transfer (WIP -> FG
+	# / Scrap, behind ib_production_posts_stock). This branch used to call its own
+	# post_run_stock here as well; both would have posted the same run.
 	if truncated_items:
 		# Was silent before — a genuinely large run (2000+ real units) just
 		# under-reported its serial count with nothing telling anyone it
@@ -1282,7 +1487,20 @@ def _roll_up_order_sheet_status(order_sheet):
 	ways (Completed can also revert back to In Progress), shared by both
 	call sites that need it after changing an item's status (a run
 	finishing via _settle_order_sheet, a run being cancelled via
-	cancel_run) so the two can't drift into different rollup rules."""
+	cancel_run) so the two can't drift into different rollup rules.
+
+	Real gap, closed: create_run() flips a Draft Order Sheet to In Progress
+	the moment its first run is created — but nothing ever flipped it back.
+	Cancelling that one run (a real, expected action — wrong batch, wrong
+	item, operator mistake) already reverts every one of its items back to
+	Pending via _recompute_osi_status; the Order Sheet itself stayed stuck
+	In Progress forever, permanently misrepresenting an order that has
+	genuinely never had a single real production step happen on it. Confirmed
+	live: create -> cancel one run on a fresh Draft Order Sheet left every
+	item Pending but the sheet In Progress. Only reverts to Draft — never
+	auto-promotes TO Draft from Completed, and never touches a sheet a user
+	explicitly holds at some other real state — so this can't fight any
+	other status this function or a human sets."""
 	states = frappe.get_all(
 		"IB Order Sheet Item", filters={"parent": order_sheet}, pluck="status"
 	)
@@ -1292,6 +1510,8 @@ def _roll_up_order_sheet_status(order_sheet):
 			frappe.db.set_value("IB Order Sheet", order_sheet, "status", "Completed")
 	elif current == "Completed":
 		frappe.db.set_value("IB Order Sheet", order_sheet, "status", "In Progress")
+	elif states and all(s == "Pending" for s in states) and current == "In Progress":
+		frappe.db.set_value("IB Order Sheet", order_sheet, "status", "Draft")
 
 
 def _settle_order_sheet(doc):
@@ -1355,133 +1575,23 @@ def _run_row(w, os_map=None, so_map=None):
 
 
 @frappe.whitelist()
-def get_run_list(location=None, status=None, priority=None, search=None, limit=None, start=0):
-	"""Order-wise tab + Dashboard Active Production Plan — one row per run."""
+def get_run_row(work_order):
+	"""Single-WO fetch, same shape _run_row() already returns for Stage-wise's
+	table rows. Every OTHER entry point into the shared WO operate panel
+	(Order/Item/Machine-wise, Command Center) already has a whole tab's worth
+	of pre-fetched rows sitting in the client's own `_wo_data` cache — this
+	is for the one that doesn't: Dashboard's Active Production Plan row
+	actions, which only ever had a bare WO name to act on directly. The
+	client already knows how to adapt this exact shape into what the panel
+	needs (_stage_row_to_wo) — reused as-is, not duplicated."""
 	_require_production_role()
-	filters = {}
-	if location:
-		filters["location"] = location.lower()
-	if status:
-		filters["status"] = status
-	if priority:
-		filters["priority"] = priority
-
-	rows = frappe.get_all(
-		"IB Work Order", filters=filters, fields=_RUN_LIST_FIELDS,
-		order_by="field(priority,'Urgent','High','Normal','Low'), posting_date desc, creation desc",
-		limit_page_length=cint(limit) or 0, limit_start=cint(start),
-	)
-	so_names = list({r.sales_order for r in rows if r.sales_order})
-	so_map = {}
-	if so_names:
-		for s in frappe.get_all(
-			"Sales Order", filters={"name": ["in", so_names]},
-			fields=["name", "customer", "customer_name", "delivery_date"],
-		):
-			so_map[s.name] = s
-
-	out = [_run_row(r, so_map=so_map) for r in rows]
-	if search:
-		s = search.lower()
-		out = [
-			r for r in out
-			if s in (r["work_order"] or "").lower()
-			or s in (r["sales_order"] or "").lower()
-			or s in (r["customer"] or "").lower()
-			or any(s in (o["item_code"] or "").lower() for o in r["outputs"])
-		]
-	return out
-
-
-@frappe.whitelist()
-def get_run_detail(work_order):
-	"""Run side panel — header + route + outputs + stage_log + serials + genealogy."""
-	w = frappe.db.get_value("IB Work Order", work_order, "*", as_dict=True)
-	if not w:
-		frappe.throw(_("Run {0} not found").format(work_order))
+	w = frappe.get_doc("IB Work Order", work_order)
+	so_row = None
 	if w.sales_order:
-		_check_so_production_access(w.sales_order)
-	else:
-		_require_production_role()
-
-	so = frappe.db.get_value(
-		"Sales Order", w.sales_order,
-		["customer", "customer_name", "delivery_date", "custom_location"], as_dict=True
-	) or {} if w.sales_order else {}
-
-	route = frappe.get_all(
-		"IB WO Route Stage", filters={"parent": work_order},
-		fields=["stage", "sequence", "machine_type", "done"], order_by="sequence asc",
-	)
-	outputs = frappe.get_all(
-		"IB WO Output", filters={"parent": work_order},
-		fields=["name", "item_code", "item_name", "planned_qty", "produced_qty", "uom",
-		        "width_mm", "length_mtr", "gsm", "pack_count", "brand", "core", "ctn",
-		        "shrink_film", "packing_type", "fg_batch", "serial_count", "sales_order_item"],
-	)
-	stage_log = frappe.get_all(
-		"IB WO Stage Event", filters={"parent": work_order},
-		fields=["stage", "machine", "operator", "skipped", "started_at", "completed_at",
-		        "input_qty", "output_qty", "wastage_qty", "wastage_pct", "notes"],
-		order_by="idx asc",
-	)
-	serials = frappe.get_all(
-		"IB FG Serial", filters={"work_order": work_order},
-		fields=["serial_no", "item_code", "status", "box_no", "fg_batch"],
-		order_by="box_no asc", limit_page_length=200,
-	)
-	src_batch = frappe.db.get_value(
-		"IB Batch", w.source_batch,
-		["batch_id", "item", "item_name", "qty", "supplier_lot", "received_date",
-		 "container_import", "purchase_receipt"], as_dict=True
-	) if w.source_batch else None
-
-	next_stage = None
-	seq = [r.stage for r in route]
-	if w.current_stage in seq:
-		i = seq.index(w.current_stage)
-		next_stage = seq[i + 1] if i + 1 < len(seq) else None
-
-	return {
-		"work_order": work_order,
-		"header": {
-			"sales_order": w.sales_order,
-			"order_sheet": w.order_sheet,
-			"customer": so.get("customer_name") or so.get("customer") or "",
-			"priority": w.priority,
-			"status": w.status,
-			"location": w.location,
-			"current_stage": w.current_stage,
-			"next_stage": next_stage,
-			"machine": w.machine,
-			"posting_date": str(w.posting_date) if w.posting_date else None,
-			"delivery_date": str(so.get("delivery_date")) if so.get("delivery_date") else None,
-			"started_at": str(w.started_at) if w.started_at else None,
-			"completed_at": str(w.completed_at) if w.completed_at else None,
-			"source_batch": w.source_batch,
-			"source_item": w.source_item,
-			"source_qty": flt(w.source_qty),
-			"source_warehouse": w.source_warehouse,
-			"fg_batch": w.fg_batch,
-			"stock_entry": w.stock_entry,
-			"total_output_qty": flt(w.total_output_qty),
-			"total_wastage_qty": flt(w.total_wastage_qty),
-			"notes": w.notes,
-		},
-		"route": [{"stage": r.stage, "sequence": r.sequence, "machine_type": r.machine_type,
-		           "done": bool(r.done), "is_current": r.stage == w.current_stage} for r in route],
-		"outputs": [dict(o, planned_qty=flt(o.planned_qty), produced_qty=flt(o.produced_qty)) for o in outputs],
-		"stage_log": [dict(
-			e,
-			started_at=str(e.started_at) if e.started_at else None,
-			completed_at=str(e.completed_at) if e.completed_at else None,
-			input_qty=flt(e.input_qty), output_qty=flt(e.output_qty),
-			wastage_qty=flt(e.wastage_qty), wastage_pct=flt(e.wastage_pct),
-			skipped=bool(e.skipped),
-		) for e in stage_log],
-		"serials": serials,
-		"source_batch_detail": src_batch,
-	}
+		so_row = frappe.db.get_value(
+			"Sales Order", w.sales_order, ["customer", "customer_name", "delivery_date"], as_dict=True
+		)
+	return _run_row(w, so_map={w.sales_order: so_row} if so_row else {})
 
 
 _STAGE_KEY = {s: s.lower().replace(" ", "_") for s in STAGES}
@@ -1563,6 +1673,16 @@ def get_production_kpis(location=None):
 		"summary": {
 			"active_work_orders": in_progress + pending + on_hold,
 			"pending": pending,
+			# Real bug, fixed: the Dashboard tab's "Pending" KPI used to read
+			# `pending` above (IB Work Order.status == "Pending") — under
+			# this WO-per-run model create_run() never leaves a run Pending
+			# (inserted already Started), so that's structurally always 0.
+			# Confirmed live: 0 of 29 real Work Orders were ever Pending,
+			# while the real not-yet-started backlog (Order Sheet Items with
+			# no run yet — the same "Ready to Run" queue Command Center
+			# shows) was 346. `pending` is kept above for anything else that
+			# reads it; the Dashboard KPI now reads this instead.
+			"ready_to_run": get_ready_to_run_count(loc),
 			"in_progress": in_progress,
 			"runs_on_hold": on_hold,
 			"completed_today": completed_today,
@@ -1608,62 +1728,6 @@ def get_stage_board(location=None):
 
 
 @frappe.whitelist()
-def get_machine_board(location=None):
-	"""Machine-wise tab — machines with the run currently on them + today's real
-	output/wastage/yield from stage events."""
-	_require_production_role()
-	mfilters = {"status": "Active"}
-	if location:
-		mfilters["location"] = location.lower()
-	machines = frappe.get_all("IB Machine", filters=mfilters,
-	                          fields=["name", "machine_type", "location", "floor", "capacity"],
-	                          order_by="machine_type asc, name asc")
-
-	run_filters = {"status": "In Progress"}
-	if location:
-		run_filters["location"] = location.lower()
-	runs = frappe.get_all("IB Work Order", filters=run_filters, fields=_RUN_LIST_FIELDS)
-	so_map = {}
-	so_names = list({r.sales_order for r in runs if r.sales_order})
-	if so_names:
-		for s in frappe.get_all("Sales Order", filters={"name": ["in", so_names]},
-		                        fields=["name", "customer", "customer_name", "delivery_date"]):
-			so_map[s.name] = s
-	runs_by_machine = {}
-	for r in runs:
-		runs_by_machine.setdefault(r.machine, []).append(_run_row(r, so_map=so_map))
-
-	stats = frappe.db.sql(
-		"""SELECT machine,
-		          COUNT(*) AS events, SUM(output_qty) AS output_qty,
-		          SUM(wastage_qty) AS wastage_qty, AVG(wastage_pct) AS wastage_pct
-		   FROM `tabIB WO Stage Event`
-		   WHERE skipped = 0 AND DATE(completed_at) = %(d)s AND machine IS NOT NULL
-		   GROUP BY machine""",
-		{"d": nowdate()}, as_dict=True,
-	)
-	stat_map = {s.machine: s for s in stats}
-
-	out = []
-	for m in machines:
-		st = stat_map.get(m.name, {})
-		out.append({
-			"machine": m.name,
-			"machine_type": m.machine_type,
-			"location": m.location,
-			"floor": m.floor,
-			"runs": runs_by_machine.get(m.name, []),
-			"today": {
-				"events": cint(st.get("events")),
-				"output_qty": round(flt(st.get("output_qty")), 2),
-				"wastage_qty": round(flt(st.get("wastage_qty")), 2),
-				"yield_pct": round(100 - flt(st.get("wastage_pct")), 2) if st else 100.0,
-			},
-		})
-	return out
-
-
-@frappe.whitelist()
 def get_item_wise_board(location=None, item_code=None):
 	"""Item-wise tab — output SKUs across runs, each with its run's route matrix.
 
@@ -1705,6 +1769,7 @@ def get_item_wise_board(location=None, item_code=None):
 				"sales_order": row["sales_order"],
 				"customer": row["customer"],
 				"status": row["status"],
+				"machine": row["machine"],
 				"current_stage": row["current_stage"],
 				"route": row["route"],
 			})
@@ -1714,101 +1779,6 @@ def get_item_wise_board(location=None, item_code=None):
 # ---------------------------------------------------------------------------
 # DPR — real per-stage output / wastage / hours from IB WO Stage Event
 # ---------------------------------------------------------------------------
-
-def _dpr_from_events(from_date, to_date, location=None):
-	cond = "WHERE e.skipped = 0 AND DATE(e.completed_at) BETWEEN %(f)s AND %(t)s"
-	params = {"f": from_date, "t": to_date}
-	if location:
-		cond += " AND w.location = %(loc)s"
-		params["loc"] = location.lower()
-	rows = frappe.db.sql(
-		f"""SELECT e.stage, e.machine, e.operator, e.input_qty, e.output_qty,
-		           e.wastage_qty, e.wastage_pct, e.started_at, e.completed_at,
-		           w.name AS work_order, w.sales_order, w.order_sheet
-		    FROM `tabIB WO Stage Event` e
-		    JOIN `tabIB Work Order` w ON w.name = e.parent
-		    {cond}
-		    ORDER BY e.completed_at ASC""",
-		params, as_dict=True,
-	)
-	by_stage, by_machine = {}, {}
-	total_output = total_wastage = 0.0
-	for r in rows:
-		hrs = 0.0
-		if r.started_at and r.completed_at:
-			hrs = max((getdate(r.completed_at) == getdate(r.started_at)) and
-			          (frappe.utils.time_diff_in_hours(r.completed_at, r.started_at)) or
-			          frappe.utils.time_diff_in_hours(r.completed_at, r.started_at), 0.0)
-		s = by_stage.setdefault(r.stage, {"stage": r.stage, "runs": 0, "output_qty": 0.0,
-		                                  "wastage_qty": 0.0, "hours": 0.0})
-		s["runs"] += 1
-		s["output_qty"] += flt(r.output_qty)
-		s["wastage_qty"] += flt(r.wastage_qty)
-		s["hours"] += hrs
-		if r.machine:
-			m = by_machine.setdefault(r.machine, {"machine": r.machine, "runs": 0,
-			                                      "output_qty": 0.0, "wastage_qty": 0.0, "hours": 0.0})
-			m["runs"] += 1
-			m["output_qty"] += flt(r.output_qty)
-			m["wastage_qty"] += flt(r.wastage_qty)
-			m["hours"] += hrs
-		total_output += flt(r.output_qty)
-		total_wastage += flt(r.wastage_qty)
-
-	def _fin(d):
-		d = dict(d)
-		d["output_qty"] = round(d["output_qty"], 2)
-		d["wastage_qty"] = round(d["wastage_qty"], 2)
-		d["hours"] = round(d["hours"], 2)
-		d["hourly_avg"] = round(d["output_qty"] / d["hours"], 2) if d["hours"] else 0.0
-		return d
-
-	return {
-		"from_date": str(from_date), "to_date": str(to_date),
-		"events": len(rows),
-		"total_output_qty": round(total_output, 2),
-		"total_wastage_qty": round(total_wastage, 2),
-		"by_stage": [_fin(v) for v in by_stage.values()],
-		"by_machine": [_fin(v) for v in by_machine.values()],
-	}
-
-
-@frappe.whitelist()
-def get_dpr(date=None, location=None):
-	_require_production_role()
-	d = getdate(date) if date else getdate(today())
-	return _dpr_from_events(d, d, location)
-
-
-@frappe.whitelist()
-def get_weekly_dpr(week_start=None, date=None, location=None):
-	_require_production_role()
-	end = getdate(week_start or date or today())
-	start = add_days(end, -6)
-	base = _dpr_from_events(start, end, location)
-	days = []
-	rows = frappe.db.sql(
-		"""SELECT DATE(e.completed_at) AS d, SUM(e.output_qty) AS output_qty,
-		          SUM(e.wastage_qty) AS wastage_qty, COUNT(*) AS events
-		   FROM `tabIB WO Stage Event` e
-		   JOIN `tabIB Work Order` w ON w.name = e.parent
-		   WHERE e.skipped = 0 AND DATE(e.completed_at) BETWEEN %(f)s AND %(t)s
-		   """ + (" AND w.location = %(loc)s" if location else "") + """
-		   GROUP BY DATE(e.completed_at)""",
-		{"f": start, "t": end, "loc": (location or "").lower()}, as_dict=True,
-	)
-	dmap = {str(r.d): r for r in rows}
-	for i in range(7):
-		day = add_days(start, i)
-		r = dmap.get(str(day))
-		days.append({
-			"date": str(day),
-			"output_qty": round(flt(r.output_qty), 2) if r else 0.0,
-			"wastage_qty": round(flt(r.wastage_qty), 2) if r else 0.0,
-			"events": cint(r.events) if r else 0,
-		})
-	base["days"] = days
-	return base
 
 
 # ---------------------------------------------------------------------------
@@ -1927,14 +1897,43 @@ def _all_runs_for_osi(soi, item_code, os_name):
 	case. Returns oldest-first so callers building a chip row read
 	left-to-right in the order the runs actually happened.
 	"""
+	# Real bug, confirmed live via a constructed repro (disposable Order
+	# Sheet, 2 Order Sheet Items forced to share one item_code -- the
+	# exact, real, already-documented "same SKU as 2+ separate lines"
+	# shape this app repeatedly hits, e.g. IB-OS-2026-02865/02868/02870
+	# today -- plus one real legacy IB WO Output row with a blank
+	# sales_order_item already live in this dataset): the old fallback
+	# `o.sales_order_item = '' AND o.item_code = %(ic)s` matched purely on
+	# the OUTPUT row's blank sales_order_item and the item_code, with no
+	# regard for whether THIS CALLER's own `soi` was blank too. So one
+	# legacy/stale blank-sales_order_item run cross-matched into EVERY
+	# Order Sheet Item on the sheet that happens to share its item_code --
+	# confirmed live: a single such run showed up under both of 2
+	# unrelated real Order Sheet Items' `work_orders` lists in
+	# get_order_sheet_detail, even though only one of them (or neither)
+	# should ever see it. Not observed as a *visible* bug today only
+	# because the one real blank-sales_order_item row in this dataset
+	# happens to sit on a Cancelled run (already excluded here) and on a
+	# sheet with no item_code collision -- both preconditions
+	# independently already exist live, so this was one relisted item
+	# away from a real cross-tab data leak. Fixed: the legacy fallback
+	# now only fires when the CALLER's own `soi` is blank too (i.e. this
+	# Order Sheet Item itself predates the sales_order_item field) -- a
+	# modern item with a real `soi` never falls through to the
+	# item_code-only match, regardless of what any unrelated legacy row's
+	# blank field happens to line up with.
 	return frappe.db.sql(
 		"""SELECT w.name, w.status, w.current_stage, w.machine, w.priority,
 		          w.source_batch, w.source_qty, w.posting_date, w.started_at,
-		          w.completed_at, w.fg_batch, o.uom, o.planned_qty, o.produced_qty
+		          w.completed_at, w.fg_batch, w.pcs_to_make, w.logs_to_make,
+		          o.uom, o.planned_qty, o.produced_qty
 		   FROM `tabIB Work Order` w
 		   JOIN `tabIB WO Output` o ON o.parent = w.name
 		   WHERE w.order_sheet = %(os)s AND w.status != 'Cancelled'
-		     AND (o.sales_order_item = %(soi)s OR (o.sales_order_item = '' AND o.item_code = %(ic)s))
+		     AND (
+		       (%(soi)s != '' AND o.sales_order_item = %(soi)s)
+		       OR (%(soi)s = '' AND o.sales_order_item = '' AND o.item_code = %(ic)s)
+		     )
 		   ORDER BY w.creation ASC""",
 		{"os": os_name, "soi": soi or "", "ic": item_code}, as_dict=True,
 	)
@@ -1942,19 +1941,34 @@ def _all_runs_for_osi(soi, item_code, os_name):
 
 def _stage_map_for_run(run):
 	"""{StageLabel: {status, wo_name, completed_qty, target_qty, target_uom}} from
-	the run's route + stage_log."""
+	the run's route + stage_log.
+
+	Real gap, fixed here: a `done` stage previously always showed status
+	"Completed" — including one that was actually skip_stage()'d (no real
+	work done, real output_qty always 0 for that stage's own event row).
+	Since skip_stage's UI entry point didn't exist until this same session
+	(see its own docstring/commit), this state was never reachable before
+	and the gap was invisible; now that it is reachable, a skipped stage
+	would render identically to a genuinely-worked, zero-output stage
+	everywhere this feeds (Active Production Plan, Order-wise chip row) —
+	indistinguishable from a real data problem. Kept as its own "Skipped"
+	status instead.
+	"""
 	route = frappe.get_all(
 		"IB WO Route Stage", filters={"parent": run.name},
 		fields=["stage", "sequence", "done"], order_by="sequence asc",
 	)
 	events = {e.stage: e for e in frappe.get_all(
-		"IB WO Stage Event", filters={"parent": run.name, "skipped": 0},
-		fields=["stage", "output_qty"],
+		"IB WO Stage Event", filters={"parent": run.name},
+		fields=["stage", "output_qty", "skipped"],
 	)}
 	tgt_uom = run.get("uom") or ""
 	smap = {}
 	for r in route:
-		if r.done:
+		ev = events.get(r.stage)
+		if r.done and ev and ev.skipped:
+			st = "Skipped"
+		elif r.done:
 			st = "Completed"
 		elif r.stage == run.current_stage:
 			st = run.status if run.status in ("In Progress", "On Hold") else "Pending"
@@ -1963,10 +1977,19 @@ def _stage_map_for_run(run):
 		smap[r.stage] = {
 			"status": st,
 			"wo_name": run.name,
-			"completed_qty": flt(events.get(r.stage, {}).get("output_qty")) if r.done else 0,
+			"completed_qty": flt(ev.output_qty) if (r.done and ev and not ev.skipped) else 0,
 			"target_qty": flt(run.get("source_qty")) or flt(run.get("planned_qty")),
 			"target_uom": tgt_uom,
-			"pcs_to_make": 0, "logs_to_make": 0,
+			# Real bug, fixed (QC pass, subagent-confirmed live): hardcoded to
+			# 0 unconditionally — since 0 is falsy, the Dashboard's "adj →"
+			# badge (which only renders when pcs_to_make/logs_to_make differ
+			# from target_qty) could never show, regardless of what a manager
+			# actually set via the (separately correct) Adjust Qty dialog /
+			# update_production_qty(). _all_runs_for_osi's own SELECT now
+			# carries these two real columns through; read them here instead
+			# of a literal 0.
+			"pcs_to_make": cint(run.get("pcs_to_make")) or 0,
+			"logs_to_make": cint(run.get("logs_to_make")) or 0,
 		}
 	return smap, route
 
@@ -2017,8 +2040,17 @@ def get_run_plan(limit=None, start=0, location=None, search=None, priority=None)
 	per Order Sheet Item, each row carrying its run's stage_map. Same
 	{order_wise: [...]} contract as the old production.get_production_plan."""
 	_require_production_role()
-	limit = cint(limit) or 25
-	start = cint(start)
+	# Real bug, fixed: `cint(limit) or 25` only replaces a falsy (0/None)
+	# limit — a negative one (or a negative `start`) passed straight through
+	# into a raw `LIMIT %(lim)s OFFSET %(off)s`, producing a MariaDB syntax
+	# error (confirmed live: LIMIT -5 OFFSET 0) instead of a clean result or
+	# validation message. Not reachable through this page's own UI (its
+	# pagination always computes a non-negative page*pageSize), but this is
+	# a whitelisted RPC any Factory-role user can call directly with
+	# arbitrary args.
+	limit = cint(limit)
+	limit = limit if limit > 0 else 25
+	start = max(cint(start), 0)
 
 	conds = ["os.status != 'Cancelled'"]
 	params = {}
@@ -2064,6 +2096,171 @@ def get_run_plan(limit=None, start=0, location=None, search=None, priority=None)
 			"items": rows,
 		})
 	return {"order_wise": out}
+
+
+# ---------------------------------------------------------------------------
+# Command Center — factory-manager live board (2026-09-20)
+# ---------------------------------------------------------------------------
+# create_run() always inserts a run already Started (Pending -> In Progress in
+# one call, see its own docstring) — there is no persisted "Pending, not yet
+# started" IB Work Order under the run model. So the only two real live
+# states a run itself can sit in are In Progress ("Processing") and On Hold
+# ("Halted"); the third card type here ("Ready") isn't a run at all, it's an
+# Order Sheet Item with zero non-Cancelled run ever created against it —
+# i.e. exactly what _plan_item_row's `next_stage_suggestion` branch means,
+# just queried directly/flat instead of per-page-of-25-Order-Sheets.
+
+
+def _command_center_runs(location=None):
+	conds = ["wo.status IN ('In Progress', 'On Hold')"]
+	params = {}
+	if location:
+		conds.append("LOWER(wo.location) = %(loc)s")
+		params["loc"] = location.lower()
+	rows = frappe.db.sql(
+		f"""SELECT wo.name, wo.sales_order, wo.order_sheet, wo.status, wo.priority,
+		           wo.location, wo.current_stage, wo.machine, wo.started_at, wo.notes,
+		           so.customer_name
+		    FROM `tabIB Work Order` wo
+		    LEFT JOIN `tabSales Order` so ON so.name = wo.sales_order
+		    WHERE {' AND '.join(conds)}
+		    ORDER BY FIELD(wo.priority, 'Urgent', 'High', 'Normal', 'Low'), wo.started_at ASC""",
+		params, as_dict=True,
+	)
+	names = [r.name for r in rows]
+	outs_by_wo = {}
+	if names:
+		for o in frappe.get_all(
+			"IB WO Output", filters={"parent": ["in", names]},
+			fields=["parent", "item_code", "item_name", "planned_qty", "produced_qty", "uom"],
+		):
+			outs_by_wo.setdefault(o.parent, []).append(o)
+	out = []
+	for r in rows:
+		outs = outs_by_wo.get(r.name, [])
+		out.append({
+			"work_order": r.name, "sales_order": r.sales_order, "order_sheet": r.order_sheet,
+			"status": r.status, "priority": r.priority or "Normal", "location": r.location,
+			"current_stage": r.current_stage, "machine": r.machine,
+			"started_at": str(r.started_at) if r.started_at else None,
+			"customer": r.customer_name, "notes": r.notes,
+			"item_code": outs[0].item_code if outs else "",
+			"item_name": outs[0].item_name if outs else "",
+			"extra_items": len(outs) - 1 if len(outs) > 1 else 0,
+			"planned_qty": sum(flt(o.planned_qty) for o in outs),
+			"produced_qty": sum(flt(o.produced_qty) for o in outs),
+			"uom": outs[0].uom if outs else "",
+		})
+	return out
+
+
+def _ready_to_run_conds(location=None):
+	# "No run" = zero IB WO Output rows for this Order Sheet Item on any
+	# non-Cancelled run, ever — the same condition _plan_item_row's `if not
+	# run:` branch checks via _latest_run_for_osi, just as one set query
+	# across every Order Sheet instead of one _latest_run_for_osi() call per
+	# item (get_run_plan's page-of-25 approach doesn't scale to "every
+	# not-yet-started item company-wide", which is what a control room
+	# actually needs to show as the queue).
+	# IB WO Output has no `order_sheet_item` field at all (real fields:
+	# item_code/planned_qty/produced_qty/.../sales_order_item) — the real,
+	# shared key between an Order Sheet Item and the WO Output row(s) it was
+	# ever produced through is `sales_order_item` (both point at the same
+	# real Sales Order Item). Blank-vs-blank must never count as a match —
+	# an OSI with no sales_order_item set would otherwise look "already
+	# produced" the moment ANY unrelated run also had a blank one.
+	conds = ["os.status != 'Cancelled'", "i.status != 'Completed'", """NOT EXISTS (
+		SELECT 1 FROM `tabIB WO Output` o
+		JOIN `tabIB Work Order` w ON w.name = o.parent
+		WHERE o.sales_order_item = i.sales_order_item
+		  AND i.sales_order_item IS NOT NULL AND i.sales_order_item != ''
+		  AND w.status != 'Cancelled'
+	)"""]
+	params = {}
+	if location:
+		conds.append("LOWER(so.custom_location) = %(loc)s")
+		params["loc"] = location.lower()
+	return conds, params
+
+
+def get_ready_to_run_count(location=None):
+	"""Real total — NOT capped by _command_center_ready's own LIMIT 60 (that
+	limit bounds how many cards a live board renders, not how many items are
+	actually queued). Real bug this fixes: get_command_center_data's own
+	`counts.ready` was `len(ready)` — always <= 60 by construction, so the
+	Command Center KPI showed "60" when the real queue (confirmed live) was
+	346 — a silent 5.7x understatement with no indication anything was
+	capped. Also backs the Dashboard tab's own KPI (see get_production_kpis)
+	— that card used to read IB Work Order.status == 'Pending', which is
+	structurally always 0 under this WO-per-run model (create_run never
+	leaves a WO Pending — it's inserted already Started), a dead metric
+	confirmed live: 0 of 29 real Work Orders were ever Pending, while the
+	real ready-to-start backlog was 346. Both cards now read this same real
+	count, cheap on its own (a plain COUNT(*), same WHERE as the capped list)."""
+	conds, params = _ready_to_run_conds(location)
+	return cint(frappe.db.sql(
+		f"""SELECT COUNT(*) FROM `tabIB Order Sheet Item` i
+		    JOIN `tabIB Order Sheet` os ON os.name = i.parent
+		    JOIN `tabSales Order` so ON so.name = os.sales_order
+		    WHERE {' AND '.join(conds)}""",
+		params,
+	)[0][0])
+
+
+def _command_center_ready(location=None, limit=60):
+	conds, params = _ready_to_run_conds(location)
+	rows = frappe.db.sql(
+		f"""SELECT i.name, i.item_code, i.item_name, i.qty, i.uom, i.sales_order_item,
+		           os.name AS order_sheet, os.sales_order, os.customer_name, os.priority, os.creation,
+		           so.custom_location AS location
+		    FROM `tabIB Order Sheet Item` i
+		    JOIN `tabIB Order Sheet` os ON os.name = i.parent
+		    JOIN `tabSales Order` so ON so.name = os.sales_order
+		    WHERE {' AND '.join(conds)}
+		    ORDER BY FIELD(os.priority, 'Urgent', 'High', 'Normal', 'Low'), os.creation ASC
+		    LIMIT %(lim)s""",
+		dict(params, lim=cint(limit)), as_dict=True,
+	)
+	out = []
+	for r in rows:
+		loc = (r.location or "").lower() or None
+		route = _get_stage_route(r.item_code, loc)
+		out.append({
+			"order_sheet_item": r.name, "item_code": r.item_code, "item_name": r.item_name,
+			"qty": flt(r.qty), "uom": r.uom, "sales_order_item": r.sales_order_item,
+			"order_sheet": r.order_sheet, "sales_order": r.sales_order, "customer": r.customer_name,
+			"priority": r.priority or "Normal", "location": loc,
+			"next_stage_suggestion": route[0] if route else "",
+		})
+	return out
+
+
+@frappe.whitelist()
+def get_command_center_data(location=None):
+	"""Factory-manager live control board — every genuinely active run
+	(Processing/Halted) plus the queue of items with nothing started yet
+	(Ready), across one or all locations. Drives the Command Center tab;
+	callers should re-poll/re-fetch on the existing "ib_floor_update"
+	realtime event (already published by create_run/hold_run/resume_run/
+	advance_run/skip_stage/_finish_run) rather than a fixed interval.
+	"""
+	_require_production_role()
+	runs = _command_center_runs(location)
+	processing = [r for r in runs if r["status"] == "In Progress"]
+	halted = [r for r in runs if r["status"] == "On Hold"]
+	ready = _command_center_ready(location)
+	ready_total = get_ready_to_run_count(location)
+	return {
+		"processing": processing,
+		"halted": halted,
+		"ready": ready,
+		# "ready" (the rendered list) stays capped at _command_center_ready's
+		# own limit=60 -- a live board doesn't need 300+ cards on screen --
+		# but the count must be the real total, not len(ready). See
+		# get_ready_to_run_count's own docstring for the live bug this fixes.
+		"counts": {"processing": len(processing), "halted": len(halted), "ready": ready_total},
+		"ready_shown": len(ready),
+	}
 
 
 @frappe.whitelist()
@@ -2113,7 +2310,10 @@ def get_order_sheet_detail(order_sheet):
 					"target_qty": info["target_qty"],
 					"target_uom": info["target_uom"],
 					"creation": str(run.posting_date) if run.posting_date else None,
-					"pcs_to_make": 0, "logs_to_make": 0,
+					# Same fix as _stage_map_for_run's own copy of this —
+					# hardcoded 0 made the Order-wise/WO-panel "adj" indicator
+					# blind to whatever a manager actually set via Adjust Qty.
+					"pcs_to_make": info.get("pcs_to_make", 0), "logs_to_make": info.get("logs_to_make", 0),
 					# Every one of a run's 5 stage chips describes the SAME
 					# real Work Order (one run, expanded per route stage for
 					# the pill row) — only one is ever actually actionable.
@@ -2147,7 +2347,7 @@ def get_order_sheet_detail(order_sheet):
 				"target_uom": cur_info.get("target_uom") or run.uom,
 				"creation": str(run.posting_date) if run.posting_date else None,
 				"delivery_date": str(os_doc.delivery_date) if os_doc.delivery_date else None,
-				"pcs_to_make": 0, "logs_to_make": 0,
+				"pcs_to_make": cur_info.get("pcs_to_make", 0), "logs_to_make": cur_info.get("logs_to_make", 0),
 			})
 
 		if runs:
@@ -2198,64 +2398,3 @@ def get_order_sheet_detail(order_sheet):
 	}
 
 
-@frappe.whitelist()
-def get_run_panel(work_order):
-	"""Flat `wo`-shaped dict the existing _render_wo_panel() expects, from the run.
-	stage_key it should be opened at = the run's current stage."""
-	w = frappe.db.get_value(
-		"IB Work Order", work_order,
-		["name", "status", "current_stage", "machine", "priority", "sales_order",
-		 "order_sheet", "source_batch", "source_item", "source_qty", "source_warehouse",
-		 "posting_date", "started_at", "completed_at", "fg_batch", "location", "notes",
-		 "total_output_qty", "total_wastage_qty"], as_dict=True,
-	)
-	if not w:
-		frappe.throw(_("Run {0} not found").format(work_order))
-	if w.sales_order:
-		_check_so_production_access(w.sales_order)
-	so = frappe.db.get_value(
-		"Sales Order", w.sales_order, ["customer_name", "delivery_date"], as_dict=True
-	) or {} if w.sales_order else {}
-	outs = frappe.get_all(
-		"IB WO Output", filters={"parent": work_order},
-		fields=["item_code", "item_name", "planned_qty", "produced_qty", "uom", "serial_count"],
-	)
-	primary = outs[0] if outs else {}
-	n_serials = sum(cint(o.serial_count) for o in outs)
-	route = frappe.get_all(
-		"IB WO Route Stage", filters={"parent": work_order},
-		fields=["stage", "done"], order_by="sequence asc",
-	)
-	next_stage = None
-	seq = [r.stage for r in route]
-	if w.current_stage in seq:
-		i = seq.index(w.current_stage)
-		next_stage = seq[i + 1] if i + 1 < len(seq) else None
-
-	return {
-		"name": w.name,
-		"status": w.status,
-		"stage": w.current_stage,
-		"current_stage": w.current_stage,
-		"next_stage": next_stage,
-		"machine": w.machine or "",
-		"priority": w.priority or "Normal",
-		"sales_order": w.sales_order,
-		"order_sheet": w.order_sheet,
-		"customer_name": so.get("customer_name") or "",
-		"delivery_date": str(so.get("delivery_date")) if so.get("delivery_date") else None,
-		"creation": str(w.posting_date) if w.posting_date else None,
-		"item_code": primary.get("item_code") or w.source_item or "",
-		"item_name": primary.get("item_name") or "",
-		"target_qty": flt(primary.get("planned_qty")) or flt(w.source_qty),
-		"target_uom": primary.get("uom") or "",
-		"produced_serials": n_serials,
-		"fg_batch": w.fg_batch,
-		"source_batch": w.source_batch,
-		"source_qty": flt(w.source_qty),
-		"total_output_qty": flt(w.total_output_qty),
-		"total_wastage_qty": flt(w.total_wastage_qty),
-		"pcs_to_make": 0, "logs_to_make": 0, "jumbo_roll": "",
-		"route": [{"stage": r.stage, "done": bool(r.done), "is_current": r.stage == w.current_stage} for r in route],
-		"outputs": [dict(o, planned_qty=flt(o.planned_qty), produced_qty=flt(o.produced_qty)) for o in outs],
-	}

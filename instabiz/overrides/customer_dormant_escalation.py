@@ -28,6 +28,7 @@ import frappe
 from frappe.utils import date_diff, today
 
 from instabiz.overrides.customer_assignment import _reassign_customer_ownership
+from instabiz.overrides.utils import ROTATION_EXEMPT_USERS
 
 _NEVER_ORDERED_DAYS = 99999  # always sorts into the 90+ bucket
 
@@ -46,7 +47,7 @@ def _next_team_member(team, exclude_user):
 	"""Round-robin next member of `team`, skipping `exclude_user` (the
 	customer's own current/failing owner — reassigning them to themselves
 	would be a no-op) even if they're next in the naive rotation order."""
-	members = [m.user for m in _team_members(team)]
+	members = [m.user for m in _team_members(team) if m.user not in ROTATION_EXEMPT_USERS]
 	if not members:
 		return None
 	candidates = [m for m in members if m != exclude_user] or members
@@ -129,9 +130,13 @@ def run_dormant_reassignment_escalation():
 
 	for row in rows:
 		row.days = date_diff(today(), row.last_order_date) if row.last_order_date else _NEVER_ORDERED_DAYS
+	# Most dormant first, so a capped run spends its budget on the worst cases.
 	rows.sort(key=lambda r: r.days, reverse=True)
 
 	for row in rows:
+		if row.owner in ROTATION_EXEMPT_USERS:
+			continue  # never nudged, never rotated — exempt owner, see ROTATION_EXEMPT_USERS
+
 		days = row.days
 		tier = row.tier or ""
 
